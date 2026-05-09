@@ -34,7 +34,7 @@ func New(cfg config.Config) (*App, error) {
 	_ = futures.WarmSymbolCache()
 	tr := trading.New(r, futures, cfg.RecentMoveFilterEnabled, cfg.RecentMoveLookbackSec, cfg.RecentMoveSkipPercent, cfg.UltraFastFixedMargin)
 	bws := binance.NewAnnouncementStream(cfg.BinanceWSBaseURL, cfg.BinanceWSTopic, cfg.BinanceAPIKey, cfg.BinanceAPISecret, r, tr)
-	uf := upbit.New(cfg.UpbitAPIURL, cfg.UpbitPerPage, cfg.UpbitOnlyLatest, r)
+	uf := upbit.New(cfg.UpbitAPIURL, cfg.UpbitPerPage, cfg.UpbitOnlyLatest, r, tr)
 	return &App{cfg: cfg, repo: r, binance: bws, upbit: uf}, nil
 }
 

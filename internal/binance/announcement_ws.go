@@ -227,11 +227,26 @@ func truncateRunes(s string, maxRunes int) string {
 func classifyBinance(title string) (typ, severity, action string) {
 	t := strings.ToLower(title)
 	switch {
-	case strings.Contains(t, "will list"), strings.Contains(t, "new listing"):
-		return "new_listing", "critical", "buy"
-	case strings.Contains(t, "delist"), strings.Contains(t, "remove"):
+	case containsAny(t, "will list", "new listing", "will launch", "opens trading for", "futures will launch", "perpetual contract", "launchpool", "megadrop", "hodler airdrops"):
+		return "listing", "critical", "buy"
+	case containsAny(t, "will delist", "delisting", "notice of removal", "will remove", "cease trading", "trading will be terminated", "suspend trading"):
 		return "delisting", "critical", "sell"
+	case containsAny(t, "adds seed tag", "monitoring tag removed", "expanded earn", "new margin pairs", "new borrowable asset"):
+		return "ecosystem_positive", "high", "buy"
+	case containsAny(t, "monitoring tag", "seed tag", "high risk", "bankruptcy", "investigation", "regulatory"):
+		return "risk_warning", "high", "sell"
+	case containsAny(t, "network upgrade", "wallet maintenance", "suspension of deposits", "tick size", "api update", "system maintenance"):
+		return "maintenance", "low", "none"
 	default:
 		return "", "", ""
 	}
+}
+
+func containsAny(s string, needles ...string) bool {
+	for _, n := range needles {
+		if strings.Contains(s, n) {
+			return true
+		}
+	}
+	return false
 }

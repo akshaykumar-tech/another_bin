@@ -3,11 +3,13 @@ package upbit
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	"crypto_announcements_go/internal/model"
 	"crypto_announcements_go/internal/repo"
+	"crypto_announcements_go/internal/trading"
 
 	"github.com/go-resty/resty/v2"
 )
@@ -18,15 +20,17 @@ type Fetcher struct {
 	onlyLatest bool
 	http       *resty.Client
 	repo       *repo.Repo
+	trader     *trading.Orchestrator
 }
 
-func New(apiURL string, perPage int, onlyLatest bool, r *repo.Repo) *Fetcher {
+func New(apiURL string, perPage int, onlyLatest bool, r *repo.Repo, t *trading.Orchestrator) *Fetcher {
 	return &Fetcher{
 		apiURL:     apiURL,
 		perPage:    perPage,
 		onlyLatest: onlyLatest,
 		http:       resty.New().SetTimeout(8 * time.Second).SetRetryCount(1),
 		repo:       r,
+		trader:     t,
 	}
 }
 
@@ -72,12 +76,13 @@ func (f *Fetcher) Poll(ctx context.Context) error {
 		}
 		typ, sev, action := classify(title)
 		if typ == "" {
+			log.Printf("[upbit] skipped unclassified announcement id=%d title=%q", n.ID, title)
 			continue
 		}
 		tokens := extractParenTokens(title)
 		pub, _ := time.Parse(time.RFC3339, n.ListedAt)
 		raw := f.repo.BuildRawData(fmt.Sprintf("https://www.upbit.com/service_center/notice?id=%d", n.ID), false, "upbit_api")
-		_, err = f.repo.InsertAnnouncement(ctx, model.Announcement{
+		a := model.Announcement{
 			ExchangeID:        ex.ID,
 			Title:             title,
 			Content:           title,
@@ -87,9 +92,17 @@ func (f *Fetcher) Poll(ctx context.Context) error {
 			AffectedTokens:    tokens,
 			RecommendedAction: action,
 			RawData:           raw,
-		})
+		}
+		id, err := f.repo.InsertAnnouncement(ctx, a)
 		if err != nil {
 			return err
+		}
+		if f.trader != nil {
+			a.ID = id
+			if err := f.trader.HandleAnnouncement(ctx, a); err != nil {
+				// Keep polling resilient: announcement is already persisted.
+				// Errors are recorded by orchestrator per-symbol when applicable.
+			}
 		}
 	}
 	return nil
@@ -98,9 +111,14 @@ func (f *Fetcher) Poll(ctx context.Context) error {
 func classify(title string) (typ, severity, action string) {
 	t := strings.ToLower(title)
 	switch {
-	case strings.Contains(t, "market support"), strings.Contains(title, "거래지원"):
+	case strings.Contains(t, "market support"),
+		strings.Contains(title, "거래지원"),
+		strings.Contains(title, "디지털 자산 추가"),
+		strings.Contains(title, "마켓 디지털 자산 추가"):
 		return "market_support", "critical", "buy"
-	case strings.Contains(t, "delist"), strings.Contains(t, "termination"):
+	case strings.Contains(t, "delist"),
+		strings.Contains(t, "termination"),
+		strings.Contains(title, "거래지원 종료"):
 		return "delisting", "critical", "sell"
 	default:
 		return "", "", ""
