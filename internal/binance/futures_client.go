@@ -269,14 +269,18 @@ func (c *FuturesClient) MaxMoveInWindow(symbol string, lookbackSec int) (maxUp, 
 	return maxUp, maxDown, nil
 }
 
-// MarketOrder is still a stub for safe migration; use real signed MARKET when ready.
-func (c *FuturesClient) MarketOrder(symbol, side string, qty float64) (map[string]any, error) {
-	return map[string]any{
-		"symbol":        strings.ToUpper(symbol),
-		"side":          strings.ToUpper(side),
-		"executedQty":   qty,
-		"avgPrice":      0.0,
-		"clientOrderId": fmt.Sprintf("go-%d", time.Now().UnixNano()),
-		"status":        "FILLED",
-	}, nil
+// MarketOrder places a MARKET order on Binance USD-M Futures.
+// Uses quoteOrderQty to specify size in USDT directly — no MarkPrice HTTP call needed.
+// Single HTTP round trip: POST /fapi/v1/order.
+func (c *FuturesClient) MarketOrder(symbol, side string, marginUSDT float64) (map[string]any, error) {
+	if !c.Configured() {
+		return nil, fmt.Errorf("binance futures client not configured (missing API key/secret)")
+	}
+	form := url.Values{}
+	form.Set("symbol", strings.ToUpper(symbol))
+	form.Set("side", strings.ToUpper(side))
+	form.Set("type", "MARKET")
+	form.Set("quoteOrderQty", fmt.Sprintf("%.2f", marginUSDT))
+	form.Set("newOrderRespType", "RESULT")
+	return c.signedPostOrder(form)
 }

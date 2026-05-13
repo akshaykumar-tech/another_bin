@@ -22,6 +22,8 @@ type Config struct {
 	UpbitAPIURL       string
 	UpbitPerPage      int
 	UpbitOnlyLatest   bool
+	// UpbitLogSkippedUnclassified logs each API notice we skip (no classify rule); default off (noisy every poll).
+	UpbitLogSkippedUnclassified bool
 
 	TradeEnabled            bool
 	TradeDryRun             bool
@@ -46,6 +48,7 @@ func Load() Config {
 		UpbitAPIURL:       must("UPBIT_ANNOUNCEMENTS_API_URL", "https://api-manager.upbit.com/api/v1/announcements"),
 		UpbitPerPage:      mustInt("UPBIT_ANNOUNCEMENTS_API_PER_PAGE", 1),
 		UpbitOnlyLatest:   mustBool("UPBIT_ANNOUNCEMENTS_ONLY_LATEST", true),
+		UpbitLogSkippedUnclassified: mustBool("UPBIT_LOG_SKIPPED_UNCLASSIFIED", false),
 
 		TradeEnabled:            mustBool("AUTO_TRADING_ENABLED", true),
 		TradeDryRun:             mustBool("AUTO_TRADING_DRY_RUN", false),

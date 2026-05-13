@@ -165,35 +165,54 @@ func (s *AnnouncementStream) runOnce(ctx context.Context) error {
 		log.Printf("[binance_ws] announcement recv_ts=%s classified=%s title=%q code=%q releaseDate=%v",
 			time.Now().UTC().Format(time.RFC3339Nano), clsLabel, title, article.Code, article.ReleaseDate)
 
+		if typ == "" {
+			continue
+		}
+
 		exists, _ := s.repo.AnnouncementExists(ctx, ex.ID, title)
 		if exists {
 			continue
 		}
 
-		if typ == "" {
+		affected := extractParenTokens(title)
+		if len(affected) == 0 {
 			continue
 		}
-		affected := extractParenTokens(title)
-		urlStr := "https://www.binance.com/en/support/announcement"
-		if strings.TrimSpace(article.Code) != "" {
-			urlStr = "https://www.binance.com/en/support/announcement/detail/" + strings.TrimSpace(article.Code)
-		}
-		id, err := s.repo.InsertAnnouncement(ctx, model.Announcement{
-			ExchangeID:        ex.ID,
-			Title:             title,
-			Content:           strings.TrimSpace(article.Body),
-			AnnouncementType:  typ,
-			Severity:          sev,
-			PublishedAt:       time.Now().UTC(),
-			AffectedTokens:    affected,
-			RecommendedAction: action,
-			RawData:           s.repo.BuildRawData(urlStr, false, "binance_ws"),
-		})
-		if err != nil {
+
+		// FAST PATH: Insert announcement and fire trade concurrently.
+		// DB insert gets the ID needed for trade_executions FK; we use a channel to pass it.
+		idCh := make(chan int64, 1)
+		go func() {
+			urlStr := "https://www.binance.com/en/support/announcement"
+			if strings.TrimSpace(article.Code) != "" {
+				urlStr = "https://www.binance.com/en/support/announcement/detail/" + strings.TrimSpace(article.Code)
+			}
+			id, err := s.repo.InsertAnnouncement(ctx, model.Announcement{
+				ExchangeID:        ex.ID,
+				Title:             title,
+				Content:           strings.TrimSpace(article.Body),
+				AnnouncementType:  typ,
+				Severity:          sev,
+				PublishedAt:       time.Now().UTC(),
+				AffectedTokens:    affected,
+				RecommendedAction: action,
+				RawData:           s.repo.BuildRawData(urlStr, false, "binance_ws"),
+			})
+			if err != nil {
+				log.Printf("[binance_ws] insert announcement failed: %v", err)
+				idCh <- 0
+				return
+			}
+			idCh <- id
+		}()
+
+		// Wait for announcement ID (needed for FK in trade_executions), then trade.
+		annID := <-idCh
+		if annID == 0 {
 			continue
 		}
 		_ = s.trader.HandleAnnouncement(ctx, model.Announcement{
-			ID:               id,
+			ID:               annID,
 			ExchangeID:       ex.ID,
 			Title:            title,
 			Content:          strings.TrimSpace(article.Body),

@@ -18,16 +18,18 @@ type Fetcher struct {
 	apiURL     string
 	perPage    int
 	onlyLatest bool
+	logSkipped bool
 	http       *resty.Client
 	repo       *repo.Repo
 	trader     *trading.Orchestrator
 }
 
-func New(apiURL string, perPage int, onlyLatest bool, r *repo.Repo, t *trading.Orchestrator) *Fetcher {
+func New(apiURL string, perPage int, onlyLatest bool, logSkipped bool, r *repo.Repo, t *trading.Orchestrator) *Fetcher {
 	return &Fetcher{
 		apiURL:     apiURL,
 		perPage:    perPage,
 		onlyLatest: onlyLatest,
+		logSkipped: logSkipped,
 		http:       resty.New().SetTimeout(8 * time.Second).SetRetryCount(1),
 		repo:       r,
 		trader:     t,
@@ -76,7 +78,9 @@ func (f *Fetcher) Poll(ctx context.Context) error {
 		}
 		typ, sev, action := classify(title)
 		if typ == "" {
-			log.Printf("[upbit] skipped unclassified announcement id=%d title=%q", n.ID, title)
+			if f.logSkipped {
+				log.Printf("[upbit] skipped unclassified announcement id=%d title=%q", n.ID, title)
+			}
 			continue
 		}
 		tokens := extractParenTokens(title)

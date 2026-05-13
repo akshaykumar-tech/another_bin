@@ -3,7 +3,9 @@ package trading
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
+	"sync"
 
 	"crypto_announcements_go/internal/model"
 	"crypto_announcements_go/internal/repo"
@@ -71,6 +73,8 @@ func (o *Orchestrator) HandleAnnouncement(ctx context.Context, a model.Announcem
 		tokens = tokens[:remaining]
 	}
 
+	// Fire all token orders in parallel for minimum latency.
+	var wg sync.WaitGroup
 	for _, base := range tokens {
 		base = strings.ToUpper(strings.TrimSpace(base))
 		if base == "" {
@@ -84,20 +88,6 @@ func (o *Orchestrator) HandleAnnouncement(ctx context.Context, a model.Announcem
 			orderSide = "SELL"
 		}
 
-		if o.recentMoveEnabled {
-			maxUp, maxDown, err := o.client.MaxMoveInWindow(symbol, o.recentMoveLookback)
-			if err == nil {
-				// For long positions: skip if max upside move exceeded skip percent
-				if posSide == "long" && maxUp >= o.recentMoveSkipPct {
-					continue
-				}
-				// For short positions: skip if max downside move exceeded skip percent
-				if posSide == "short" && maxDown >= o.recentMoveSkipPct {
-					continue
-				}
-			}
-		}
-
 		if !o.client.SymbolTradable(symbol) {
 			_ = o.repo.InsertTradeExecutionFailed(ctx, a.ID, symbol, base, posSide, "Unknown or inactive symbol "+symbol, map[string]any{
 				"order_error": "Unknown or inactive symbol " + symbol,
@@ -105,27 +95,37 @@ func (o *Orchestrator) HandleAnnouncement(ctx context.Context, a model.Announcem
 			continue
 		}
 
-		qty := o.estimateQty()
-		resp, err := o.client.MarketOrder(symbol, orderSide, qty)
-		if err != nil {
-			_ = o.repo.InsertTradeExecutionFailed(ctx, a.ID, symbol, base, posSide, err.Error(), map[string]any{"order_error": err.Error()})
-			continue
-		}
-		raw := cloneMapAny(resp)
-		fillAvg := parseEntryPrice(resp)
-		entry := fillAvg
-		if entry <= 0 && o.client.Configured() {
-			if mp, err := o.client.MarkPrice(symbol); err == nil && mp > 0 {
-				entry = mp
+		wg.Add(1)
+		go func(symbol, base, posSide, orderSide string) {
+			defer wg.Done()
+			qty := o.estimateQty()
+			resp, err := o.client.MarketOrder(symbol, orderSide, qty)
+			if err != nil {
+				_ = o.repo.InsertTradeExecutionFailed(ctx, a.ID, symbol, base, posSide, err.Error(), map[string]any{"order_error": err.Error()})
+				log.Printf("[trading] %s order failed: %v", symbol, err)
+				return
 			}
-		}
-		o.mergeStopLossIntoRaw(raw, setting, symbol, posSide, entry, fillAvg > 0)
+			raw := cloneMapAny(resp)
+			fillAvg := parseEntryPrice(resp)
+			entry := fillAvg
+			if entry <= 0 && o.client.Configured() {
+				if mp, err := o.client.MarkPrice(symbol); err == nil && mp > 0 {
+					entry = mp
+				}
+			}
 
-		orderID, _ := resp["clientOrderId"].(string)
-		if err := o.repo.InsertTradeExecutionOpen(ctx, a.ID, symbol, base, posSide, qty, entry, orderID, raw); err != nil {
-			return fmt.Errorf("insert trade: %w", err)
-		}
+			// Stop-loss in background — don't block the order confirmation path.
+			go func() {
+				o.mergeStopLossIntoRaw(raw, setting, symbol, posSide, entry, fillAvg > 0)
+			}()
+
+			orderID, _ := resp["clientOrderId"].(string)
+			if err := o.repo.InsertTradeExecutionOpen(ctx, a.ID, symbol, base, posSide, qty, entry, orderID, raw); err != nil {
+				log.Printf("[trading] %s db insert failed: %v", symbol, err)
+			}
+		}(symbol, base, posSide, orderSide)
 	}
+	wg.Wait()
 	return nil
 }
 
