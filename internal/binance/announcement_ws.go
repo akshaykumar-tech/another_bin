@@ -245,6 +245,12 @@ func truncateRunes(s string, maxRunes int) string {
 
 func classifyBinance(title string) (typ, severity, action string) {
 	t := strings.ToLower(title)
+
+	// "Binance Alpha" announcements are a separate discovery platform — not real exchange listings/delistings.
+	if strings.Contains(t, "binance alpha") {
+		return "alpha_update", "low", "none"
+	}
+
 	switch {
 	case containsAny(t, "will list", "new listing", "will launch", "opens trading for", "futures will launch", "perpetual contract", "launchpool", "megadrop", "hodler airdrops"):
 		return "listing", "critical", "buy"

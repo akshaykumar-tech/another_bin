@@ -16,10 +16,10 @@ import (
 )
 
 type App struct {
-	cfg      config.Config
-	repo     *repo.Repo
-	binance  *binance.AnnouncementStream
-	upbit    *upbit.Fetcher
+	cfg     config.Config
+	repo    *repo.Repo
+	binance *binance.AnnouncementStream
+	upbit   *upbit.Fetcher
 }
 
 func New(cfg config.Config) (*App, error) {

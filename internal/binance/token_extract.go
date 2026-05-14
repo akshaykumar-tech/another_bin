@@ -27,11 +27,18 @@ func extractParenTokens(title string) []string {
 		return splitTokenList(m)
 	}
 
-	// Single-token fallback: "Will Launch ONDOUSDT Perpetual" → strip "USDT" suffix → ONDO.
-	reSingle := regexp.MustCompile(`\b([A-Z][A-Z0-9]{1,11}?)USDT\b`)
-	if sm := reSingle.FindStringSubmatch(title); len(sm) > 1 {
-		if isTokenLike(sm[1]) {
-			return []string{sm[1]}
+	// USDT pair fallback: "PHAROSUSDT and STARUSDT" or single "ONDOUSDT"
+	reUSDT := regexp.MustCompile(`\b([A-Z][A-Z0-9]{1,11}?)USDT\b`)
+	matches := reUSDT.FindAllStringSubmatch(title, -1)
+	if len(matches) > 0 {
+		var tokens []string
+		for _, sm := range matches {
+			if isTokenLike(sm[1]) {
+				tokens = append(tokens, sm[1])
+			}
+		}
+		if len(tokens) > 0 {
+			return tokens
 		}
 	}
 	return nil
