@@ -90,6 +90,13 @@ type BurstConfig struct {
 	MinCascadeMovePct     float64 `yaml:"min_cascade_move_pct"`
 	MinCascadeNotionalUSDT float64 `yaml:"min_cascade_notional_usdt"`
 	MaxCascadeMovePct      float64 `yaml:"max_cascade_move_pct"` // skip if 3s leg already too extended
+	// PreTrade: dead/flat tape before entry (mega profile from 13–14 May analysis).
+	PreTradeEnabled         bool    `yaml:"pre_trade_enabled"`
+	PreTradeWindowMs        int     `yaml:"pre_trade_window_ms"`
+	MaxQuiet60sUSDT         float64 `yaml:"max_quiet_60s_usdt"`
+	MaxRange60sPct          float64 `yaml:"max_range_60s_pct"`
+	MaxPrior1sMove60sPct    float64 `yaml:"max_prior_1s_move_60s_pct"`
+	MaxTrades60s            int     `yaml:"max_trades_60s"` // 0 = off
 }
 
 // BookLeadConfig predicts violent moves from bid/ask depth + trade flow before price runs.
@@ -176,7 +183,13 @@ func DefaultConfig() Config {
 			CascadeWindowMs:          3_000,
 			MinCascadeMovePct:        2.5,
 			MinCascadeNotionalUSDT: 12_000,
-			MaxCascadeMovePct:      4.0,
+			MaxCascadeMovePct:       4.0,
+			PreTradeEnabled:         true,
+			PreTradeWindowMs:        60_000,
+			MaxQuiet60sUSDT:         40_000,
+			MaxRange60sPct:          0.75,
+			MaxPrior1sMove60sPct:    0.35,
+			MaxTrades60s:            0,
 		},
 		Flash: FlashConfig{
 			FastWindowMs:        100,

@@ -29,6 +29,9 @@ func (d *BurstDetector) lookbackDur() time.Duration {
 	if d.cfg.QuietBeforeMs > ms {
 		ms = d.cfg.QuietBeforeMs
 	}
+	if d.cfg.PreTradeEnabled && d.cfg.PreTradeWindowMs > ms {
+		ms = d.cfg.PreTradeWindowMs
+	}
 	if ms < 1000 {
 		ms = 1000
 	}
@@ -147,6 +150,9 @@ func (d *BurstDetector) evaluate(now time.Time) *Signal {
 		if !d.passesPumpFilters(now, side, fastMove, secMove, fastNotional, secNotional, secStart, fastStart) {
 			return nil
 		}
+		if !d.passesPreTradeFilters(now) {
+			return nil
+		}
 	}
 
 	d.lastFire = now
@@ -228,6 +234,9 @@ func (d *BurstDetector) tryCascade(now time.Time) *Signal {
 				d.lastPumpReject = fmt.Sprintf("counter_trend sell vs 60s %.2f%%", trendMove)
 				return nil
 			}
+		}
+		if !d.passesPreTradeFilters(now) {
+			return nil
 		}
 	}
 	d.lastFire = now
