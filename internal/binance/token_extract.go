@@ -5,6 +5,11 @@ import (
 	"strings"
 )
 
+// TokensFromTitle returns base token symbols parsed from a Binance announcement title.
+func TokensFromTitle(title string) []string {
+	return extractParenTokens(title)
+}
+
 // extractParenTokens extracts token symbols from announcement titles.
 // Handles two formats:
 //   - Parenthesized: "... adds (BTC, ETH) ..." → [BTC, ETH]

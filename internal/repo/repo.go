@@ -100,6 +100,56 @@ func (r *Repo) BuildRawData(url string, synthetic bool, source string) []byte {
 	return b
 }
 
+func (r *Repo) AnnouncementsBetween(ctx context.Context, start, end time.Time) ([]model.Announcement, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, exchange_id, title, content, announcement_type, severity, published_at, affected_tokens, recommended_action, raw_data
+		FROM announcements
+		WHERE published_at >= $1 AND published_at < $2
+		ORDER BY published_at ASC
+	`, start, end)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.Announcement
+	for rows.Next() {
+		var a model.Announcement
+		if err := rows.Scan(&a.ID, &a.ExchangeID, &a.Title, &a.Content, &a.AnnouncementType, &a.Severity,
+			&a.PublishedAt, &a.AffectedTokens, &a.RecommendedAction, &a.RawData); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repo) AnnouncementsAfter(ctx context.Context, afterID int64, limit int) ([]model.Announcement, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT id, exchange_id, title, content, announcement_type, severity, published_at, affected_tokens, recommended_action, raw_data
+		FROM announcements
+		WHERE id > $1
+		ORDER BY id ASC
+		LIMIT $2
+	`, afterID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.Announcement
+	for rows.Next() {
+		var a model.Announcement
+		if err := rows.Scan(&a.ID, &a.ExchangeID, &a.Title, &a.Content, &a.AnnouncementType, &a.Severity,
+			&a.PublishedAt, &a.AffectedTokens, &a.RecommendedAction, &a.RawData); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repo) MustJSON(v any) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {

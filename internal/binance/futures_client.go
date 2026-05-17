@@ -272,6 +272,76 @@ func (c *FuturesClient) MaxMoveInWindow(symbol string, lookbackSec int) (maxUp, 
 // MarketOrder places a MARKET order on Binance USD-M Futures.
 // Uses quoteOrderQty to specify size in USDT directly — no MarkPrice HTTP call needed.
 // Single HTTP round trip: POST /fapi/v1/order.
+func (c *FuturesClient) AvailableUSDTBalance() (float64, error) {
+	if !c.Configured() {
+		return 0, fmt.Errorf("binance futures client not configured")
+	}
+	form := url.Values{}
+	body, status, err := c.signedGet("/fapi/v2/balance", form)
+	if err != nil {
+		return 0, err
+	}
+	if status >= 300 {
+		return 0, fmt.Errorf("balance status=%d: %s", status, string(body))
+	}
+	var rows []struct {
+		Asset            string `json:"asset"`
+		AvailableBalance string `json:"availableBalance"`
+	}
+	if err := json.Unmarshal(body, &rows); err != nil {
+		return 0, err
+	}
+	for _, r := range rows {
+		if strings.ToUpper(r.Asset) == "USDT" {
+			var bal float64
+			fmt.Sscanf(strings.TrimSpace(r.AvailableBalance), "%f", &bal)
+			return bal, nil
+		}
+	}
+	return 0, fmt.Errorf("USDT balance not found")
+}
+
+func (c *FuturesClient) signedGet(path string, form url.Values) ([]byte, int, error) {
+	if !c.Configured() {
+		return nil, 0, fmt.Errorf("missing API credentials")
+	}
+	ts := fmt.Sprintf("%d", time.Now().UnixMilli())
+	form.Set("timestamp", ts)
+	form.Set("recvWindow", "5000")
+	keys := make([]string, 0, len(form))
+	for k := range form {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+form.Get(k))
+	}
+	query := strings.Join(parts, "&")
+	mac := hmac.New(sha256.New, []byte(c.secret))
+	_, _ = mac.Write([]byte(query))
+	sig := hex.EncodeToString(mac.Sum(nil))
+	resp, err := c.http.R().SetHeader("X-MBX-APIKEY", c.apiKey).Get(c.base + path + "?" + query + "&signature=" + sig)
+	if err != nil {
+		return nil, 0, err
+	}
+	return resp.Body(), resp.StatusCode(), nil
+}
+
+func (c *FuturesClient) MarketOrderQty(symbol, side string, qty float64) (map[string]any, error) {
+	if !c.Configured() {
+		return nil, fmt.Errorf("binance futures client not configured")
+	}
+	form := url.Values{}
+	form.Set("symbol", strings.ToUpper(symbol))
+	form.Set("side", strings.ToUpper(side))
+	form.Set("type", "MARKET")
+	form.Set("quantity", fmt.Sprintf("%.8f", qty))
+	form.Set("reduceOnly", "true")
+	form.Set("newOrderRespType", "RESULT")
+	return c.signedPostOrder(form)
+}
+
 func (c *FuturesClient) MarketOrder(symbol, side string, marginUSDT float64) (map[string]any, error) {
 	if !c.Configured() {
 		return nil, fmt.Errorf("binance futures client not configured (missing API key/secret)")
