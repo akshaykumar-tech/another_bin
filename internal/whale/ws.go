@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -27,6 +26,7 @@ type aggTradeEvent struct {
 	Price    string `json:"p"`
 	Quantity string `json:"q"`
 	Maker    bool   `json:"m"`
+	TimeMs   int64  `json:"T"` // exchange trade time (ms)
 }
 
 type combinedWrapper struct {
@@ -51,7 +51,11 @@ type FuturesWS struct {
 }
 
 func NewFuturesWS(cfg Config) *FuturesWS {
-	buf := len(cfg.Symbols) * 4
+	n := len(cfg.Symbols)
+	buf := n * 8
+	if n >= 200 && buf < 12288 {
+		buf = 12288 // larger watchlists: reduce aggTrade drops under bursts
+	}
 	if buf < 4096 {
 		buf = 4096
 	}
@@ -224,10 +228,7 @@ func (w *FuturesWS) runChunk(ctx context.Context, id int, symbols []string) erro
 		}
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				refreshDeadline()
-				continue
-			}
+			// Do not ReadMessage again on this conn — gorilla marks it failed (incl. read deadline).
 			return err
 		}
 		refreshDeadline()
@@ -291,4 +292,12 @@ func (w *FuturesWS) pingLoop(ctx context.Context, conn *websocket.Conn, refresh 
 
 func (w *FuturesWS) Reconnect(ctx context.Context) {
 	_ = w.Run(ctx)
+}
+
+// tradeEventTime returns Binance trade time when present; otherwise receive time.
+func tradeEventTime(recv time.Time, t *aggTradeEvent) time.Time {
+	if t != nil && t.TimeMs > 0 {
+		return time.UnixMilli(t.TimeMs).UTC()
+	}
+	return recv
 }

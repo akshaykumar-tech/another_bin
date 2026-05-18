@@ -3,9 +3,8 @@
 strategy: burst
 
 watchlist:
-  mode: mid_volume
-  skip: 100
-  size: 100
+  mode: lowest_volume   # 300 thinnest / lowest 24h quote-volume USDT perps (violent-move targets)
+  size: 300
   extra_symbols:
     - AIGENSYNUSDT
 

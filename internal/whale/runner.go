@@ -126,23 +126,27 @@ func (r *Runner) processEvent(ev StreamEvent) {
 
 func (r *Runner) processTrade(sym string, ev StreamEvent) {
 	price, qty, buyerMaker := parseAggTrade(ev.Trade)
+	tradeAt := tradeEventTime(ev.Recv, ev.Trade)
 
 	if det, ok := r.bookLeadDet(sym); ok {
-		if sig := det.OnAggTrade(price, qty, buyerMaker, ev.Recv); sig != nil {
+		if sig := det.OnAggTrade(price, qty, buyerMaker, tradeAt); sig != nil {
 			sig.Symbol = sym
+			sig.RecvAt = ev.Recv
 			r.dispatchSignal(sig)
 		}
 	}
 	if det, ok := r.flashDet(sym); ok {
-		if sig := det.OnAggTrade(price, qty, buyerMaker, ev.Recv); sig != nil {
+		if sig := det.OnAggTrade(price, qty, buyerMaker, tradeAt); sig != nil {
 			sig.Symbol = sym
+			sig.RecvAt = ev.Recv
 			r.dispatchSignal(sig)
 		}
 	}
 	if det, ok := r.burstDet(sym); ok {
-		if sig := det.OnAggTrade(price, qty, buyerMaker, ev.Recv); sig != nil {
+		if sig := det.OnAggTrade(price, qty, buyerMaker, tradeAt); sig != nil {
 			sig.Symbol = sym
 			sig.Mega = true
+			sig.RecvAt = ev.Recv
 			r.dispatchSignal(sig)
 		}
 	}
