@@ -14,10 +14,20 @@ type simPosition struct {
 	Side        Side
 	EntryPrice  float64
 	MarginUSDT  float64
+	Leverage    int // 0/1 = no mult; else PnL uses margin*leverage
 	OpenedAt    time.Time
 	Partial     bool
 	MegaExit    bool
 	PeakPrice   float64
+	LastPrice   float64 // last mark/tick for dry timeout exit
+}
+
+func (p *simPosition) NotionalUSDT() float64 {
+	lev := p.Leverage
+	if lev <= 0 {
+		lev = 1
+	}
+	return p.MarginUSDT * float64(lev)
 }
 
 type replayState struct {

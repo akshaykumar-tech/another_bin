@@ -17,12 +17,13 @@ import (
 )
 
 type FuturesClient struct {
-	base     string
-	apiKey   string
-	secret   string
-	http     *resty.Client
-	ruleMap  map[string]bool
-	lotRules map[string]model.FuturesLotRules
+	base        string
+	apiKey      string
+	secret      string
+	http        *resty.Client
+	ruleMap     map[string]bool
+	lotRules    map[string]model.FuturesLotRules
+	maxLeverage map[string]int
 }
 
 func NewFuturesClient(base, apiKey, secret string) *FuturesClient {
@@ -31,8 +32,9 @@ func NewFuturesClient(base, apiKey, secret string) *FuturesClient {
 		apiKey:   apiKey,
 		secret:   secret,
 		http:     resty.New().SetTimeout(12 * time.Second).SetRetryCount(1),
-		ruleMap:  make(map[string]bool),
-		lotRules: make(map[string]model.FuturesLotRules),
+		ruleMap:     make(map[string]bool),
+		lotRules:    make(map[string]model.FuturesLotRules),
+		maxLeverage: make(map[string]int),
 	}
 }
 
@@ -75,6 +77,94 @@ func (c *FuturesClient) WarmSymbolCache() error {
 			PriceTickSize:  tick,
 			PricePrecision: s.PricePrecision,
 		}
+	}
+	if err := c.loadLeverageBrackets(); err != nil {
+		for sym := range c.ruleMap {
+			c.maxLeverage[sym] = 125
+		}
+	}
+	return nil
+}
+
+func (c *FuturesClient) loadLeverageBrackets() error {
+	if !c.Configured() {
+		for sym := range c.ruleMap {
+			c.maxLeverage[sym] = 125
+		}
+		return nil
+	}
+	body, status, err := c.signedGet("/fapi/v1/leverageBracket", url.Values{})
+	if err != nil {
+		return err
+	}
+	if status >= 300 {
+		return fmt.Errorf("leverageBracket status=%d: %s", status, string(body))
+	}
+	var rows []struct {
+		Symbol   string `json:"symbol"`
+		Brackets []struct {
+			InitialLeverage int `json:"initialLeverage"`
+		} `json:"brackets"`
+	}
+	if err := json.Unmarshal(body, &rows); err != nil {
+		return err
+	}
+	for _, row := range rows {
+		sym := strings.ToUpper(row.Symbol)
+		maxLev := 1
+		for _, b := range row.Brackets {
+			if b.InitialLeverage > maxLev {
+				maxLev = b.InitialLeverage
+			}
+		}
+		if maxLev > 0 {
+			c.maxLeverage[sym] = maxLev
+		}
+	}
+	return nil
+}
+
+// MaxLeverage returns exchange max initial leverage for symbol (0 if unknown).
+func (c *FuturesClient) MaxLeverage(symbol string) int {
+	sym := strings.ToUpper(symbol)
+	if m, ok := c.maxLeverage[sym]; ok && m > 0 {
+		return m
+	}
+	return 125
+}
+
+// EffectiveLeverage caps requested leverage by symbol max.
+func (c *FuturesClient) EffectiveLeverage(symbol string, requested int) int {
+	if requested <= 0 {
+		requested = 1
+	}
+	max := c.MaxLeverage(symbol)
+	if max <= 0 {
+		return requested
+	}
+	if requested > max {
+		return max
+	}
+	return requested
+}
+
+// SetLeverage sets account leverage for a symbol (signed).
+func (c *FuturesClient) SetLeverage(symbol string, leverage int) error {
+	if !c.Configured() {
+		return nil
+	}
+	if leverage <= 0 {
+		leverage = 1
+	}
+	form := url.Values{}
+	form.Set("symbol", strings.ToUpper(symbol))
+	form.Set("leverage", fmt.Sprintf("%d", leverage))
+	_, status, err := c.signedPost("/fapi/v1/leverage", form)
+	if err != nil {
+		return err
+	}
+	if status >= 300 {
+		return fmt.Errorf("set leverage status=%d", status)
 	}
 	return nil
 }
@@ -342,15 +432,19 @@ func (c *FuturesClient) MarketOrderQty(symbol, side string, qty float64) (map[st
 	return c.signedPostOrder(form)
 }
 
-func (c *FuturesClient) MarketOrder(symbol, side string, marginUSDT float64) (map[string]any, error) {
+// MarketOrder opens with quoteOrderQty in USDT (use notional = margin * leverage).
+func (c *FuturesClient) MarketOrder(symbol, side string, quoteOrderQtyUSDT float64) (map[string]any, error) {
 	if !c.Configured() {
 		return nil, fmt.Errorf("binance futures client not configured (missing API key/secret)")
+	}
+	if quoteOrderQtyUSDT < 5 {
+		return nil, fmt.Errorf("quoteOrderQty %.2f below min ~5 USDT", quoteOrderQtyUSDT)
 	}
 	form := url.Values{}
 	form.Set("symbol", strings.ToUpper(symbol))
 	form.Set("side", strings.ToUpper(side))
 	form.Set("type", "MARKET")
-	form.Set("quoteOrderQty", fmt.Sprintf("%.2f", marginUSDT))
+	form.Set("quoteOrderQty", fmt.Sprintf("%.2f", quoteOrderQtyUSDT))
 	form.Set("newOrderRespType", "RESULT")
 	return c.signedPostOrder(form)
 }

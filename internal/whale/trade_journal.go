@@ -47,7 +47,7 @@ func (j *TradeJournal) ensureHeader() error {
 	return j.appendLine("# whale trade journal — ENTRY / PARTIAL / EXIT (tab-separated; cumulative_usdt = running total)")
 }
 
-func (j *TradeJournal) LogEntry(sig *Signal, entryPrice, margin float64) {
+func (j *TradeJournal) LogEntry(sig *Signal, entryPrice, margin float64, leverage int, simMode string) {
 	if j == nil || sig == nil {
 		return
 	}
@@ -55,10 +55,15 @@ func (j *TradeJournal) LogEntry(sig *Signal, entryPrice, margin float64) {
 	if sig.Kind == SignalBurst {
 		kind = "burst"
 	}
-	line := fmt.Sprintf("ENTRY\t%s\t%s\t%s\t%s\tfast=%.2f%%\t1s=%.2f%%\tvol=$%.0f\tentry=%.6f\tmargin=%.2f",
+	lev := leverage
+	if lev <= 0 {
+		lev = 1
+	}
+	notional := margin * float64(lev)
+	line := fmt.Sprintf("ENTRY\t%s\t%s\t%s\t%s\tfast=%.2f%%\t1s=%.2f%%\tvol=$%.0f\tentry=%.6f\tmargin=%.2f\tlev=%dx\tnotional=%.2f\tsim=%s",
 		time.Now().UTC().Format(time.RFC3339),
 		sig.Side, sig.Symbol, kind,
-		sig.FastMove, sig.MovePct, sig.SecVolume, entryPrice, margin)
+		sig.FastMove, sig.MovePct, sig.SecVolume, entryPrice, margin, lev, notional, simMode)
 	_ = j.appendLine(line)
 }
 
@@ -93,10 +98,14 @@ func (j *TradeJournal) LogExit(r Risk, pos *simPosition, exitPrice float64, at t
 	n := j.tradeCount
 	j.mu.Unlock()
 
-	line := fmt.Sprintf("EXIT\t%s\t%s\t%s\treason=%s\texit=%.6f\tpnl_pct=%+.2f\tpnl_usdt=%+.2f\thold=%s\tcumulative_usdt=%+.2f\ttrades=%d",
+	lev := pos.Leverage
+	if lev <= 0 {
+		lev = 1
+	}
+	line := fmt.Sprintf("EXIT\t%s\t%s\t%s\treason=%s\texit=%.6f\tpnl_pct=%+.2f\tpnl_usdt=%+.2f\tlev=%dx\thold=%s\tcumulative_usdt=%+.2f\ttrades=%d",
 		at.UTC().Format(time.RFC3339),
 		pos.Side, pos.Symbol, reason,
-		exitPrice, ch, pnl, hold, cum, n)
+		exitPrice, ch, pnl, lev, hold, cum, n)
 	_ = j.appendLine(line)
 }
 

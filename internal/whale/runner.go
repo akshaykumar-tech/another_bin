@@ -170,6 +170,7 @@ func (r *Runner) processTrade(sym string, ev StreamEvent) {
 	if det, ok := r.bookLeadDet(sym); ok {
 		if sig := det.OnAggTrade(price, qty, buyerMaker, tradeAt); sig != nil {
 			sig.Symbol = sym
+			sig.EntryPrice = price
 			sig.RecvAt = ev.Recv
 			r.dispatchSignal(sig)
 		}
@@ -177,6 +178,7 @@ func (r *Runner) processTrade(sym string, ev StreamEvent) {
 	if det, ok := r.flashDet(sym); ok {
 		if sig := det.OnAggTrade(price, qty, buyerMaker, tradeAt); sig != nil {
 			sig.Symbol = sym
+			sig.EntryPrice = price
 			sig.RecvAt = ev.Recv
 			r.dispatchSignal(sig)
 		}
@@ -185,10 +187,14 @@ func (r *Runner) processTrade(sym string, ev StreamEvent) {
 		if sig := det.OnAggTrade(price, qty, buyerMaker, tradeAt); sig != nil {
 			r.burstsFired.Add(1)
 			sig.Symbol = sym
+			sig.EntryPrice = price
 			sig.Mega = true
 			sig.RecvAt = ev.Recv
 			r.dispatchSignal(sig)
 		}
+	}
+	if r.cfg.DryRun && r.cfg.UsesTickDrySim() {
+		r.exec.OnPriceTick(sym, price, tradeAt)
 	}
 }
 

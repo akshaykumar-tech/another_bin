@@ -32,5 +32,6 @@ type Signal struct {
 	ThinSideUSDT   float64
 	TradeFlowUSDT  float64
 	Mega        bool
+	EntryPrice  float64 // aggTrade price at signal (dry tick entry)
 	RecvAt      time.Time
 }

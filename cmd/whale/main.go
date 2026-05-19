@@ -49,8 +49,17 @@ func main() {
 	logWatchlistHints(whaleCfg.Symbols)
 	logWatchlistSymbols(whaleCfg.Symbols)
 
-	log.Printf("[whale] starting %s dry_run=%v %s",
-		whaleCfg.Strategy, whaleCfg.DryRun, whale.FormatStreams(whaleCfg))
+	alloc := whaleCfg.Risk.MegaRiskPercent
+	if whaleCfg.AllocationPercent > 0 {
+		alloc = whaleCfg.AllocationPercent
+	}
+	lev := whaleCfg.Leverage
+	if lev <= 0 {
+		lev = 1
+	}
+	log.Printf("[whale] starting %s dry_run=%v dry_sim=%s capital=%.0f alloc=%.1f%% lev=%dx %s",
+		whaleCfg.Strategy, whaleCfg.DryRun, whaleCfg.DrySimMode, whaleCfg.CapitalUSDT, alloc, lev,
+		whale.FormatStreams(whaleCfg))
 
 	runner, err := whale.NewRunner(whaleCfg, client)
 	if err != nil {

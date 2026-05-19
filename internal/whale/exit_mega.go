@@ -47,7 +47,7 @@ func megaExitStep(r Risk, pos *simPosition, price float64, at time.Time) (closed
 	// Partial only after trail arms and move is large enough (don't halve before the run).
 	if !pos.Partial && ch >= activate && ch >= partialMin {
 		pos.Partial = true
-		return false, "", pos.MarginUSDT * partialFrac * partialMin
+		return false, "", pos.NotionalUSDT() * partialFrac * partialMin
 	}
 
 	if ch >= activate {
@@ -87,7 +87,7 @@ func standardExitStep(r Risk, pos *simPosition, price float64) (closed bool, rea
 		}
 		if !pos.Partial && ch >= tp1Pct {
 			pos.Partial = true
-			return false, "", pos.MarginUSDT * partialFrac * tp1Pct
+			return false, "", pos.NotionalUSDT() * partialFrac * tp1Pct
 		}
 		if pos.Partial && ch >= tp2Pct {
 			return true, "tp2", 0
@@ -99,7 +99,7 @@ func standardExitStep(r Risk, pos *simPosition, price float64) (closed bool, rea
 		}
 		if !pos.Partial && ch >= tp1Pct {
 			pos.Partial = true
-			return false, "", pos.MarginUSDT * partialFrac * tp1Pct
+			return false, "", pos.NotionalUSDT() * partialFrac * tp1Pct
 		}
 		if pos.Partial && ch >= tp2Pct {
 			return true, "tp2", 0
@@ -120,5 +120,5 @@ func closeSimPnL(r Risk, pos *simPosition, price float64) float64 {
 	} else {
 		ch = (pos.EntryPrice - price) / pos.EntryPrice
 	}
-	return pos.MarginUSDT * rem * ch
+	return pos.NotionalUSDT() * rem * ch
 }

@@ -3,6 +3,7 @@ package whale
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,8 +37,14 @@ type Config struct {
 
 	DryRun           bool    `yaml:"dry_run"`
 	TradeLogPath     string  `yaml:"trade_log_path"` // append-only ENTRY/EXIT log (default whale-trades.log)
+	DrySimMode       string  `yaml:"dry_sim_mode"`   // tick (aggTrade entry/exit) or mark (REST mark poll)
+	DryEntrySlippageBps float64 `yaml:"dry_entry_slippage_bps"`
+	DryExitSlippageBps  float64 `yaml:"dry_exit_slippage_bps"`
 	CapitalUSDT      float64 `yaml:"capital_usdt"`
 	UseLiveBalance   bool    `yaml:"use_live_balance"`
+	// From .env when set: WHALE_ALLOCATION_PERCENT, WHALE_LEVERAGE (caps per symbol max).
+	AllocationPercent float64 `yaml:"-"`
+	Leverage            int     `yaml:"-"`
 	CooldownSec      float64 `yaml:"cooldown_sec"`
 	MaxOpenPositions int     `yaml:"max_open_positions"`
 }
@@ -266,6 +273,28 @@ func applyEnv(c *Config) {
 	if v := strings.TrimSpace(os.Getenv("WHALE_TRADE_LOG")); v != "" {
 		c.TradeLogPath = v
 	}
+	if v := strings.TrimSpace(os.Getenv("WHALE_CAPITAL_USDT")); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil && n > 0 {
+			c.CapitalUSDT = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("WHALE_ALLOCATION_PERCENT")); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil && n > 0 {
+			c.AllocationPercent = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("WHALE_LEVERAGE")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Leverage = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("WHALE_DRY_SIM_MODE")); v != "" {
+		c.DrySimMode = strings.ToLower(v)
+	}
+}
+
+func (c *Config) UsesTickDrySim() bool {
+	return !strings.EqualFold(strings.TrimSpace(c.DrySimMode), "mark")
 }
 
 func (c *Config) normalize() {
@@ -358,6 +387,9 @@ func (c *Config) normalize() {
 	}
 	if c.MaxOpenPositions <= 0 {
 		c.MaxOpenPositions = 2
+	}
+	if strings.TrimSpace(c.DrySimMode) == "" {
+		c.DrySimMode = "tick"
 	}
 	if c.SymbolsPerConnection <= 0 {
 		c.SymbolsPerConnection = 80
