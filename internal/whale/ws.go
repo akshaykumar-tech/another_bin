@@ -14,19 +14,21 @@ import (
 )
 
 type depthEvent struct {
-	Event  string     `json:"e"`
-	Symbol string     `json:"s"`
-	Bids   [][]string `json:"b"`
-	Asks   [][]string `json:"a"`
+	EventType string     `json:"e"`
+	EventTime int64      `json:"E"` // must be present: json "e"/"E" match is case-insensitive in Go
+	Symbol    string     `json:"s"`
+	Bids      [][]string `json:"b"`
+	Asks      [][]string `json:"a"`
 }
 
 type aggTradeEvent struct {
-	Event    string `json:"e"`
-	Symbol   string `json:"s"`
-	Price    string `json:"p"`
-	Quantity string `json:"q"`
-	Maker    bool   `json:"m"`
-	TimeMs   int64  `json:"T"` // exchange trade time (ms)
+	EventType string `json:"e"`
+	EventTime int64  `json:"E"`
+	Symbol    string `json:"s"`
+	Price     string `json:"p"`
+	Quantity  string `json:"q"`
+	Maker     bool   `json:"m"`
+	TimeMs    int64  `json:"T"` // exchange trade time (ms)
 }
 
 type combinedWrapper struct {
@@ -47,7 +49,9 @@ type FuturesWS struct {
 	cfg    Config
 	events chan StreamEvent
 
-	dropped atomic.Uint64
+	dropped  atomic.Uint64
+	enqueued atomic.Uint64
+	received atomic.Uint64
 }
 
 func NewFuturesWS(cfg Config) *FuturesWS {
@@ -87,8 +91,28 @@ func chunkSymbols(symbols []string, size int) [][]string {
 	return chunks
 }
 
-func (w *FuturesWS) buildStreamURL(symbols []string) string {
-	base := strings.TrimRight(w.cfg.WebSocket.URL, "/")
+// futuresRootURL strips legacy /ws and routed /public|/market|/private suffixes.
+func futuresRootURL(raw string) string {
+	base := strings.TrimRight(raw, "/")
+	for _, suf := range []string{"/ws", "/public", "/market", "/private"} {
+		if strings.HasSuffix(base, suf) {
+			return strings.TrimSuffix(base, suf)
+		}
+	}
+	return base
+}
+
+// buildRoutedStreamURL builds a combined-stream URL on Binance's routed endpoints.
+// aggTrade → /market; partial depth → /public (see Binance WS migration notice).
+func buildRoutedStreamURL(root, route string, streamParts []string) string {
+	if len(streamParts) == 0 {
+		return ""
+	}
+	streamPath := strings.Join(streamParts, "/")
+	return root + "/" + route + "/stream?streams=" + streamPath
+}
+
+func (w *FuturesWS) depthSuffix() string {
 	levels := w.cfg.DepthLevels
 	if w.cfg.UsesBookLead() && w.cfg.BookLead.DepthLevels > 0 {
 		levels = w.cfg.BookLead.DepthLevels
@@ -100,22 +124,24 @@ func (w *FuturesWS) buildStreamURL(symbols []string) string {
 	if interval <= 0 {
 		interval = 100
 	}
-	depthSuffix := fmt.Sprintf("@depth%d@%dms", levels, interval)
+	return fmt.Sprintf("@depth%d@%dms", levels, interval)
+}
 
-	var parts []string
+func (w *FuturesWS) streamURLs(symbols []string) (publicURL, marketURL string) {
+	root := futuresRootURL(w.cfg.WebSocket.URL)
+	depthSuf := w.depthSuffix()
+	var publicParts, marketParts []string
 	for _, sym := range symbols {
 		s := strings.ToLower(sym)
 		if w.cfg.UsesBookLead() {
-			parts = append(parts, s+depthSuffix, s+"@aggTrade")
+			publicParts = append(publicParts, s+depthSuf)
+			marketParts = append(marketParts, s+"@aggTrade")
 		} else {
-			parts = append(parts, s+"@aggTrade")
+			marketParts = append(marketParts, s+"@aggTrade")
 		}
 	}
-	streamPath := strings.Join(parts, "/")
-	if strings.HasSuffix(base, "/ws") {
-		return base + "/stream?streams=" + streamPath
-	}
-	return base + "/stream?streams=" + streamPath
+	return buildRoutedStreamURL(root, "public", publicParts),
+		buildRoutedStreamURL(root, "market", marketParts)
 }
 
 func (w *FuturesWS) Run(ctx context.Context) error {
@@ -134,11 +160,25 @@ func (w *FuturesWS) Run(ctx context.Context) error {
 
 	var wg sync.WaitGroup
 	for i, chunk := range chunks {
-		wg.Add(1)
-		go func(id int, syms []string) {
-			defer wg.Done()
-			w.reconnectChunk(ctx, id, syms)
-		}(i, chunk)
+		publicURL, marketURL := w.streamURLs(chunk)
+		if publicURL != "" {
+			wg.Add(1)
+			go func(id int, url string, n int) {
+				defer wg.Done()
+				w.reconnectEndpoint(ctx, id, url, n, "public")
+			}(i*2, publicURL, len(chunk))
+		}
+		if marketURL != "" {
+			wg.Add(1)
+			id := i*2 + 1
+			if publicURL == "" {
+				id = i
+			}
+			go func(id int, url string, n int) {
+				defer wg.Done()
+				w.reconnectEndpoint(ctx, id, url, n, "market")
+			}(id, marketURL, len(chunk))
+		}
 	}
 
 	go w.dropMonitor(ctx)
@@ -148,21 +188,24 @@ func (w *FuturesWS) Run(ctx context.Context) error {
 }
 
 func (w *FuturesWS) dropMonitor(ctx context.Context) {
-	t := time.NewTicker(60 * time.Second)
+	t := time.NewTicker(30 * time.Second)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if d := w.dropped.Swap(0); d > 0 {
-				log.Printf("[whale_ws] dropped %d events (queue full — consider slower depth or fewer symbols)", d)
+			enq := w.enqueued.Swap(0)
+			drop := w.dropped.Swap(0)
+			recv := w.received.Swap(0)
+			if recv > 0 || enq > 0 || drop > 0 {
+				log.Printf("[whale_ws] last 30s: recv=%d enqueued=%d dropped=%d", recv, enq, drop)
 			}
 		}
 	}
 }
 
-func (w *FuturesWS) reconnectChunk(ctx context.Context, id int, symbols []string) {
+func (w *FuturesWS) reconnectEndpoint(ctx context.Context, id int, url string, symCount int, route string) {
 	backoff := time.Second
 	for {
 		select {
@@ -170,11 +213,12 @@ func (w *FuturesWS) reconnectChunk(ctx context.Context, id int, symbols []string
 			return
 		default:
 		}
-		err := w.runChunk(ctx, id, symbols)
+		err := w.runEndpoint(ctx, id, url, symCount, route)
 		if ctx.Err() != nil {
 			return
 		}
-		log.Printf("[whale_ws] conn#%d disconnected (%d symbols): %v — retry in %s", id, len(symbols), err, backoff)
+		log.Printf("[whale_ws] conn#%d (%s) disconnected (%d symbols): %v — retry in %s",
+			id, route, symCount, err, backoff)
 		select {
 		case <-ctx.Done():
 			return
@@ -186,9 +230,8 @@ func (w *FuturesWS) reconnectChunk(ctx context.Context, id int, symbols []string
 	}
 }
 
-func (w *FuturesWS) runChunk(ctx context.Context, id int, symbols []string) error {
-	url := w.buildStreamURL(symbols)
-	log.Printf("[whale_ws] conn#%d connecting %d symbols", id, len(symbols))
+func (w *FuturesWS) runEndpoint(ctx context.Context, id int, url string, symCount int, route string) error {
+	log.Printf("[whale_ws] conn#%d (%s) connecting %d symbols url_len=%d", id, route, symCount, len(url))
 
 	dialer := websocket.Dialer{
 		HandshakeTimeout:  15 * time.Second,
@@ -201,7 +244,7 @@ func (w *FuturesWS) runChunk(ctx context.Context, id int, symbols []string) erro
 		return err
 	}
 	defer conn.Close()
-	log.Printf("[whale_ws] conn#%d connected", id)
+	log.Printf("[whale_ws] conn#%d (%s) connected", id, route)
 
 	const readWait = 10 * time.Minute
 	refreshDeadline := func() {
@@ -237,20 +280,22 @@ func (w *FuturesWS) runChunk(ctx context.Context, id int, symbols []string) erro
 }
 
 func (w *FuturesWS) enqueue(msg []byte, recv time.Time) {
+	w.received.Add(1)
 	var wrap combinedWrapper
 	payload := msg
 	if err := json.Unmarshal(msg, &wrap); err == nil && len(wrap.Data) > 0 {
 		payload = wrap.Data
 	}
 	var peek struct {
-		Event string `json:"e"`
+		EventType string `json:"e"`
+		EventTime int64  `json:"E"`
 	}
 	if err := json.Unmarshal(payload, &peek); err != nil {
 		return
 	}
 	var ev StreamEvent
 	ev.Recv = recv
-	switch peek.Event {
+	switch peek.EventType {
 	case "depthUpdate":
 		var d depthEvent
 		if json.Unmarshal(payload, &d) != nil {
@@ -271,8 +316,12 @@ func (w *FuturesWS) enqueue(msg []byte, recv time.Time) {
 	}
 	select {
 	case w.events <- ev:
+		w.enqueued.Add(1)
 	default:
-		w.dropped.Add(1)
+		n := w.dropped.Add(1)
+		if n == 1 || n%5000 == 0 {
+			log.Printf("[whale_ws] WARNING: dropped %d aggTrade/depth events (queue full)", n)
+		}
 	}
 }
 

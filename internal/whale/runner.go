@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"crypto_announcements_go/internal/binance"
@@ -21,6 +22,9 @@ type Runner struct {
 	flash    sync.Map
 	bookLead sync.Map
 	burst    sync.Map
+
+	tradesProcessed atomic.Uint64
+	burstsFired     atomic.Uint64
 }
 
 func NewRunner(cfg Config, client *binance.FuturesClient) *Runner {
@@ -87,7 +91,27 @@ func (r *Runner) Run(ctx context.Context) error {
 	for i := 0; i < workers; i++ {
 		go r.eventWorker(ctx)
 	}
+	go r.statsHeartbeat(ctx)
 	return r.ws.Run(ctx)
+}
+
+func (r *Runner) statsHeartbeat(ctx context.Context) {
+	t := time.NewTicker(30 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			tr := r.tradesProcessed.Swap(0)
+			bu := r.burstsFired.Swap(0)
+			if tr > 0 || bu > 0 {
+				log.Printf("[whale] last 30s: trades_processed=%d bursts=%d", tr, bu)
+			} else {
+				log.Printf("[whale] last 30s: trades_processed=0 bursts=0 (no aggTrade reached detectors)")
+			}
+		}
+	}
 }
 
 func formatUSDT(v float64) string {
@@ -126,6 +150,10 @@ func (r *Runner) processEvent(ev StreamEvent) {
 
 func (r *Runner) processTrade(sym string, ev StreamEvent) {
 	price, qty, buyerMaker := parseAggTrade(ev.Trade)
+	if price <= 0 || qty <= 0 {
+		return
+	}
+	r.tradesProcessed.Add(1)
 	tradeAt := tradeEventTime(ev.Recv, ev.Trade)
 
 	if det, ok := r.bookLeadDet(sym); ok {
@@ -144,6 +172,7 @@ func (r *Runner) processTrade(sym string, ev StreamEvent) {
 	}
 	if det, ok := r.burstDet(sym); ok {
 		if sig := det.OnAggTrade(price, qty, buyerMaker, tradeAt); sig != nil {
+			r.burstsFired.Add(1)
 			sig.Symbol = sym
 			sig.Mega = true
 			sig.RecvAt = ev.Recv

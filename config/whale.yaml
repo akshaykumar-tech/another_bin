@@ -67,4 +67,5 @@ cooldown_sec: 1800          # 30 min per symbol — one pump episode
 max_open_positions: 1
 
 websocket:
+  # Root only — code routes aggTrade → /market, depth → /public (Binance WS migration).
   url: "wss://fstream.binance.com"
