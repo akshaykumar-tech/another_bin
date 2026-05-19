@@ -17,7 +17,8 @@ type Runner struct {
 	cfg    Config
 	client *binance.FuturesClient
 	ws     *FuturesWS
-	exec   *Executor
+	exec    *Executor
+	journal *TradeJournal
 
 	flash    sync.Map
 	bookLead sync.Map
@@ -27,13 +28,25 @@ type Runner struct {
 	burstsFired     atomic.Uint64
 }
 
-func NewRunner(cfg Config, client *binance.FuturesClient) *Runner {
+func (r *Runner) TradeLogPath() string {
+	if r == nil || r.journal == nil {
+		return ""
+	}
+	return r.journal.Path()
+}
+
+func NewRunner(cfg Config, client *binance.FuturesClient) (*Runner, error) {
+	journal, err := NewTradeJournal(cfg.TradeLogPath)
+	if err != nil {
+		return nil, err
+	}
 	return &Runner{
 		cfg:    cfg,
 		client: client,
 		ws:     NewFuturesWS(cfg),
-		exec:   NewExecutor(cfg, client),
-	}
+		exec:   NewExecutor(cfg, client, journal),
+		journal: journal,
+	}, nil
 }
 
 func (r *Runner) Run(ctx context.Context) error {
@@ -96,7 +109,7 @@ func (r *Runner) Run(ctx context.Context) error {
 }
 
 func (r *Runner) statsHeartbeat(ctx context.Context) {
-	t := time.NewTicker(30 * time.Second)
+	t := time.NewTicker(time.Hour)
 	defer t.Stop()
 	for {
 		select {
@@ -105,11 +118,9 @@ func (r *Runner) statsHeartbeat(ctx context.Context) {
 		case <-t.C:
 			tr := r.tradesProcessed.Swap(0)
 			bu := r.burstsFired.Swap(0)
-			if tr > 0 || bu > 0 {
-				log.Printf("[whale] last 30s: trades_processed=%d bursts=%d", tr, bu)
-			} else {
-				log.Printf("[whale] last 30s: trades_processed=0 bursts=0 (no aggTrade reached detectors)")
-			}
+			recv, enq, drop := r.ws.ConsumeStats()
+			log.Printf("[whale] health 1h: ws_recv=%d enqueued=%d dropped=%d trades=%d bursts=%d",
+				recv, enq, drop, tr, bu)
 		}
 	}
 }
@@ -195,18 +206,6 @@ func (r *Runner) processDepth(sym string, ev StreamEvent) {
 }
 
 func (r *Runner) dispatchSignal(sig *Signal) {
-	latency := time.Since(sig.RecvAt)
-	switch sig.Kind {
-	case SignalBookLead:
-		log.Printf("[whale] BOOK %s %s mode=%s imb=%.2fx thin=$%.0f flow=$%.0f vol=$%.0f move=%.2f%% latency=%s",
-			sig.Side, sig.Symbol, sig.BookMode, sig.ImbalanceRatio, sig.ThinSideUSDT, sig.TradeFlowUSDT, sig.SecVolume, sig.MovePct, latency)
-	case SignalBurst:
-		log.Printf("[whale] BURST %s %s fast=%.2f%% 1s=%.2f%% vol=$%.0f latency=%s",
-			sig.Side, sig.Symbol, sig.FastMove, sig.MovePct, sig.SecVolume, latency)
-	default:
-		log.Printf("[whale] FLASH %s %s mode=%s 1s=%.2f%% 100ms=%.2f%% vol1s=%.0f latency=%s",
-			sig.Side, sig.Symbol, sig.FlashMode, sig.MovePct, sig.FastMove, sig.SecVolume, latency)
-	}
 	go r.exec.HandleSignal(context.Background(), sig)
 }
 

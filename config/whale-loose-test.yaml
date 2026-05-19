@@ -57,6 +57,7 @@ risk:
 
 symbols_per_connection: 80
 dry_run: true
+trade_log_path: "whale-trades-loose.log"
 capital_usdt: 1000
 cooldown_sec: 10               # same symbol can re-fire quickly for testing
 max_open_positions: 5

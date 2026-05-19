@@ -181,28 +181,13 @@ func (w *FuturesWS) Run(ctx context.Context) error {
 		}
 	}
 
-	go w.dropMonitor(ctx)
-
 	wg.Wait()
 	return ctx.Err()
 }
 
-func (w *FuturesWS) dropMonitor(ctx context.Context) {
-	t := time.NewTicker(30 * time.Second)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			enq := w.enqueued.Swap(0)
-			drop := w.dropped.Swap(0)
-			recv := w.received.Swap(0)
-			if recv > 0 || enq > 0 || drop > 0 {
-				log.Printf("[whale_ws] last 30s: recv=%d enqueued=%d dropped=%d", recv, enq, drop)
-			}
-		}
-	}
+// ConsumeStats returns WS counters since last call and resets them.
+func (w *FuturesWS) ConsumeStats() (recv, enqueued, dropped uint64) {
+	return w.received.Swap(0), w.enqueued.Swap(0), w.dropped.Swap(0)
 }
 
 func (w *FuturesWS) reconnectEndpoint(ctx context.Context, id int, url string, symCount int, route string) {

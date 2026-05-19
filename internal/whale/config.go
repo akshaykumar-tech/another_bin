@@ -35,6 +35,7 @@ type Config struct {
 	WebSocket WebSocketCfg `yaml:"websocket"`
 
 	DryRun           bool    `yaml:"dry_run"`
+	TradeLogPath     string  `yaml:"trade_log_path"` // append-only ENTRY/EXIT log (default whale-trades.log)
 	CapitalUSDT      float64 `yaml:"capital_usdt"`
 	UseLiveBalance   bool    `yaml:"use_live_balance"`
 	CooldownSec      float64 `yaml:"cooldown_sec"`
@@ -248,6 +249,9 @@ func LoadConfig(path string) (Config, error) {
 func applyEnv(c *Config) {
 	if v := os.Getenv("WHALE_DRY_RUN"); v != "" {
 		c.DryRun = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := strings.TrimSpace(os.Getenv("WHALE_TRADE_LOG")); v != "" {
+		c.TradeLogPath = v
 	}
 }
 

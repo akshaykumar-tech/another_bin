@@ -13,11 +13,14 @@ import (
 type Executor struct {
 	cfg    Config
 	client *binance.FuturesClient
+	journal *TradeJournal
 
 	mu        sync.Mutex
 	openCount int
 	lastTrade map[string]time.Time
 	active    map[string]*position
+	dryOpen   map[string]*simPosition
+	dryPartial map[string]float64
 }
 
 type position struct {
@@ -25,18 +28,22 @@ type position struct {
 	Side       Side
 	EntryPrice float64
 	Qty        float64
+	MarginUSDT float64
 	OpenedAt   time.Time
 	MegaExit   bool
 	PeakPrice  float64
 	Partial    bool
 }
 
-func NewExecutor(cfg Config, client *binance.FuturesClient) *Executor {
+func NewExecutor(cfg Config, client *binance.FuturesClient, journal *TradeJournal) *Executor {
 	return &Executor{
-		cfg:       cfg,
-		client:    client,
-		lastTrade: make(map[string]time.Time),
-		active:    make(map[string]*position),
+		cfg:        cfg,
+		client:     client,
+		journal:    journal,
+		lastTrade:  make(map[string]time.Time),
+		active:     make(map[string]*position),
+		dryOpen:    make(map[string]*simPosition),
+		dryPartial: make(map[string]float64),
 	}
 }
 
@@ -58,31 +65,44 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 		e.mu.Unlock()
 		return
 	}
-	if _, busy := e.active[sym]; busy {
+	if e.cfg.DryRun {
+		if _, busy := e.dryOpen[sym]; busy {
+			e.mu.Unlock()
+			return
+		}
+	} else if _, busy := e.active[sym]; busy {
 		e.mu.Unlock()
 		return
 	}
 	e.mu.Unlock()
 
-	start := time.Now()
 	margin := e.marginForSignal(sig)
 	side := string(sig.Side)
+
 	if e.cfg.DryRun {
-		switch sig.Kind {
-		case SignalBookLead:
-			log.Printf("[whale] DRY_RUN %s %s book mode=%s imb=%.2fx flow=$%.0f move=%.2f%% margin=%.2f USDT latency=%s",
-				side, sym, sig.BookMode, sig.ImbalanceRatio, sig.TradeFlowUSDT, sig.MovePct, margin, time.Since(sig.RecvAt))
-		case SignalBurst:
-			log.Printf("[whale] DRY_RUN %s %s BURST fast=%.2f%% 1s=%.2f%% vol=$%.0f margin=%.2f USDT mega_trail latency=%s",
-				side, sym, sig.FastMove, sig.MovePct, sig.SecVolume, margin, time.Since(sig.RecvAt))
-		default:
-			log.Printf("[whale] DRY_RUN %s %s 1s=%.2f%% mode=%s margin=%.2f USDT latency=%s",
-				side, sym, sig.MovePct, sig.FlashMode, margin, time.Since(sig.RecvAt))
+		entry, err := e.client.MarkPrice(sym)
+		if err != nil || entry <= 0 {
+			log.Printf("[whale] SIGNAL skip %s %s: mark price unavailable", side, sym)
+			return
 		}
-		e.markCooldown(sym)
+		e.logSignalEntry(sig, entry, margin)
+		if e.journal != nil {
+			e.journal.LogEntry(sig, entry, margin)
+		}
+		sim := &simPosition{
+			Symbol: sym, Side: sig.Side, EntryPrice: entry, MarginUSDT: margin,
+			OpenedAt: time.Now(), MegaExit: sig.Mega || sig.Kind == SignalBurst, PeakPrice: entry,
+		}
+		e.mu.Lock()
+		e.dryOpen[sym] = sim
+		e.openCount++
+		e.lastTrade[sym] = time.Now()
+		e.mu.Unlock()
+		go e.manageDryRunExit(ctx, sim)
 		return
 	}
 
+	start := time.Now()
 	resp, err := e.client.MarketOrder(sym, side, margin)
 	execMs := time.Since(start)
 	if err != nil {
@@ -90,12 +110,14 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 		return
 	}
 	entry, qty := parseFill(resp)
-	log.Printf("[whale] ENTER %s %s margin=%.2f entry=%.6f qty=%.6f order_ms=%s total_ms=%s",
-		side, sym, margin, entry, qty, execMs, time.Since(sig.RecvAt))
+	e.logSignalEntry(sig, entry, margin)
+	if e.journal != nil {
+		e.journal.LogEntry(sig, entry, margin)
+	}
 
 	pos := &position{
-		Symbol: sym, Side: sig.Side, EntryPrice: entry, Qty: qty, OpenedAt: time.Now(),
-		MegaExit: sig.Mega || sig.Kind == SignalBurst, PeakPrice: entry,
+		Symbol: sym, Side: sig.Side, EntryPrice: entry, Qty: qty, MarginUSDT: margin,
+		OpenedAt: time.Now(), MegaExit: sig.Mega || sig.Kind == SignalBurst, PeakPrice: entry,
 	}
 	e.mu.Lock()
 	e.active[sym] = pos
@@ -104,6 +126,30 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 	e.mu.Unlock()
 
 	go e.manageExit(ctx, pos)
+}
+
+func (e *Executor) logSignalEntry(sig *Signal, entry, margin float64) {
+	switch sig.Kind {
+	case SignalBookLead:
+		log.Printf("[whale] SIGNAL %s %s book mode=%s imb=%.2fx flow=$%.0f move=%.2f%% entry=%.6f margin=%.2f",
+			sig.Side, sig.Symbol, sig.BookMode, sig.ImbalanceRatio, sig.TradeFlowUSDT, sig.MovePct, entry, margin)
+	case SignalBurst:
+		log.Printf("[whale] SIGNAL %s %s BURST fast=%.2f%% 1s=%.2f%% vol=$%.0f entry=%.6f margin=%.2f",
+			sig.Side, sig.Symbol, sig.FastMove, sig.MovePct, sig.SecVolume, entry, margin)
+	default:
+		log.Printf("[whale] SIGNAL %s %s flash mode=%s 1s=%.2f%% entry=%.6f margin=%.2f",
+			sig.Side, sig.Symbol, sig.FlashMode, sig.MovePct, entry, margin)
+	}
+}
+
+func (e *Executor) logExit(pos *simPosition, exitPrice float64, at time.Time, reason string, partialAlready float64) {
+	pnl := closeSimPnL(e.cfg.Risk, pos, exitPrice)
+	if partialAlready > 0 {
+		pnl += partialAlready
+	}
+	ch := priceChangePct(pos.Side, pos.EntryPrice, exitPrice)
+	log.Printf("[whale] EXIT %s %s reason=%s exit=%.6f pnl=%+.2f USDT (%+.2f%%) hold=%s",
+		pos.Side, pos.Symbol, reason, exitPrice, pnl, ch, at.Sub(pos.OpenedAt).Round(time.Second))
 }
 
 func (e *Executor) marginForSignal(sig *Signal) float64 {
@@ -124,12 +170,6 @@ func (e *Executor) marginForSignal(sig *Signal) float64 {
 	return capital * pct
 }
 
-func (e *Executor) markCooldown(sym string) {
-	e.mu.Lock()
-	e.lastTrade[sym] = time.Now()
-	e.mu.Unlock()
-}
-
 func parseFill(resp map[string]any) (price, qty float64) {
 	if resp == nil {
 		return 0, 0
@@ -146,6 +186,82 @@ func parseFill(resp map[string]any) (price, qty float64) {
 		}
 	}
 	return price, qty
+}
+
+func (e *Executor) manageDryRunExit(ctx context.Context, pos *simPosition) {
+	defer func() {
+		e.mu.Lock()
+		delete(e.dryOpen, pos.Symbol)
+		delete(e.dryPartial, pos.Symbol)
+		e.openCount--
+		e.mu.Unlock()
+	}()
+
+	sym := pos.Symbol
+	deadline := time.After(10 * time.Minute)
+	tick := time.NewTicker(200 * time.Millisecond)
+	defer tick.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			e.finishDryExit(pos, sym, "ctx")
+			return
+		case <-deadline:
+			e.finishDryExit(pos, sym, "timeout")
+			return
+		case <-tick.C:
+			mp, err := e.client.MarkPrice(sym)
+			if err != nil || mp <= 0 {
+				continue
+			}
+			if e.dryExitStep(pos, mp) {
+				return
+			}
+		}
+	}
+}
+
+func (e *Executor) dryExitStep(pos *simPosition, price float64) bool {
+	at := time.Now()
+	r := e.cfg.Risk
+	var closed bool
+	var reason string
+	var partial float64
+	if pos.MegaExit {
+		closed, reason, partial = megaExitStep(r, pos, price, at)
+	} else {
+		closed, reason, partial = standardExitStep(r, pos, price)
+	}
+	if partial > 0 && !pos.Partial {
+		pos.Partial = true
+		e.mu.Lock()
+		e.dryPartial[pos.Symbol] += partial
+		e.mu.Unlock()
+		if e.journal != nil {
+			e.journal.LogPartial(pos.Symbol, pos.Side, partial, at)
+		}
+	}
+	if closed {
+		e.finishDryExit(pos, pos.Symbol, reason)
+		return true
+	}
+	return false
+}
+
+func (e *Executor) finishDryExit(pos *simPosition, sym, reason string) {
+	mp, err := e.client.MarkPrice(sym)
+	if err != nil || mp <= 0 {
+		mp = pos.EntryPrice
+	}
+	at := time.Now()
+	e.mu.Lock()
+	part := e.dryPartial[sym]
+	e.mu.Unlock()
+	e.logExit(pos, mp, at, reason, part)
+	if e.journal != nil {
+		e.journal.LogExit(e.cfg.Risk, pos, mp, at, reason, part)
+	}
 }
 
 func (e *Executor) manageExit(ctx context.Context, pos *position) {
@@ -176,15 +292,24 @@ func (e *Executor) manageMegaExit(ctx context.Context, pos *position) {
 	partialFrac := r.PartialExitFraction
 	remaining := pos.Qty
 	partialDone := false
+	var partialUSDT float64
 
 	tick := time.NewTicker(200 * time.Millisecond)
 	defer tick.Stop()
 	deadline := time.After(10 * time.Minute)
 
 	closeRemaining := func(reason string) {
+		mp, _ := e.client.MarkPrice(pos.Symbol)
+		if mp <= 0 {
+			mp = pos.EntryPrice
+		}
 		if remaining > 0 {
 			e.closeAll(pos.Symbol, closeSide, remaining)
-			log.Printf("[whale] mega exit %s %s reason=%s", pos.Symbol, pos.Side, reason)
+		}
+		sim := liveSimFrom(pos, partialDone)
+		e.logExit(sim, mp, time.Now(), reason, partialUSDT)
+		if e.journal != nil {
+			e.journal.LogExit(r, sim, mp, time.Now(), reason, partialUSDT)
 		}
 	}
 
@@ -201,11 +326,7 @@ func (e *Executor) manageMegaExit(ctx context.Context, pos *position) {
 			if err != nil || mp <= 0 {
 				continue
 			}
-			sim := &simPosition{
-				Symbol: pos.Symbol, Side: pos.Side, EntryPrice: pos.EntryPrice,
-				MarginUSDT: 1, OpenedAt: pos.OpenedAt, MegaExit: true,
-				PeakPrice: pos.PeakPrice, Partial: partialDone,
-			}
+			sim := liveSimFrom(pos, partialDone)
 			closed, reason, partialPnL := megaExitStep(r, sim, mp, time.Now())
 			pos.PeakPrice = sim.PeakPrice
 			if partialPnL > 0 && !partialDone {
@@ -214,13 +335,24 @@ func (e *Executor) manageMegaExit(ctx context.Context, pos *position) {
 				remaining -= half
 				partialDone = true
 				pos.Partial = true
-				log.Printf("[whale] mega TP1 partial %s at %.6f", pos.Symbol, mp)
+				partialUSDT += partialPnL
+				if e.journal != nil {
+					e.journal.LogPartial(pos.Symbol, pos.Side, partialPnL, time.Now())
+				}
 			}
 			if closed {
 				closeRemaining(reason)
 				return
 			}
 		}
+	}
+}
+
+func liveSimFrom(pos *position, partial bool) *simPosition {
+	return &simPosition{
+		Symbol: pos.Symbol, Side: pos.Side, EntryPrice: pos.EntryPrice,
+		MarginUSDT: pos.MarginUSDT, OpenedAt: pos.OpenedAt, MegaExit: pos.MegaExit,
+		PeakPrice: pos.PeakPrice, Partial: partial,
 	}
 }
 
@@ -246,24 +378,34 @@ func (e *Executor) manageStandardExit(ctx context.Context, pos *position) {
 	halfQty := pos.Qty * partial
 	remaining := pos.Qty
 	tp1Done := false
+	var partialUSDT float64
 
 	tick := time.NewTicker(200 * time.Millisecond)
 	defer tick.Stop()
 	deadline := time.After(15 * time.Minute)
 
-	closeRemaining := func() {
+	finish := func(reason string) {
+		mp, _ := e.client.MarkPrice(pos.Symbol)
+		if mp <= 0 {
+			mp = pos.EntryPrice
+		}
 		if remaining > 0 {
 			e.closeAll(pos.Symbol, closeSide, remaining)
+		}
+		sim := liveSimFrom(pos, tp1Done)
+		e.logExit(sim, mp, time.Now(), reason, partialUSDT)
+		if e.journal != nil {
+			e.journal.LogExit(e.cfg.Risk, sim, mp, time.Now(), reason, partialUSDT)
 		}
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			closeRemaining()
+			finish("ctx")
 			return
 		case <-deadline:
-			closeRemaining()
+			finish("timeout")
 			return
 		case <-tick.C:
 			mp, err := e.client.MarkPrice(pos.Symbol)
@@ -272,7 +414,7 @@ func (e *Executor) manageStandardExit(ctx context.Context, pos *position) {
 			}
 			if pos.Side == SideBuy {
 				if mp <= slPrice {
-					closeRemaining()
+					finish("sl")
 					return
 				}
 				if !tp1Done && mp >= tp1Price {
@@ -281,14 +423,15 @@ func (e *Executor) manageStandardExit(ctx context.Context, pos *position) {
 						remaining -= halfQty
 					}
 					tp1Done = true
+					partialUSDT += pos.MarginUSDT * partial * tp1Pct
 				}
 				if tp1Done && mp >= tp2Price {
-					closeRemaining()
+					finish("tp2")
 					return
 				}
 			} else {
 				if mp >= slPrice {
-					closeRemaining()
+					finish("sl")
 					return
 				}
 				if !tp1Done && mp <= tp1Price {
@@ -299,7 +442,7 @@ func (e *Executor) manageStandardExit(ctx context.Context, pos *position) {
 					tp1Done = true
 				}
 				if tp1Done && mp <= tp2Price {
-					closeRemaining()
+					finish("tp2")
 					return
 				}
 			}

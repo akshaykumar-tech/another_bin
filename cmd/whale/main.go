@@ -52,7 +52,13 @@ func main() {
 	log.Printf("[whale] starting %s dry_run=%v %s",
 		whaleCfg.Strategy, whaleCfg.DryRun, whale.FormatStreams(whaleCfg))
 
-	runner := whale.NewRunner(whaleCfg, client)
+	runner, err := whale.NewRunner(whaleCfg, client)
+	if err != nil {
+		log.Fatalf("[whale] journal: %v", err)
+	}
+	if p := runner.TradeLogPath(); p != "" {
+		log.Printf("[whale] trade journal: %s (cat this file for ENTRY/EXIT PnL)", p)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

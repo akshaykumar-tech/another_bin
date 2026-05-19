@@ -62,6 +62,7 @@ risk:
 
 symbols_per_connection: 80
 dry_run: true
+trade_log_path: "whale-trades.log"   # cat whale-trades.log — ENTRY/EXIT/PnL per signal
 capital_usdt: 1000
 cooldown_sec: 1800          # 30 min per symbol — one pump episode
 max_open_positions: 1
