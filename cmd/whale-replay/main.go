@@ -55,7 +55,7 @@ func main() {
 		log.Fatalf("exchangeInfo: %v", err)
 	}
 	if !client.SymbolTradable(*symbol) {
-		log.Fatalf("symbol %s not tradable on USDT-M futures", *symbol)
+		log.Printf("[replay] warning: %s not active on USDT-M now — loading historical aggTrades anyway", *symbol)
 	}
 
 	startUTC := start.UTC()

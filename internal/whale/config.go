@@ -93,11 +93,18 @@ type BurstConfig struct {
 	MaxCascadeMovePct      float64 `yaml:"max_cascade_move_pct"` // skip if 3s leg already too extended
 	// PreTrade: dead/flat tape before entry (mega profile from 13–14 May analysis).
 	PreTradeEnabled         bool    `yaml:"pre_trade_enabled"`
+	PreTradeMegaOnly        bool    `yaml:"pre_trade_mega_only"` // only flat-mega or elevated-mega tape profiles
 	PreTradeWindowMs        int     `yaml:"pre_trade_window_ms"`
 	MaxQuiet60sUSDT         float64 `yaml:"max_quiet_60s_usdt"`
+	MaxQuiet30sUSDT         float64 `yaml:"max_quiet_30s_usdt"` // 0 = off; last N ms before burst (tighter chop cut)
+	PreTradeShortWindowMs   int     `yaml:"pre_trade_short_window_ms"`
 	MaxRange60sPct          float64 `yaml:"max_range_60s_pct"`
+	MaxRange30sPct          float64 `yaml:"max_range_30s_pct"` // 0 = off
 	MaxPrior1sMove60sPct    float64 `yaml:"max_prior_1s_move_60s_pct"`
 	MaxTrades60s            int     `yaml:"max_trades_60s"` // 0 = off
+	// Elevated-mega floor: separates AIGEN-style busy pump from 15 May chop (see pretrade diag).
+	MinQuiet60ElevatedUSDT float64 `yaml:"min_quiet_60_elevated_usdt"`
+	MinQuiet30ElevatedUSDT float64 `yaml:"min_quiet_30_elevated_usdt"`
 }
 
 // BookLeadConfig predicts violent moves from bid/ask depth + trade flow before price runs.
@@ -186,11 +193,17 @@ func DefaultConfig() Config {
 			MinCascadeNotionalUSDT: 12_000,
 			MaxCascadeMovePct:       4.0,
 			PreTradeEnabled:         true,
+			PreTradeMegaOnly:        true,
 			PreTradeWindowMs:        60_000,
+			PreTradeShortWindowMs:   30_000,
 			MaxQuiet60sUSDT:         40_000,
+			MaxQuiet30sUSDT:         14_000,
 			MaxRange60sPct:          0.75,
-			MaxPrior1sMove60sPct:    0.35,
-			MaxTrades60s:            0,
+			MaxRange30sPct:          0.42,
+			MaxPrior1sMove60sPct:    0.28,
+			MaxTrades60s:            280,
+			MinQuiet60ElevatedUSDT:  35_000,
+			MinQuiet30ElevatedUSDT:  12_000,
 		},
 		Flash: FlashConfig{
 			FastWindowMs:        100,

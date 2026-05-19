@@ -15,13 +15,17 @@
 | **Pre-trade gate** | ❌ | ✅ `max_quiet_60s`, `max_range_60s`, `max_prior_1s_move_60s` |
 | Pre-trade window | — | 60s **before** entry (last 1s burst leg excluded) |
 
-**Pre-trade config (`config/whale.yaml`):**
+**Pre-trade config (`config/whale.yaml`) — v2 (tighter chop):**
 ```yaml
 pre_trade_enabled: true
 pre_trade_window_ms: 60000
+pre_trade_short_window_ms: 30000
 max_quiet_60s_usdt: 40000
+max_quiet_30s_usdt: 14000
 max_range_60s_pct: 0.75
-max_prior_1s_move_60s_pct: 0.35
+max_range_30s_pct: 0.42
+max_prior_1s_move_60s_pct: 0.28
+max_trades_60s: 280
 ```
 
 **Idea:** Sirf tab trade jab entry se pehle tape **dead + flat** ho (13 May mega / 14 May AIGEN profile).
