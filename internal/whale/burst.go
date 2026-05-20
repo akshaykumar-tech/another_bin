@@ -32,6 +32,9 @@ func (d *BurstDetector) lookbackDur() time.Duration {
 	if d.cfg.PreTradeEnabled && d.cfg.PreTradeWindowMs > ms {
 		ms = d.cfg.PreTradeWindowMs
 	}
+	if d.cfg.PreTradeEnabled && d.cfg.PreTradeLongWindowMs > ms {
+		ms = d.cfg.PreTradeLongWindowMs
+	}
 	if ms < 1000 {
 		ms = 1000
 	}

@@ -14,7 +14,13 @@ type PreTradeSnap struct {
 	Range60, Range30   float64
 	Prior1s            float64
 	Trades60, Trades30 int
-	FlatMega           bool
+	// Long window (e.g. 2h before entry) — separates 13 May mega from normal-day chop.
+	Quiet2h, Range2h   float64
+	Prior1s2h          float64
+	Trades2h           int
+	FlatMega           bool // ultra or standard flat
+	FlatUltra          bool
+	FlatStandard       bool
 	ElevatedMega       bool
 	RejectReason       string
 }
@@ -34,7 +40,9 @@ func PreTradeAt(cfg BurstConfig, trades []binance.AggTrade, at time.Time) PreTra
 		})
 	}
 	snap := d.preTradeSnap(at)
-	snap.FlatMega = matchesFlatMegaProfile(snap)
+	snap.FlatUltra = matchesUltraFlatMegaProfile(cfg, snap)
+	snap.FlatStandard = matchesStandardFlatMegaProfile(cfg, snap)
+	snap.FlatMega = snap.FlatUltra || snap.FlatStandard
 	snap.ElevatedMega = matchesElevatedMegaProfile(cfg, snap)
 	snap.RejectReason = d.explainPreTradeReject(at)
 	return snap
@@ -55,7 +63,16 @@ func (d *BurstDetector) explainPreTradeReject(now time.Time) string {
 	}
 	snap := d.preTradeSnap(now)
 	if d.cfg.PreTradeMegaOnly {
-		if matchesFlatMegaProfile(snap) || matchesElevatedMegaProfile(d.cfg, snap) {
+		if matchesElevatedMegaProfile(d.cfg, snap) {
+			if reason := explainElevatedLongReject(d.cfg, snap); reason != "" {
+				return reason
+			}
+			return ""
+		}
+		if matchesUltraFlatMegaProfile(d.cfg, snap) || matchesStandardFlatMegaProfile(d.cfg, snap) {
+			if reason := explainLongPreTradeReject(d.cfg, snap); reason != "" {
+				return reason
+			}
 			return ""
 		}
 		return "pre_trade mega_only: tape not flat-mega or elevated-mega profile"
@@ -76,25 +93,100 @@ func (d *BurstDetector) preTradeSnap(now time.Time) PreTradeSnap {
 	shortFrom := now.Add(-time.Duration(shortMs) * time.Millisecond)
 	preEnd := now.Add(-time.Second)
 
-	return PreTradeSnap{
-		Quiet60:   notionalBetween(d.ticks, from, preEnd),
-		Quiet30:   notionalBetween(d.ticks, shortFrom, preEnd),
-		Range60:   priceRangePctBetween(d.ticks, from, preEnd),
-		Range30:   priceRangePctBetween(d.ticks, shortFrom, preEnd),
-		Prior1s:   max1sMoveBetween(d.ticks, from, preEnd),
-		Trades60:  tradeCountBetween(d.ticks, from, preEnd),
-		Trades30:  tradeCountBetween(d.ticks, shortFrom, preEnd),
+	snap := PreTradeSnap{
+		Quiet60:  notionalBetween(d.ticks, from, preEnd),
+		Quiet30:  notionalBetween(d.ticks, shortFrom, preEnd),
+		Range60:  priceRangePctBetween(d.ticks, from, preEnd),
+		Range30:  priceRangePctBetween(d.ticks, shortFrom, preEnd),
+		Prior1s:  max1sMoveBetween(d.ticks, from, preEnd),
+		Trades60: tradeCountBetween(d.ticks, from, preEnd),
+		Trades30: tradeCountBetween(d.ticks, shortFrom, preEnd),
 	}
+	if longMs := d.cfg.PreTradeLongWindowMs; longMs > 0 {
+		longFrom := now.Add(-time.Duration(longMs) * time.Millisecond)
+		snap.Quiet2h = notionalBetween(d.ticks, longFrom, preEnd)
+		snap.Range2h = priceRangePctBetween(d.ticks, longFrom, preEnd)
+		snap.Prior1s2h = max1sMoveBetween(d.ticks, longFrom, preEnd)
+		snap.Trades2h = tradeCountBetween(d.ticks, longFrom, preEnd)
+	}
+	return snap
 }
 
-// matchesFlatMegaProfile: coordinated dump / thin tape (SYS & MLN @ 13 May 13:30).
-func matchesFlatMegaProfile(s PreTradeSnap) bool {
+func explainLongPreTradeReject(cfg BurstConfig, s PreTradeSnap) string {
+	if cfg.PreTradeLongWindowMs <= 0 {
+		return ""
+	}
+	maxR := cfg.MaxRangeLongPct
+	if maxR <= 0 {
+		maxR = 5.5
+	}
+	if s.Range2h > maxR {
+		return fmt.Sprintf("pre_trade long range %.2f%% > max %.2f%%", s.Range2h, maxR)
+	}
+	max1s := cfg.MaxPrior1sLongPct
+	if max1s <= 0 {
+		max1s = 0.68
+	}
+	if s.Prior1s2h > max1s {
+		return fmt.Sprintf("pre_trade long prior_1s %.2f%% > max %.2f%%", s.Prior1s2h, max1s)
+	}
+	minN := cfg.MinNotionalLongUSDT
+	if minN > 0 && s.Quiet2h < minN {
+		return fmt.Sprintf("pre_trade long notional $%.0f < min $%.0f", s.Quiet2h, minN)
+	}
+	return ""
+}
+
+func explainElevatedLongReject(cfg BurstConfig, s PreTradeSnap) string {
+	if cfg.PreTradeLongWindowMs <= 0 {
+		return ""
+	}
+	max1s := cfg.MaxPrior1sLongElevatedPct
+	if max1s <= 0 {
+		max1s = 0.55
+	}
+	if s.Prior1s2h > max1s {
+		return fmt.Sprintf("pre_trade elevated long prior_1s %.2f%% > max %.2f%%", s.Prior1s2h, max1s)
+	}
+	return explainLongPreTradeReject(cfg, s)
+}
+
+func flatMegaCore(s PreTradeSnap) bool {
 	return s.Range60 <= 0.45 &&
 		s.Range30 <= 0.28 &&
-		s.Prior1s <= 0.12 &&
-		s.Quiet30 <= 6000 &&
-		s.Quiet60 <= 5000 &&
-		s.Trades30 <= 25
+		s.Prior1s <= 0.10 &&
+		s.Quiet60 >= 200 && s.Quiet60 <= 2500 &&
+		s.Trades30 <= 12
+}
+
+func maxQuiet30Ultra(cfg BurstConfig) float64 {
+	if cfg.MaxQuiet30UltraUSDT > 0 {
+		return cfg.MaxQuiet30UltraUSDT
+	}
+	return 120
+}
+
+func maxQuiet30Flat(cfg BurstConfig) float64 {
+	if cfg.MaxQuiet30FlatUSDT > 0 {
+		return cfg.MaxQuiet30FlatUSDT
+	}
+	return 260
+}
+
+// matchesUltraFlatMegaProfile: MLN @ 13 May 13:30 (q30 ~$36).
+func matchesUltraFlatMegaProfile(cfg BurstConfig, s PreTradeSnap) bool {
+	return flatMegaCore(s) && s.Quiet30 <= maxQuiet30Ultra(cfg)
+}
+
+// matchesStandardFlatMegaProfile: SYS @ 13 May 13:30 (q30 ~$250).
+func matchesStandardFlatMegaProfile(cfg BurstConfig, s PreTradeSnap) bool {
+	ultra := maxQuiet30Ultra(cfg)
+	return flatMegaCore(s) && s.Quiet30 > ultra && s.Quiet30 <= maxQuiet30Flat(cfg)
+}
+
+// matchesFlatMegaProfile is true for ultra or standard flat (diagnostics).
+func matchesFlatMegaProfile(cfg BurstConfig, s PreTradeSnap) bool {
+	return matchesUltraFlatMegaProfile(cfg, s) || matchesStandardFlatMegaProfile(cfg, s)
 }
 
 // matchesElevatedMegaProfile: violent pump with busier tape (AIGEN 14 May 15:30).

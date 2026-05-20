@@ -112,6 +112,14 @@ type BurstConfig struct {
 	// Elevated-mega floor: separates AIGEN-style busy pump from 15 May chop (see pretrade diag).
 	MinQuiet60ElevatedUSDT float64 `yaml:"min_quiet_60_elevated_usdt"`
 	MinQuiet30ElevatedUSDT float64 `yaml:"min_quiet_30_elevated_usdt"`
+	// Long pre-trade window (3h): dead tape before coordinated mega (10:30→13:30 style).
+	PreTradeLongWindowMs int     `yaml:"pre_trade_long_window_ms"`
+	MaxRangeLongPct      float64 `yaml:"max_range_long_pct"`
+	MaxPrior1sLongPct    float64 `yaml:"max_prior_1s_long_pct"` // flat + ultra
+	MinNotionalLongUSDT  float64 `yaml:"min_notional_long_usdt"`
+	MaxQuiet30UltraUSDT  float64 `yaml:"max_quiet_30_ultra_usdt"`  // MLN-style (q30 ~$36)
+	MaxQuiet30FlatUSDT   float64 `yaml:"max_quiet_30_flat_usdt"`   // SYS-style (q30 ~$250)
+	MaxPrior1sLongElevatedPct float64 `yaml:"max_prior_1s_long_elevated_pct"`
 }
 
 // BookLeadConfig predicts violent moves from bid/ask depth + trade flow before price runs.
@@ -144,6 +152,9 @@ type Risk struct {
 	MegaTrailWidenPeakPct  float64 `yaml:"mega_trail_widen_peak_pct"`  // widen trail when peak exceeds
 	MegaTrailWidenDistPct  float64 `yaml:"mega_trail_widen_dist_pct"`
 	MegaTrailMinHoldMs     int     `yaml:"mega_trail_min_hold_ms"` // no trail exit in first N ms
+	// Scratch chop: exit if peak favorable move < min within window (no mega follow-through).
+	MegaConfirmWindowMs        int     `yaml:"mega_confirm_window_ms"`
+	MegaConfirmMinFavorablePct float64 `yaml:"mega_confirm_min_favorable_pct"`
 }
 
 type WebSocketCfg struct {

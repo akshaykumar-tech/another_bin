@@ -44,6 +44,18 @@ func megaExitStep(r Risk, pos *simPosition, price float64, at time.Time) (closed
 		return true, "mega_tp", 0
 	}
 
+	// Chop killer: mega pumps show +2% quickly; flat timeouts had move30 <1%.
+	if win := r.MegaConfirmWindowMs; win > 0 {
+		minPct := r.MegaConfirmMinFavorablePct
+		if minPct <= 0 {
+			minPct = 2.0
+		}
+		if at.Sub(pos.OpenedAt) >= time.Duration(win)*time.Millisecond &&
+			peakCh*100 < minPct && !pos.Partial {
+			return true, "no_mega", 0
+		}
+	}
+
 	// Partial only after trail arms and move is large enough (don't halve before the run).
 	if !pos.Partial && ch >= activate && ch >= partialMin {
 		pos.Partial = true

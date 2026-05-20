@@ -6,22 +6,12 @@ import (
 )
 
 func TestPreTradeMegaOnlyFlatProfile(t *testing.T) {
-	cfg := BurstConfig{
-		PreTradeEnabled:    true,
-		PreTradeMegaOnly:   true,
-		PreTradeWindowMs:   60_000,
-		PreTradeShortWindowMs: 30_000,
+	cfg := BurstConfig{MaxQuiet30UltraUSDT: 120, MaxQuiet30FlatUSDT: 280}
+	snap := PreTradeSnap{
+		Range60: 0.10, Range30: 0.08, Prior1s: 0.05, Quiet30: 36, Quiet60: 225, Trades30: 2,
 	}
-	d := NewBurstDetector(cfg)
-	now := time.Date(2026, 5, 13, 8, 0, 6, 0, time.UTC) // 13:30 IST
-
-	// Sparse dead tape: only 2 prints in the last 2s before burst (MLN 13:30 t30=2).
-	for i := 58; i < 60; i++ {
-		at := now.Add(-time.Duration(61-i) * time.Second)
-		d.ticks = append(d.ticks, tradeTick{at: at, price: 100, qty: 0.01, buyAggressive: true})
-	}
-	if reason := d.explainPreTradeReject(now); reason != "" {
-		t.Fatalf("flat mega tape should pass, got %q", reason)
+	if !matchesUltraFlatMegaProfile(cfg, snap) {
+		t.Fatal("MLN-like ultra flat should match")
 	}
 }
 
@@ -53,10 +43,53 @@ func TestPreTradeMegaOnlyRejectsChop(t *testing.T) {
 }
 
 func TestMatchesFlatMegaProfile(t *testing.T) {
-	if !matchesFlatMegaProfile(PreTradeSnap{
-		Range60: 0.10, Range30: 0.08, Prior1s: 0.05, Quiet30: 1000, Quiet60: 500, Trades30: 4,
+	cfg := BurstConfig{MaxQuiet30UltraUSDT: 120, MaxQuiet30FlatUSDT: 250}
+	if !matchesUltraFlatMegaProfile(cfg, PreTradeSnap{
+		Range60: 0.10, Range30: 0.08, Prior1s: 0.05, Quiet30: 36, Quiet60: 225, Trades30: 2,
 	}) {
-		t.Fatal("MLN-like snap should match flat mega")
+		t.Fatal("MLN-like snap should match ultra flat")
+	}
+	if !matchesStandardFlatMegaProfile(cfg, PreTradeSnap{
+		Range60: 0.38, Range30: 0.19, Prior1s: 0.09, Quiet30: 250, Quiet60: 1808, Trades30: 8,
+	}) {
+		t.Fatal("SYS-like snap should match standard flat")
+	}
+	if matchesFlatMegaProfile(cfg, PreTradeSnap{
+		Range60: 0.11, Range30: 0.09, Prior1s: 0.04, Quiet30: 306, Quiet60: 380, Trades30: 8,
+	}) {
+		t.Fatal("20 May TURTLE chop should not match flat tiers")
+	}
+}
+
+func TestLongPreTradeRejectsChop(t *testing.T) {
+	cfg := BurstConfig{
+		PreTradeEnabled:      true,
+		PreTradeMegaOnly:     true,
+		PreTradeLongWindowMs: 10_800_000,
+		MaxRangeLongPct:      5.5,
+		MaxPrior1sLongPct:    0.68,
+		MinNotionalLongUSDT:  150_000,
+	}
+	s := PreTradeSnap{
+		Range60: 0.21, Range30: 0.13, Prior1s: 0.11, Quiet30: 164, Quiet60: 1820, Trades30: 6,
+		Range2h: 2.23, Prior1s2h: 0.70, Quiet2h: 66_000,
+	}
+	if reason := explainLongPreTradeReject(cfg, s); reason == "" {
+		t.Fatal("TURTLE-like chop should fail min long notional")
+	}
+	s.Prior1s2h = 0.26
+	s.Range2h = 1.92
+	s.Quiet2h = 176_000
+	if reason := explainLongPreTradeReject(cfg, s); reason != "" {
+		t.Fatalf("MLN-like long tape should pass, got %q", reason)
+	}
+}
+
+func TestElevatedLongRejects2ZChop(t *testing.T) {
+	cfg := BurstConfig{PreTradeLongWindowMs: 10_800_000, MaxPrior1sLongElevatedPct: 0.55}
+	s := PreTradeSnap{Prior1s2h: 0.76}
+	if reason := explainElevatedLongReject(cfg, s); reason == "" {
+		t.Fatal("2Z elevated chop should fail long prior_1s")
 	}
 }
 

@@ -62,9 +62,12 @@ func main() {
 		"entry_IST", "side", "vol1s", "q60", "q30", "r60", "r30", "p1s", "t60", "t30", "profile")
 	for _, e := range entries {
 		prof := "—"
-		if e.snap.FlatMega {
+		switch {
+		case e.snap.FlatUltra:
+			prof = "ULTRA"
+		case e.snap.FlatStandard:
 			prof = "FLAT"
-		} else if e.snap.ElevatedMega {
+		case e.snap.ElevatedMega:
 			prof = "ELEV"
 		}
 		fmt.Printf("%s %-5s $%7.0f $%6.0f $%5.0f %5.2f%% %5.2f%% %4.2f%% %4d %4d %-4s move30=%.1f%%\n",

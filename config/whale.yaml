@@ -40,6 +40,13 @@ burst:
   pre_trade_mega_only: true
   pre_trade_window_ms: 60000
   pre_trade_short_window_ms: 30000
+  pre_trade_long_window_ms: 10800000  # 3h tape (10:30→13:30); blocks 20 May chop
+  max_range_long_pct: 5.5             # MLN 2.0% SYS 5.3%; blocks PHB 7.8%
+  max_prior_1s_long_pct: 0.68         # flat/ultra long max 1s spike
+  min_notional_long_usdt: 150000      # MLN ~$176k; blocks TURTLE/2Z ~$66–94k
+  max_quiet_30_ultra_usdt: 120        # MLN q30 ~$36
+  max_quiet_30_flat_usdt: 260         # SYS q30 ~$250; blocks KMNO ~$266, TURTLE ~$306
+  max_prior_1s_long_elevated_pct: 0.55 # AIGEN; blocks 2Z ELEV 0.76%
   # Legacy caps (used when pre_trade_mega_only: false)
   max_quiet_60s_usdt: 40000
   max_quiet_30s_usdt: 14000
@@ -66,6 +73,8 @@ risk:
   mega_trail_widen_peak_pct: 8.0
   mega_trail_widen_dist_pct: 3.5
   mega_trail_min_hold_ms: 2000
+  mega_confirm_window_ms: 60000       # exit if no +2% favorable peak in 60s
+  mega_confirm_min_favorable_pct: 2.0
 
 symbols_per_connection: 80
 dry_run: true
