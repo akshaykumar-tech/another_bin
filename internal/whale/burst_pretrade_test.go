@@ -49,6 +49,16 @@ func TestMatchesFlatMegaProfile(t *testing.T) {
 	}) {
 		t.Fatal("MLN-like snap should match ultra flat")
 	}
+	if matchesUltraFlatMegaProfile(cfg, PreTradeSnap{
+		Range60: 0.06, Range30: 0.00, Prior1s: 0.06, Quiet30: 44, Quiet60: 519, Trades30: 2,
+	}) {
+		t.Fatal("STG chop should not match ultra (q60>400)")
+	}
+	if matchesStandardFlatMegaProfile(cfg, PreTradeSnap{
+		Range60: 0.07, Range30: 0.06, Prior1s: 0.06, Quiet30: 196, Quiet60: 359, Trades30: 7,
+	}) {
+		t.Fatal("PARTI chop should not match flat (q60<800)")
+	}
 	if !matchesStandardFlatMegaProfile(cfg, PreTradeSnap{
 		Range60: 0.38, Range30: 0.19, Prior1s: 0.09, Quiet30: 250, Quiet60: 1808, Trades30: 8,
 	}) {

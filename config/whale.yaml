@@ -22,7 +22,12 @@ burst:
   signal_cooldown_ms: 400
   # Pump filters — only early violent starts (mega trail profile)
   quiet_before_ms: 5000
-  max_quiet_before_usdt: 10000
+  max_quiet_before_usdt: 3000           # fallback
+  max_quiet_before_ultra_usdt: 800        # MLN: ~silent 5s; chop posing as ultra fails here
+  max_quiet_before_flat_usdt: 1200        # SYS mega; normal 5s liq → reject
+  min_sec_quiet60_ratio_ultra: 12.0       # MLN low q60 → very high sec/q60
+  min_sec_quiet60_ratio_flat: 5.5         # SYS q60 ~$1808
+  min_burst_impulse_flat: 8.0             # standard flat: sec/quiet5 when 5s not dead
   min_volume_accel: 3.5
   min_fast_vol_share_pct: 30
   min_burst_impulse: 4.0
@@ -45,7 +50,11 @@ burst:
   max_prior_1s_long_pct: 0.68         # flat/ultra long max 1s spike
   min_notional_long_usdt: 150000      # MLN ~$176k; blocks TURTLE/2Z ~$66–94k
   max_quiet_30_ultra_usdt: 120        # MLN q30 ~$36
+  max_quiet_60_ultra_usdt: 400        # MLN q60 ~$225; blocks STG chop ultra ~$519
+  min_quiet_60_flat_usdt: 800         # SYS ~$1808; blocks PARTI flat ~$359
   max_quiet_30_flat_usdt: 260         # SYS q30 ~$250; blocks KMNO ~$266, TURTLE ~$306
+  max_quiet_60_flat_usdt: 2000        # SYS q60 ~$1808; blocks busier 60s before fake spikes
+  max_trades_30_flat: 8               # mega 30s prints ≤8; busier tape → reject
   max_prior_1s_long_elevated_pct: 0.55 # AIGEN; blocks 2Z ELEV 0.76%
   # Legacy caps (used when pre_trade_mega_only: false)
   max_quiet_60s_usdt: 40000

@@ -151,12 +151,35 @@ func explainElevatedLongReject(cfg BurstConfig, s PreTradeSnap) string {
 	return explainLongPreTradeReject(cfg, s)
 }
 
-func flatMegaCore(s PreTradeSnap) bool {
+func maxQuiet60Flat(cfg BurstConfig) float64 {
+	if cfg.MaxQuiet60FlatUSDT > 0 {
+		return cfg.MaxQuiet60FlatUSDT
+	}
+	return 2000
+}
+
+func maxTrades30Flat(cfg BurstConfig) int {
+	if cfg.MaxTrades30Flat > 0 {
+		return cfg.MaxTrades30Flat
+	}
+	return 8
+}
+
+// flatQuiet60Ceil separates flat-mega dead tape from elevated-mega busy tape (ratio gate).
+func flatQuiet60Ceil(cfg BurstConfig) float64 {
+	if m := cfg.MinQuiet60ElevatedUSDT; m > 0 {
+		return m * 0.85
+	}
+	return 30_000
+}
+
+func flatMegaCore(cfg BurstConfig, s PreTradeSnap) bool {
+	maxQ60 := maxQuiet60Flat(cfg)
 	return s.Range60 <= 0.45 &&
 		s.Range30 <= 0.28 &&
 		s.Prior1s <= 0.10 &&
-		s.Quiet60 >= 200 && s.Quiet60 <= 2500 &&
-		s.Trades30 <= 12
+		s.Quiet60 >= 200 && s.Quiet60 <= maxQ60 &&
+		s.Trades30 <= maxTrades30Flat(cfg)
 }
 
 func maxQuiet30Ultra(cfg BurstConfig) float64 {
@@ -166,6 +189,13 @@ func maxQuiet30Ultra(cfg BurstConfig) float64 {
 	return 120
 }
 
+func maxQuiet60Ultra(cfg BurstConfig) float64 {
+	if cfg.MaxQuiet60UltraUSDT > 0 {
+		return cfg.MaxQuiet60UltraUSDT
+	}
+	return 400
+}
+
 func maxQuiet30Flat(cfg BurstConfig) float64 {
 	if cfg.MaxQuiet30FlatUSDT > 0 {
 		return cfg.MaxQuiet30FlatUSDT
@@ -173,15 +203,26 @@ func maxQuiet30Flat(cfg BurstConfig) float64 {
 	return 260
 }
 
-// matchesUltraFlatMegaProfile: MLN @ 13 May 13:30 (q30 ~$36).
+// matchesUltraFlatMegaProfile: MLN @ 13 May 13:30 (q30 ~$36, q60 ~$225).
 func matchesUltraFlatMegaProfile(cfg BurstConfig, s PreTradeSnap) bool {
-	return flatMegaCore(s) && s.Quiet30 <= maxQuiet30Ultra(cfg)
+	return flatMegaCore(cfg, s) &&
+		s.Quiet30 <= maxQuiet30Ultra(cfg) &&
+		s.Quiet60 <= maxQuiet60Ultra(cfg)
 }
 
-// matchesStandardFlatMegaProfile: SYS @ 13 May 13:30 (q30 ~$250).
+func minQuiet60Flat(cfg BurstConfig) float64 {
+	if cfg.MinQuiet60FlatUSDT > 0 {
+		return cfg.MinQuiet60FlatUSDT
+	}
+	return 800
+}
+
+// matchesStandardFlatMegaProfile: SYS @ 13 May 13:30 (q30 ~$250, q60 ~$1808).
 func matchesStandardFlatMegaProfile(cfg BurstConfig, s PreTradeSnap) bool {
 	ultra := maxQuiet30Ultra(cfg)
-	return flatMegaCore(s) && s.Quiet30 > ultra && s.Quiet30 <= maxQuiet30Flat(cfg)
+	return flatMegaCore(cfg, s) &&
+		s.Quiet30 > ultra && s.Quiet30 <= maxQuiet30Flat(cfg) &&
+		s.Quiet60 >= minQuiet60Flat(cfg)
 }
 
 // matchesFlatMegaProfile is true for ultra or standard flat (diagnostics).

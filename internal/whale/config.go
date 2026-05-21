@@ -84,7 +84,13 @@ type BurstConfig struct {
 	// PumpOnly: stricter filters for violent pump starts (skip chop / counter-trend bursts).
 	PumpOnly            bool    `yaml:"pump_only"`
 	QuietBeforeMs       int     `yaml:"quiet_before_ms"`
-	MaxQuietBeforeUSDT  float64 `yaml:"max_quiet_before_usdt"`
+	MaxQuietBeforeUSDT       float64 `yaml:"max_quiet_before_usdt"`        // fallback 5s cap
+	MaxQuietBeforeUltraUSDT  float64 `yaml:"max_quiet_before_ultra_usdt"`  // MLN-style ultra flat
+	MaxQuietBeforeFlatUSDT   float64 `yaml:"max_quiet_before_flat_usdt"`   // SYS-style; blocks normal 5s liq chop
+	MinSecQuiet60Ratio       float64 `yaml:"min_sec_quiet60_ratio"`        // deprecated; use ultra/flat below
+	MinSecQuiet60RatioUltra  float64 `yaml:"min_sec_quiet60_ratio_ultra"`  // sec/q60 MLN (low q60)
+	MinSecQuiet60RatioFlat   float64 `yaml:"min_sec_quiet60_ratio_flat"`   // sec/q60 SYS (higher q60)
+	MinBurstImpulseFlat      float64 `yaml:"min_burst_impulse_flat"`       // stricter sec/quiet5 when flat std
 	MinVolumeAccel      float64 `yaml:"min_volume_accel"`
 	MinFastVolSharePct  float64 `yaml:"min_fast_vol_share_pct"`
 	MinBurstImpulse     float64 `yaml:"min_burst_impulse"`      // min sec$ / quiet$ before 1s leg
@@ -118,7 +124,11 @@ type BurstConfig struct {
 	MaxPrior1sLongPct    float64 `yaml:"max_prior_1s_long_pct"` // flat + ultra
 	MinNotionalLongUSDT  float64 `yaml:"min_notional_long_usdt"`
 	MaxQuiet30UltraUSDT  float64 `yaml:"max_quiet_30_ultra_usdt"`  // MLN-style (q30 ~$36)
+	MaxQuiet60UltraUSDT  float64 `yaml:"max_quiet_60_ultra_usdt"`  // MLN q60 ~$225; STG fake ultra ~$519
+	MinQuiet60FlatUSDT   float64 `yaml:"min_quiet_60_flat_usdt"`   // SYS ~$1808; PARTI chop ~$359 too thin
 	MaxQuiet30FlatUSDT   float64 `yaml:"max_quiet_30_flat_usdt"`   // SYS-style (q30 ~$250)
+	MaxQuiet60FlatUSDT   float64 `yaml:"max_quiet_60_flat_usdt"`   // cap 60s notional on flat mega (SYS ~$1808)
+	MaxTrades30Flat      int     `yaml:"max_trades_30_flat"`       // fewer prints = dead tape (mega ≤8)
 	MaxPrior1sLongElevatedPct float64 `yaml:"max_prior_1s_long_elevated_pct"`
 }
 

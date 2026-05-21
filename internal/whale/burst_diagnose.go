@@ -124,10 +124,18 @@ func (d *BurstDetector) explainPumpReject(now time.Time, side Side, fastMove, se
 		qStart := now.Add(-time.Duration(d.cfg.QuietBeforeMs) * time.Millisecond)
 		quietN = notionalBetween(d.ticks, qStart, secStart)
 	}
-	if d.cfg.MaxQuietBeforeUSDT > 0 && quietN > d.cfg.MaxQuietBeforeUSDT {
-		return fmt.Sprintf("quiet_before $%.0f > max $%.0f", quietN, d.cfg.MaxQuietBeforeUSDT)
+	snap := d.preTradeSnap(now)
+	maxQ5 := d.maxQuietBeforeUSDT(snap)
+	if maxQ5 > 0 && quietN > maxQ5 {
+		return fmt.Sprintf("quiet_before $%.0f > max $%.0f", quietN, maxQ5)
 	}
-	if imp := d.cfg.MinBurstImpulse; imp > 0 {
+	imp := d.cfg.MinBurstImpulse
+	if matchesStandardFlatMegaProfile(d.cfg, snap) {
+		if fi := d.cfg.MinBurstImpulseFlat; fi > 0 {
+			imp = fi
+		}
+	}
+	if imp > 0 {
 		if quietN < 500 {
 			// dead tape before burst — allow (ATA-style cascade from silence)
 		} else if secN/quietN < imp {
@@ -160,6 +168,52 @@ func (d *BurstDetector) explainPumpReject(now time.Time, side Side, fastMove, se
 	}
 	if secMove < 0 && secMove < -maxSec {
 		return fmt.Sprintf("sec_move %.2f%% < max -%.2f%%", secMove, maxSec)
+	}
+	if reason := d.explainLiquidityBlastReject(now, secN); reason != "" {
+		return reason
+	}
+	return ""
+}
+
+func (d *BurstDetector) maxQuietBeforeUSDT(snap PreTradeSnap) float64 {
+	if matchesUltraFlatMegaProfile(d.cfg, snap) {
+		if v := d.cfg.MaxQuietBeforeUltraUSDT; v > 0 {
+			return v
+		}
+	}
+	if matchesStandardFlatMegaProfile(d.cfg, snap) {
+		if v := d.cfg.MaxQuietBeforeFlatUSDT; v > 0 {
+			return v
+		}
+	}
+	return d.cfg.MaxQuietBeforeUSDT
+}
+
+// explainLiquidityBlastReject blocks normal-liquidity fake spikes (no entry delay).
+// Ultra (MLN): high sec/q60 ratio. Standard flat (SYS): lower ratio — global 11 wrongly blocked SYS.
+func (d *BurstDetector) explainLiquidityBlastReject(now time.Time, secN float64) string {
+	snap := d.preTradeSnap(now)
+	if secN <= 0 || snap.Quiet60 <= 0 || snap.Quiet60 >= flatQuiet60Ceil(d.cfg) {
+		return ""
+	}
+	var minR float64
+	switch {
+	case matchesUltraFlatMegaProfile(d.cfg, snap):
+		minR = d.cfg.MinSecQuiet60RatioUltra
+		if minR <= 0 {
+			minR = d.cfg.MinSecQuiet60Ratio
+		}
+	case matchesStandardFlatMegaProfile(d.cfg, snap):
+		minR = d.cfg.MinSecQuiet60RatioFlat
+		if minR <= 0 {
+			minR = 5.5
+		}
+	default:
+		minR = d.cfg.MinSecQuiet60Ratio
+	}
+	if minR > 0 && secN/snap.Quiet60 < minR {
+		return fmt.Sprintf("sec_vs_quiet60 %.1f < min %.1f (sec=$%.0f q60=$%.0f)",
+			secN/snap.Quiet60, minR, secN, snap.Quiet60)
 	}
 	return ""
 }
