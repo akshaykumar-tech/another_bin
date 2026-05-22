@@ -52,7 +52,10 @@ func DiagnoseBurstNear(cfg BurstConfig, trades []binance.AggTrade, target time.T
 		} else if cfg.PumpOnly && d.lastPumpReject != "" {
 			diag.RejectReason = d.lastPumpReject
 		}
-		if dist < bestDist || (dist == bestDist && sig != nil && !best.Fired) {
+		if sig != nil && !best.Fired {
+			bestDist = dist
+			best = diag
+		} else if !best.Fired && (dist < bestDist || (diag.RejectReason != "" && best.RejectReason == "")) {
 			bestDist = dist
 			best = diag
 		}
@@ -109,9 +112,34 @@ func priceAt(ticks []tradeTick, at time.Time) float64 {
 func (d *BurstDetector) explainPumpReject(now time.Time, side Side, fastMove, secMove, fastN, secN float64, secStart, fastStart time.Time) string {
 	absFast := math.Abs(fastMove)
 	absSec := math.Abs(secMove)
+	violent := d.isViolentCoordinatedBurst(absSec, secN)
 
-	if maxFast := d.cfg.MaxFastMovePct; maxFast > 0 && absFast > maxFast {
-		return fmt.Sprintf("fast_move %.2f%% > max %.2f%%", absFast, maxFast)
+	if violent {
+		if d.cfg.TrendWindowMs > 0 && d.cfg.MaxCounterTrendPct > 0 {
+			trendStart := now.Add(-time.Duration(d.cfg.TrendWindowMs) * time.Millisecond)
+			trendMove := priceMoveBetween(d.ticks, trendStart, now)
+			limit := d.cfg.MaxCounterTrendPct
+			if side == SideBuy && trendMove < -limit {
+				return fmt.Sprintf("counter_trend buy vs 60s %.2f%%", trendMove)
+			}
+			if side == SideSell && trendMove > limit {
+				return fmt.Sprintf("counter_trend sell vs 60s %.2f%%", trendMove)
+			}
+		}
+		maxSec := d.maxEntrySecMovePct(absSec, secN)
+		if secMove > 0 && secMove > maxSec {
+			return fmt.Sprintf("sec_move +%.2f%% > max %.2f%%", secMove, maxSec)
+		}
+		if secMove < 0 && secMove < -maxSec {
+			return fmt.Sprintf("sec_move %.2f%% < max -%.2f%%", secMove, maxSec)
+		}
+		return ""
+	}
+
+	if !violent {
+		if maxFast := d.cfg.MaxFastMovePct; maxFast > 0 && absFast > maxFast {
+			return fmt.Sprintf("fast_move %.2f%% > max %.2f%%", absFast, maxFast)
+		}
 	}
 	if align := d.cfg.MinMomentumAlign; align > 0 && absFast > 0 && absSec/absFast < align {
 		return fmt.Sprintf("momentum_align %.2f < min %.2f", absSec/absFast, align)
@@ -159,18 +187,17 @@ func (d *BurstDetector) explainPumpReject(now time.Time, side Side, fastMove, se
 			return fmt.Sprintf("counter_trend sell vs 60s %.2f%%", trendMove)
 		}
 	}
-	maxSec := d.cfg.MaxEntrySecMovePct
-	if maxSec <= 0 {
-		maxSec = 1.5
-	}
+	maxSec := d.maxEntrySecMovePct(absSec, secN)
 	if secMove > 0 && secMove > maxSec {
 		return fmt.Sprintf("sec_move +%.2f%% > max %.2f%%", secMove, maxSec)
 	}
 	if secMove < 0 && secMove < -maxSec {
 		return fmt.Sprintf("sec_move %.2f%% < max -%.2f%%", secMove, maxSec)
 	}
-	if reason := d.explainLiquidityBlastReject(now, secN); reason != "" {
-		return reason
+	if !d.isViolentCoordinatedBurst(absSec, secN) {
+		if reason := d.explainLiquidityBlastReject(now, secN); reason != "" {
+			return reason
+		}
 	}
 	return ""
 }

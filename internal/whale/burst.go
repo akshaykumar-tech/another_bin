@@ -21,6 +21,13 @@ func NewBurstDetector(cfg BurstConfig) *BurstDetector {
 	return &BurstDetector{cfg: cfg}
 }
 
+// LastPumpReject returns the most recent pump_only block reason (diagnostics).
+func (d *BurstDetector) LastPumpReject() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.lastPumpReject
+}
+
 func (d *BurstDetector) lookbackDur() time.Duration {
 	ms := d.cfg.SecWindowMs
 	if d.cfg.TrendWindowMs > ms {
@@ -130,30 +137,42 @@ func (d *BurstDetector) evaluate(now time.Time) *Signal {
 		minSecMove = 0
 	}
 
+	violent := d.isViolentCoordinatedBurst(absSec, secNotional)
 	burst := absFast >= minFast &&
 		fastNotional >= minFastN &&
 		secNotional >= minSecN &&
 		absSec >= minSecMove
+	// 22 May 13:30 dumps: whole 1s leg 8–15% without a separate 100ms ≥0.5% spike at probe ticks.
+	if !burst && violent {
+		burst = secNotional >= minSecN && absSec >= minSecMove
+	}
 
 	if !burst {
 		return d.tryCascade(now)
 	}
 
 	side := d.dominantSide(fastTicks, secTicks, secMove)
+	if side == "" && violent {
+		if secMove > 0 {
+			side = SideBuy
+		} else if secMove < 0 {
+			side = SideSell
+		}
+	}
 	if side == "" {
 		return nil
 	}
 
 	if d.cfg.PumpOnly {
 		d.lastPumpReject = ""
-		if maxN := d.cfg.MaxSecNotionalUSDT; maxN > 0 && secNotional > maxN {
+		if maxN := d.cfg.MaxSecNotionalUSDT; maxN > 0 && secNotional > maxN && !violent {
 			d.lastPumpReject = fmt.Sprintf("sec_notional $%.0f > max $%.0f", secNotional, maxN)
 			return nil
 		}
 		if !d.passesPumpFilters(now, side, fastMove, secMove, fastNotional, secNotional, secStart, fastStart) {
 			return nil
 		}
-		if !d.passesPreTradeFilters(now) {
+		if !d.passesPreTradeForBurst(now, absSec, secNotional) {
 			return nil
 		}
 	}
@@ -238,7 +257,7 @@ func (d *BurstDetector) tryCascade(now time.Time) *Signal {
 				return nil
 			}
 		}
-		if !d.passesPreTradeFilters(now) {
+		if !d.passesPreTradeForBurst(now, absMove, secN) {
 			return nil
 		}
 	}

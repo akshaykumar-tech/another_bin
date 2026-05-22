@@ -40,6 +40,16 @@ burst:
   min_cascade_move_pct: 2.5
   min_cascade_notional_usdt: 12000
   max_cascade_move_pct: 6.0
+  # Coordinated dump @ 13:30 (8–15% in one 1s) — not caught by 0.5% early mega / max_entry 0.7%
+  violent_burst_enabled: true
+  min_violent_sec_move_pct: 2.0
+  max_violent_sec_move_pct: 16.0
+  min_violent_sec_notional_usdt: 12000
+  max_range_long_violent_pct: 9.0
+  max_prior_1s_violent_pct: 0.45       # 60s pre-dump (not 3h); 11am warmup won't block 13:30 dump
+  max_prior_1s_long_violent_pct: 0      # off — was 1.2 on 3h tape and blocked all dumps
+  min_notional_long_violent_usdt: 0       # off: 3h vol needs live warmup; use q60 cap instead
+  max_quiet_60_violent_usdt: 8000         # DODOX ~$5.1k q60; blocks normal-day elevated chop >>8k
   # Pre-trade mega-only: only SYS/MLN-style flat mega OR AIGEN-style elevated mega tape
   pre_trade_enabled: true
   pre_trade_mega_only: true

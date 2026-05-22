@@ -130,6 +130,16 @@ type BurstConfig struct {
 	MaxQuiet60FlatUSDT   float64 `yaml:"max_quiet_60_flat_usdt"`   // cap 60s notional on flat mega (SYS ~$1808)
 	MaxTrades30Flat      int     `yaml:"max_trades_30_flat"`       // fewer prints = dead tape (mega ≤8)
 	MaxPrior1sLongElevatedPct float64 `yaml:"max_prior_1s_long_elevated_pct"`
+	// Violent coordinated dump (22 May 13:30 style): full 1s leg 2–16%, not 0.5% early entry.
+	ViolentBurstEnabled         bool    `yaml:"violent_burst_enabled"`
+	MinViolentSecMovePct        float64 `yaml:"min_violent_sec_move_pct"`
+	MaxViolentSecMovePct        float64 `yaml:"max_violent_sec_move_pct"`
+	MinViolentSecNotionalUSDT   float64 `yaml:"min_violent_sec_notional_usdt"`
+	MaxRangeLongViolentPct      float64 `yaml:"max_range_long_violent_pct"`
+	MaxPrior1sLongViolentPct    float64 `yaml:"max_prior_1s_long_violent_pct"` // deprecated: use max_prior_1s_violent_pct
+	MaxPrior1sViolentPct        float64 `yaml:"max_prior_1s_violent_pct"`      // 60s pre-dump max 1s spike
+	MinNotionalLongViolentUSDT  float64 `yaml:"min_notional_long_violent_usdt"`
+	MaxQuiet60ViolentUSDT       float64 `yaml:"max_quiet_60_violent_usdt"`
 }
 
 // BookLeadConfig predicts violent moves from bid/ask depth + trade flow before price runs.
