@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,8 +53,12 @@ func (c *FuturesClient) WarmSymbolCache() error {
 			PricePrecision   int    `json:"pricePrecision"`
 			QuantityPrecision int   `json:"quantityPrecision"`
 			Filters          []struct {
-				FilterType string `json:"filterType"`
-				TickSize   string `json:"tickSize"`
+				FilterType  string `json:"filterType"`
+				TickSize    string `json:"tickSize"`
+				StepSize    string `json:"stepSize"`
+				MinQty      string `json:"minQty"`
+				Notional    string `json:"notional"`
+				MinNotional string `json:"minNotional"`
 			} `json:"filters"`
 		} `json:"symbols"`
 	}
@@ -67,15 +73,30 @@ func (c *FuturesClient) WarmSymbolCache() error {
 		sym := strings.ToUpper(s.Symbol)
 		c.ruleMap[sym] = s.Status == "TRADING"
 		tick := "0.01"
+		stepSize := 0.0
+		minQty := 0.0
+		minNotional := 5.0
 		for _, f := range s.Filters {
-			if f.FilterType == "PRICE_FILTER" && strings.TrimSpace(f.TickSize) != "" {
-				tick = strings.TrimSpace(f.TickSize)
-				break
+			switch f.FilterType {
+			case "PRICE_FILTER":
+				if strings.TrimSpace(f.TickSize) != "" {
+					tick = strings.TrimSpace(f.TickSize)
+				}
+			case "LOT_SIZE":
+				stepSize = parseFilterFloat(f.StepSize)
+				minQty = parseFilterFloat(f.MinQty)
+			case "MIN_NOTIONAL":
+				if v := parseFilterFloat(f.Notional); v > 0 {
+					minNotional = v
+				}
 			}
 		}
 		c.lotRules[sym] = model.FuturesLotRules{
 			PriceTickSize:  tick,
 			PricePrecision: s.PricePrecision,
+			StepSize:       stepSize,
+			MinQty:         minQty,
+			MinNotional:    minNotional,
 		}
 	}
 	if err := c.loadLeverageBrackets(); err != nil {
@@ -418,33 +439,92 @@ func (c *FuturesClient) signedGet(path string, form url.Values) ([]byte, int, er
 	return resp.Body(), resp.StatusCode(), nil
 }
 
-func (c *FuturesClient) MarketOrderQty(symbol, side string, qty float64) (map[string]any, error) {
-	if !c.Configured() {
-		return nil, fmt.Errorf("binance futures client not configured")
+func parseFilterFloat(s string) float64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	v, _ := strconv.ParseFloat(s, 64)
+	return v
+}
+
+func floorToStep(qty, step float64) float64 {
+	if step <= 0 {
+		return qty
+	}
+	return math.Floor(qty/step) * step
+}
+
+func (c *FuturesClient) formatQty(symbol string, qty float64) (float64, error) {
+	rules, err := c.LotRules(symbol)
+	if err != nil {
+		return qty, err
+	}
+	q := floorToStep(qty, rules.StepSize)
+	if rules.MinQty > 0 && q < rules.MinQty {
+		q = rules.MinQty
+	}
+	if q <= 0 {
+		return 0, fmt.Errorf("quantity rounds to zero")
+	}
+	return q, nil
+}
+
+func (c *FuturesClient) marketOrderOpenQty(symbol, side string, qty float64) (map[string]any, error) {
+	q, err := c.formatQty(symbol, qty)
+	if err != nil {
+		return nil, err
 	}
 	form := url.Values{}
 	form.Set("symbol", strings.ToUpper(symbol))
 	form.Set("side", strings.ToUpper(side))
 	form.Set("type", "MARKET")
-	form.Set("quantity", fmt.Sprintf("%.8f", qty))
+	form.Set("quantity", fmt.Sprintf("%.8f", q))
+	form.Set("newOrderRespType", "RESULT")
+	return c.signedPostOrder(form)
+}
+
+func (c *FuturesClient) MarketOrderQty(symbol, side string, qty float64) (map[string]any, error) {
+	if !c.Configured() {
+		return nil, fmt.Errorf("binance futures client not configured")
+	}
+	q, err := c.formatQty(symbol, qty)
+	if err != nil {
+		return nil, err
+	}
+	form := url.Values{}
+	form.Set("symbol", strings.ToUpper(symbol))
+	form.Set("side", strings.ToUpper(side))
+	form.Set("type", "MARKET")
+	form.Set("quantity", fmt.Sprintf("%.8f", q))
 	form.Set("reduceOnly", "true")
 	form.Set("newOrderRespType", "RESULT")
 	return c.signedPostOrder(form)
 }
 
-// MarketOrder opens with quoteOrderQty in USDT (use notional = margin * leverage).
-func (c *FuturesClient) MarketOrder(symbol, side string, quoteOrderQtyUSDT float64) (map[string]any, error) {
+// MarketOrder opens a MARKET position using quantity derived from USDT notional (works on all USDT-M symbols).
+func (c *FuturesClient) MarketOrder(symbol, side string, notionalUSDT float64) (map[string]any, error) {
 	if !c.Configured() {
 		return nil, fmt.Errorf("binance futures client not configured (missing API key/secret)")
 	}
-	if quoteOrderQtyUSDT < 5 {
-		return nil, fmt.Errorf("quoteOrderQty %.2f below min ~5 USDT", quoteOrderQtyUSDT)
+	rules, err := c.LotRules(symbol)
+	if err != nil {
+		return nil, err
 	}
-	form := url.Values{}
-	form.Set("symbol", strings.ToUpper(symbol))
-	form.Set("side", strings.ToUpper(side))
-	form.Set("type", "MARKET")
-	form.Set("quoteOrderQty", fmt.Sprintf("%.2f", quoteOrderQtyUSDT))
-	form.Set("newOrderRespType", "RESULT")
-	return c.signedPostOrder(form)
+	minN := rules.MinNotional
+	if minN <= 0 {
+		minN = 5
+	}
+	if notionalUSDT < minN {
+		return nil, fmt.Errorf("notional %.2f below min %.2f USDT", notionalUSDT, minN)
+	}
+	price, err := c.MarkPrice(symbol)
+	if err != nil {
+		return nil, err
+	}
+	if price <= 0 {
+		return nil, fmt.Errorf("invalid mark price")
+	}
+	qty := notionalUSDT / price
+	return c.marketOrderOpenQty(symbol, side, qty)
 }

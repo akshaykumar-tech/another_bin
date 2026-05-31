@@ -44,23 +44,40 @@ func (e *Executor) reverseLeverage(sym string) int {
 	return lev
 }
 
-func (e *Executor) reverseLiveMargin(sig *Signal) (float64, error) {
-	bal, err := e.client.AvailableUSDTBalance()
+func (e *Executor) reverseLiveSizing(sym string) (margin, notional float64, lev int, bal float64, err error) {
+	bal, err = e.client.AvailableUSDTBalance()
 	if err != nil {
-		return 0, fmt.Errorf("fetch balance: %w", err)
+		return 0, 0, 0, 0, fmt.Errorf("fetch balance: %w", err)
 	}
 	if bal <= 0 {
-		return 0, fmt.Errorf("available balance is zero")
+		return 0, 0, 0, bal, fmt.Errorf("available balance is zero")
 	}
 	if e.cfg.AllocationPercent <= 0 {
-		return 0, fmt.Errorf("WHALE_ALLOCATION_PERCENT not set")
+		return 0, 0, 0, bal, fmt.Errorf("WHALE_ALLOCATION_PERCENT not set")
 	}
+	lev = e.reverseLeverage(sym)
 	pct := e.cfg.AllocationPercent / 100
 	maxPct := e.cfg.Risk.MaxPositionPercent / 100
 	if maxPct > 0 && pct > maxPct {
 		pct = maxPct
 	}
-	return bal * pct, nil
+	margin = bal * pct
+	notional = margin * float64(lev)
+	const minNotional = 5.0
+	if notional < minNotional {
+		needMargin := minNotional / float64(lev)
+		maxMargin := bal
+		if maxPct > 0 && maxMargin > bal*maxPct {
+			maxMargin = bal * maxPct
+		}
+		if needMargin <= maxMargin {
+			margin = needMargin
+			notional = minNotional
+			log.Printf("[whale] reverse bump %s: margin raised to %.2f USDT for min $5 notional (bal=%.2f alloc=%.0f%% lev=%dx)",
+				sym, margin, bal, e.cfg.AllocationPercent, lev)
+		}
+	}
+	return margin, notional, lev, bal, nil
 }
 
 func (e *Executor) openReverseLive(sig *Signal, signalEntry float64) {
@@ -74,14 +91,24 @@ func (e *Executor) openReverseLive(sig *Signal, signalEntry float64) {
 	if err := e.client.SetLeverage(sym, lev); err != nil {
 		log.Printf("[whale] reverse set leverage %s %dx: %v", sym, lev, err)
 	}
-	margin, err := e.reverseLiveMargin(sig)
+	margin, notional, lev, bal, err := e.reverseLiveSizing(sym)
 	if err != nil {
 		log.Printf("[whale] reverse skip %s: %v", sym, err)
 		return
 	}
-	notional := margin * float64(lev)
 	if notional < 5 {
-		log.Printf("[whale] reverse skip %s: notional %.2f < 5 USDT", sym, notional)
+		maxNotional := margin * float64(lev)
+		if maxPct := e.cfg.Risk.MaxPositionPercent; maxPct > 0 {
+			maxNotional = bal * (maxPct / 100) * float64(lev)
+		} else {
+			maxNotional = bal * float64(lev)
+		}
+		needBal := 5.0 / (float64(lev) * (e.cfg.AllocationPercent / 100))
+		if maxPct := e.cfg.Risk.MaxPositionPercent; maxPct > 0 && maxPct < e.cfg.AllocationPercent {
+			needBal = 5.0 / (float64(lev) * (maxPct / 100))
+		}
+		log.Printf("[whale] reverse skip %s: notional %.2f < 5 USDT (bal=%.2f alloc=%.0f%% lev=%dx max_notional=%.2f; need ~%.2f USDT balance or higher WHALE_ALLOCATION_PERCENT)",
+			sym, notional, bal, e.cfg.AllocationPercent, lev, maxNotional, needBal)
 		return
 	}
 
