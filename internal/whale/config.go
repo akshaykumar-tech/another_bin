@@ -36,6 +36,8 @@ type Config struct {
 	WebSocket WebSocketCfg `yaml:"websocket"`
 
 	DryRun           bool    `yaml:"dry_run"`
+	ReverseLive      bool    `yaml:"reverse_live"` // sim signals unchanged; place opposite real orders on Binance
+	MaxLeverageCap   int     `yaml:"max_leverage_cap"` // min(symbol max, cap); default 50
 	TradeLogPath     string  `yaml:"trade_log_path"` // append-only ENTRY/EXIT log (default whale-trades.log)
 	DrySimMode       string  `yaml:"dry_sim_mode"`   // tick (aggTrade entry/exit) or mark (REST mark poll)
 	DryEntrySlippageBps float64 `yaml:"dry_entry_slippage_bps"`
@@ -322,6 +324,17 @@ func applyEnv(c *Config) {
 	if v := strings.TrimSpace(os.Getenv("WHALE_DRY_SIM_MODE")); v != "" {
 		c.DrySimMode = strings.ToLower(v)
 	}
+	if v := strings.TrimSpace(os.Getenv("WHALE_REVERSE_LIVE")); v != "" {
+		c.ReverseLive = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := strings.TrimSpace(os.Getenv("WHALE_MAX_LEVERAGE")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.MaxLeverageCap = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("WHALE_USE_LIVE_BALANCE")); v != "" {
+		c.UseLiveBalance = strings.EqualFold(v, "true") || v == "1"
+	}
 }
 
 func (c *Config) UsesTickDrySim() bool {
@@ -424,6 +437,14 @@ func (c *Config) normalize() {
 	}
 	if c.SymbolsPerConnection <= 0 {
 		c.SymbolsPerConnection = 80
+	}
+	if c.ReverseLive {
+		if c.AllocationPercent <= 0 {
+			c.AllocationPercent = 5 // required for live reverse sizing
+		}
+	}
+	if c.MaxLeverageCap <= 0 {
+		c.MaxLeverageCap = 50
 	}
 	if c.Risk.PartialExitFraction <= 0 || c.Risk.PartialExitFraction > 1 {
 		c.Risk.PartialExitFraction = 0.5

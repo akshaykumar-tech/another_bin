@@ -16,6 +16,8 @@ type TradeJournal struct {
 
 	cumulativePnL float64
 	tradeCount    int
+	liveCumulativePnL float64
+	liveTradeCount    int
 }
 
 func NewTradeJournal(path string) (*TradeJournal, error) {
@@ -44,7 +46,7 @@ func (j *TradeJournal) ensureHeader() error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return j.appendLine("# whale trade journal — ENTRY / PARTIAL / EXIT (tab-separated; cumulative_usdt = running total)")
+	return j.appendLine("# whale trade journal — ENTRY/EXIT sim=tick + LIVE_ENTRY/LIVE_EXIT reverse Binance (tab-separated)")
 }
 
 func (j *TradeJournal) LogEntry(sig *Signal, entryPrice, margin float64, leverage int, simMode string) {
@@ -117,6 +119,66 @@ func priceChangePct(side Side, entry, exit float64) float64 {
 		return (exit - entry) / entry * 100
 	}
 	return (entry - exit) / entry * 100
+}
+
+func (j *TradeJournal) LogLiveEntry(sig *Signal, signalEntry, liveEntry, margin float64, leverage int) {
+	if j == nil || sig == nil {
+		return
+	}
+	realSide := oppositeSide(sig.Side)
+	lev := leverage
+	if lev <= 0 {
+		lev = 1
+	}
+	notional := margin * float64(lev)
+	slipBps := 0.0
+	if signalEntry > 0 && liveEntry > 0 {
+		slipBps = (liveEntry - signalEntry) / signalEntry * 10000
+		if sig.Side == SideSell {
+			slipBps = -slipBps
+		}
+	}
+	kind := string(sig.Kind)
+	if sig.Kind == SignalBurst {
+		kind = "burst"
+	}
+	line := fmt.Sprintf("LIVE_ENTRY\t%s\t%s\t%s\t%s\tsignal_side=%s\treal_side=%s\tfast=%.2f%%\t1s=%.2f%%\tvol=$%.0f\tsignal_entry=%.6f\tlive_entry=%.6f\tentry_slip_bps=%+.1f\tmargin=%.2f\tlev=%dx\tnotional=%.2f",
+		time.Now().UTC().Format(time.RFC3339),
+		sig.Side, sig.Symbol, kind,
+		sig.Side, realSide,
+		sig.FastMove, sig.MovePct, sig.SecVolume,
+		signalEntry, liveEntry, slipBps, margin, lev, notional)
+	_ = j.appendLine(line)
+}
+
+func (j *TradeJournal) LogLiveExit(rp *reversePosition, signalExit, liveExit float64, at time.Time, reason string, pnlUSDT, pnlPct float64) {
+	if j == nil || rp == nil {
+		return
+	}
+	hold := at.Sub(rp.OpenedAt).Round(time.Second)
+	exitSlipBps := 0.0
+	if signalExit > 0 && liveExit > 0 {
+		exitSlipBps = (liveExit - signalExit) / signalExit * 10000
+		if rp.RealSide == SideSell {
+			exitSlipBps = -exitSlipBps
+		}
+	}
+	j.mu.Lock()
+	j.liveCumulativePnL += pnlUSDT
+	j.liveTradeCount++
+	cum := j.liveCumulativePnL
+	n := j.liveTradeCount
+	j.mu.Unlock()
+	lev := rp.Leverage
+	if lev <= 0 {
+		lev = 1
+	}
+	line := fmt.Sprintf("LIVE_EXIT\t%s\t%s\t%s\treason=%s\tsignal_side=%s\treal_side=%s\tsignal_exit=%.6f\tlive_exit=%.6f\texit_slip_bps=%+.1f\tpnl_pct=%+.2f\tpnl_usdt=%+.2f\tlev=%dx\thold=%s\tlive_cumulative_usdt=%+.2f\tlive_trades=%d",
+		at.UTC().Format(time.RFC3339),
+		rp.SignalSide, rp.Symbol, reason,
+		rp.SignalSide, rp.RealSide,
+		signalExit, liveExit, exitSlipBps, pnlPct, pnlUSDT, lev, hold, cum, n)
+	_ = j.appendLine(line)
 }
 
 func (j *TradeJournal) appendLine(line string) error {

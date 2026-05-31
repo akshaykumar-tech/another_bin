@@ -21,6 +21,7 @@ type Executor struct {
 	active     map[string]*position
 	dryOpen    map[string]*simPosition
 	dryPartial map[string]float64
+	reverseLive map[string]*reversePosition
 }
 
 type position struct {
@@ -45,6 +46,7 @@ func NewExecutor(cfg Config, client *binance.FuturesClient, journal *TradeJourna
 		active:     make(map[string]*position),
 		dryOpen:    make(map[string]*simPosition),
 		dryPartial: make(map[string]float64),
+		reverseLive: make(map[string]*reversePosition),
 	}
 }
 
@@ -70,6 +72,12 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 		if _, busy := e.dryOpen[sym]; busy {
 			e.mu.Unlock()
 			return
+		}
+		if e.cfg.ReverseLive {
+			if _, live := e.reverseLive[sym]; live {
+				e.mu.Unlock()
+				return
+			}
 		}
 	} else if _, busy := e.active[sym]; busy {
 		e.mu.Unlock()
@@ -104,6 +112,9 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 		e.openCount++
 		e.lastTrade[sym] = time.Now()
 		e.mu.Unlock()
+		if e.cfg.ReverseLive {
+			go e.openReverseLive(sig, entry)
+		}
 		if e.cfg.UsesTickDrySim() {
 			go e.dryRunTimeout(ctx, sym)
 		} else {
@@ -179,12 +190,8 @@ func (e *Executor) simEntryPrice(sig *Signal) float64 {
 }
 
 func (e *Executor) marginAndLeverage(sig *Signal) (margin float64, leverage int) {
+	// Dry-run sim only — fixed paper capital from WHALE_CAPITAL_USDT / whale.yaml.
 	capital := e.cfg.CapitalUSDT
-	if e.cfg.UseLiveBalance {
-		if bal, err := e.client.AvailableUSDTBalance(); err == nil && bal > 0 {
-			capital = bal
-		}
-	}
 	var pct float64
 	if e.cfg.AllocationPercent > 0 {
 		pct = e.cfg.AllocationPercent / 100
@@ -281,6 +288,7 @@ func (e *Executor) closeDry(sym, reason string) {
 	if e.journal != nil {
 		e.journal.LogExit(e.cfg.Risk, pos, exit, at, reason, part)
 	}
+	e.closeReverseLive(sym, exit, reason, at)
 }
 
 func (e *Executor) manageDryRunMarkPoll(ctx context.Context, pos *simPosition) {
@@ -330,6 +338,9 @@ func (e *Executor) dryExitStep(pos *simPosition, price float64, at time.Time) bo
 		e.mu.Lock()
 		e.dryPartial[pos.Symbol] += partial
 		e.mu.Unlock()
+		if e.cfg.ReverseLive {
+			e.reduceReverseLive(pos.Symbol, e.cfg.Risk.PartialExitFraction)
+		}
 		if e.journal != nil {
 			e.journal.LogPartial(pos.Symbol, pos.Side, partial, at)
 		}
@@ -344,6 +355,7 @@ func (e *Executor) dryExitStep(pos *simPosition, price float64, at time.Time) bo
 		if e.journal != nil {
 			e.journal.LogExit(e.cfg.Risk, pos, price, at, reason, part)
 		}
+		e.closeReverseLive(pos.Symbol, price, reason, at)
 		return true
 	}
 	return false
