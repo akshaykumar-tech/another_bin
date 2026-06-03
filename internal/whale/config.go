@@ -36,7 +36,7 @@ type Config struct {
 	WebSocket WebSocketCfg `yaml:"websocket"`
 
 	DryRun           bool    `yaml:"dry_run"`
-	ReverseLive      bool    `yaml:"reverse_live"` // sim signals unchanged; place opposite real orders on Binance
+	ReverseLive      bool    `yaml:"reverse_live"` // WHALE_REVERSE_LIVE: sim + real orders same direction as signal
 	MaxLeverageCap   int     `yaml:"max_leverage_cap"` // min(symbol max, cap); default 50
 	TradeLogPath     string  `yaml:"trade_log_path"` // append-only ENTRY/EXIT log (default whale-trades.log)
 	DrySimMode       string  `yaml:"dry_sim_mode"`   // tick (aggTrade entry/exit) or mark (REST mark poll)

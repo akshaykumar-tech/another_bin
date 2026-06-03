@@ -57,23 +57,16 @@ func (e *Executor) reverseLiveSizing(sym string) (margin, notional float64, lev 
 	}
 	lev = e.reverseLeverage(sym)
 	pct := e.cfg.AllocationPercent / 100
-	maxPct := e.cfg.Risk.MaxPositionPercent / 100
-	if maxPct > 0 && pct > maxPct {
-		pct = maxPct
-	}
+	// Live sizing uses WHALE_ALLOCATION_PERCENT only (yaml max_position_percent is sim-only).
 	margin = bal * pct
 	notional = margin * float64(lev)
 	const minNotional = 5.0
 	if notional < minNotional {
 		needMargin := minNotional / float64(lev)
-		maxMargin := bal
-		if maxPct > 0 && maxMargin > bal*maxPct {
-			maxMargin = bal * maxPct
-		}
-		if needMargin <= maxMargin {
+		if needMargin <= margin {
 			margin = needMargin
 			notional = minNotional
-			log.Printf("[whale] reverse bump %s: margin raised to %.2f USDT for min $5 notional (bal=%.2f alloc=%.0f%% lev=%dx)",
+			log.Printf("[whale] live bump %s: margin raised to %.2f USDT for min $5 notional (bal=%.2f alloc=%.0f%% lev=%dx)",
 				sym, margin, bal, e.cfg.AllocationPercent, lev)
 		}
 	}
@@ -85,29 +78,22 @@ func (e *Executor) openReverseLive(sig *Signal, signalEntry float64) {
 		return
 	}
 	sym := sig.Symbol
-	realSide := oppositeSide(sig.Side)
+	// Same direction as burst signal (BUY signal → BUY live, SELL → SELL).
+	realSide := sig.Side
 
 	lev := e.reverseLeverage(sym)
 	if err := e.client.SetLeverage(sym, lev); err != nil {
-		log.Printf("[whale] reverse set leverage %s %dx: %v", sym, lev, err)
+		log.Printf("[whale] live set leverage %s %dx: %v", sym, lev, err)
 	}
 	margin, notional, lev, bal, err := e.reverseLiveSizing(sym)
 	if err != nil {
-		log.Printf("[whale] reverse skip %s: %v", sym, err)
+		log.Printf("[whale] live skip %s: %v", sym, err)
 		return
 	}
 	if notional < 5 {
-		maxNotional := margin * float64(lev)
-		if maxPct := e.cfg.Risk.MaxPositionPercent; maxPct > 0 {
-			maxNotional = bal * (maxPct / 100) * float64(lev)
-		} else {
-			maxNotional = bal * float64(lev)
-		}
+		maxNotional := bal * (e.cfg.AllocationPercent / 100) * float64(lev)
 		needBal := 5.0 / (float64(lev) * (e.cfg.AllocationPercent / 100))
-		if maxPct := e.cfg.Risk.MaxPositionPercent; maxPct > 0 && maxPct < e.cfg.AllocationPercent {
-			needBal = 5.0 / (float64(lev) * (maxPct / 100))
-		}
-		log.Printf("[whale] reverse skip %s: notional %.2f < 5 USDT (bal=%.2f alloc=%.0f%% lev=%dx max_notional=%.2f; need ~%.2f USDT balance or higher WHALE_ALLOCATION_PERCENT)",
+		log.Printf("[whale] live skip %s: notional %.2f < 5 USDT (bal=%.2f alloc=%.0f%% lev=%dx max_notional=%.2f; need ~%.2f USDT balance)",
 			sym, notional, bal, e.cfg.AllocationPercent, lev, maxNotional, needBal)
 		return
 	}
@@ -115,12 +101,12 @@ func (e *Executor) openReverseLive(sig *Signal, signalEntry float64) {
 	start := time.Now()
 	resp, err := e.client.MarketOrder(sym, string(realSide), notional)
 	if err != nil {
-		log.Printf("[whale] reverse OPEN failed %s %s: %v (%s)", realSide, sym, err, time.Since(start))
+		log.Printf("[whale] live OPEN failed %s %s: %v (%s)", realSide, sym, err, time.Since(start))
 		return
 	}
 	entry, qty := parseFill(resp)
 	if entry <= 0 || qty <= 0 {
-		log.Printf("[whale] reverse OPEN bad fill %s %s", realSide, sym)
+		log.Printf("[whale] live OPEN bad fill %s %s", realSide, sym)
 		return
 	}
 
@@ -133,8 +119,8 @@ func (e *Executor) openReverseLive(sig *Signal, signalEntry float64) {
 	e.reverseLive[sym] = rp
 	e.mu.Unlock()
 
-	log.Printf("[whale] reverse OPEN %s %s signal=%s entry=%.6f live=%.6f qty=%.8f margin=%.2f lev=%dx (%s)",
-		realSide, sym, sig.Side, signalEntry, entry, qty, margin, lev, time.Since(start))
+	log.Printf("[whale] live OPEN %s %s entry=%.6f live=%.6f qty=%.8f margin=%.2f lev=%dx (%s)",
+		realSide, sym, signalEntry, entry, qty, margin, lev, time.Since(start))
 
 	if e.journal != nil {
 		e.journal.LogLiveEntry(sig, signalEntry, entry, margin, lev)
@@ -163,7 +149,7 @@ func (e *Executor) reduceReverseLive(sym string, fraction float64) {
 	closeSide := string(oppositeSide(rp.RealSide))
 	_, err := e.client.MarketOrderQty(sym, closeSide, closeQty)
 	if err != nil {
-		log.Printf("[whale] reverse PARTIAL close %s: %v", sym, err)
+		log.Printf("[whale] live PARTIAL close %s: %v", sym, err)
 	}
 }
 
@@ -185,7 +171,7 @@ func (e *Executor) closeReverseLive(sym string, signalExit float64, reason strin
 	if rp.Qty > 0 {
 		resp, err := e.client.MarketOrderQty(sym, closeSide, rp.Qty)
 		if err != nil {
-			log.Printf("[whale] reverse CLOSE failed %s %s: %v", closeSide, sym, err)
+			log.Printf("[whale] live CLOSE failed %s %s: %v", closeSide, sym, err)
 			liveExit, _ = e.client.MarkPrice(sym)
 		} else {
 			liveExit, _ = parseFill(resp)
@@ -203,7 +189,7 @@ func (e *Executor) closeReverseLive(sym string, signalExit float64, reason strin
 	pnl := closeSimPnL(e.cfg.Risk, simPos, liveExit)
 	ch := priceChangePct(rp.RealSide, rp.EntryPrice, liveExit)
 
-	log.Printf("[whale] reverse EXIT %s %s reason=%s signal_exit=%.6f live_exit=%.6f pnl=%+.2f USDT (%+.2f%%) hold=%s",
+	log.Printf("[whale] live EXIT %s %s reason=%s signal_exit=%.6f live_exit=%.6f pnl=%+.2f USDT (%+.2f%%) hold=%s",
 		rp.RealSide, sym, reason, signalExit, liveExit, pnl, ch, at.Sub(rp.OpenedAt).Round(time.Second))
 
 	if e.journal != nil {

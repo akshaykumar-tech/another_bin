@@ -74,7 +74,7 @@ func main() {
 		if whaleCfg.AllocationPercent <= 0 {
 			log.Fatal("[whale] WHALE_REVERSE_LIVE requires WHALE_ALLOCATION_PERCENT (live balance × pct per trade)")
 		}
-		log.Printf("[whale] reverse mode: signal BUY→real SELL, signal SELL→real BUY; margin=live_balance×%.1f%%",
+		log.Printf("[whale] live mode: signal BUY→real BUY, signal SELL→real SELL; margin=live_balance×%.1f%%",
 			whaleCfg.AllocationPercent)
 	}
 

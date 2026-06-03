@@ -79,7 +79,7 @@ burst:
 risk:
   normal_risk_percent: 2.0
   mega_risk_percent: 5.0
-  max_position_percent: 5.0
+  max_position_percent: 5.0   # dry-run sim cap only; live uses WHALE_ALLOCATION_PERCENT as-is
   stop_loss_percent: 1.5
   take_profit_percent_1: 3.0
   take_profit_percent_2: 6.0
@@ -97,13 +97,13 @@ risk:
 
 symbols_per_connection: 80
 dry_run: true
-reverse_live: false   # true + WHALE_REVERSE_LIVE=1 → sim tick + opposite real Binance orders
-max_leverage_cap: 50  # min(symbol max leverage, this cap) for reverse live orders
+reverse_live: false   # true + WHALE_REVERSE_LIVE=1 → sim tick + same-direction real Binance orders
+max_leverage_cap: 50  # min(symbol max leverage, this cap) for live orders
 dry_sim_mode: tick                  # tick = aggTrade entry/exit (realistic); mark = REST mark poll
 dry_entry_slippage_bps: 5           # optional paper slippage on entry (0 = off)
 dry_exit_slippage_bps: 5
 trade_log_path: "whale-trades.log"   # cat whale-trades.log — ENTRY/EXIT/PnL per signal
-capital_usdt: 1000                   # dry-run sim only; reverse live uses Binance balance × WHALE_ALLOCATION_PERCENT
+capital_usdt: 1000                   # dry-run sim only; live uses Binance balance × WHALE_ALLOCATION_PERCENT
 cooldown_sec: 1800          # 30 min per symbol — one pump episode
 max_open_positions: 1
 

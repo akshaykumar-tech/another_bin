@@ -46,7 +46,7 @@ func (j *TradeJournal) ensureHeader() error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return j.appendLine("# whale trade journal — ENTRY/EXIT sim=tick + LIVE_ENTRY/LIVE_EXIT reverse Binance (tab-separated)")
+	return j.appendLine("# whale trade journal — ENTRY/EXIT sim=tick + LIVE_ENTRY/LIVE_EXIT same-direction Binance (tab-separated)")
 }
 
 func (j *TradeJournal) LogEntry(sig *Signal, entryPrice, margin float64, leverage int, simMode string) {
@@ -125,7 +125,7 @@ func (j *TradeJournal) LogLiveEntry(sig *Signal, signalEntry, liveEntry, margin 
 	if j == nil || sig == nil {
 		return
 	}
-	realSide := oppositeSide(sig.Side)
+	realSide := sig.Side // same direction as signal
 	lev := leverage
 	if lev <= 0 {
 		lev = 1
