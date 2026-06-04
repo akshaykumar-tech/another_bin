@@ -75,11 +75,22 @@ func (e *Executor) reverseLiveSizing(sym string) (margin, notional float64, lev 
 	return margin, notional, lev, bal, nil
 }
 
+func (e *Executor) dryStillOpen(sym string) bool {
+	e.mu.Lock()
+	_, ok := e.dryOpen[sym]
+	e.mu.Unlock()
+	return ok
+}
+
 func (e *Executor) openReverseLive(sig *Signal, signalEntry float64) {
 	if !e.cfg.ReverseLive || !e.client.Configured() {
 		return
 	}
 	sym := sig.Symbol
+	if !e.dryStillOpen(sym) {
+		log.Printf("[whale] live skip %s: sim already closed", sym)
+		return
+	}
 	realSide := sig.Side
 	if e.cfg.ReverseTrade {
 		realSide = oppositeSide(sig.Side)
@@ -99,6 +110,11 @@ func (e *Executor) openReverseLive(sig *Signal, signalEntry float64) {
 		needBal := 5.0 / (float64(lev) * (e.cfg.AllocationPercent / 100))
 		log.Printf("[whale] live skip %s: notional %.2f < 5 USDT (bal=%.2f alloc=%.0f%% lev=%dx max_notional=%.2f; need ~%.2f USDT balance)",
 			sym, notional, bal, e.cfg.AllocationPercent, lev, maxNotional, needBal)
+		return
+	}
+
+	if !e.dryStillOpen(sym) {
+		log.Printf("[whale] live skip %s: sim closed before order", sym)
 		return
 	}
 
