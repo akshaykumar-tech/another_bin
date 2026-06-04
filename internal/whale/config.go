@@ -36,17 +36,26 @@ type Config struct {
 	WebSocket WebSocketCfg `yaml:"websocket"`
 
 	DryRun           bool    `yaml:"dry_run"`
-	ReverseLive      bool    `yaml:"reverse_live"` // WHALE_REVERSE_LIVE: sim + real orders same direction as signal
+	// ReverseTrade: execute opposite of burst signal (signal BUY → trade SELL). Same detector, flipped PnL.
+	ReverseTrade     bool    `yaml:"reverse_trade"`
+	ReverseLive      bool    `yaml:"reverse_live"` // WHALE_REVERSE_LIVE: real Binance orders (opposite if reverse_trade)
+	ReverseStopLossPct float64 `yaml:"reverse_stop_loss_pct"` // 0 = use risk.mega_stop_loss_percent
 	MaxLeverageCap   int     `yaml:"max_leverage_cap"` // min(symbol max, cap); default 50
 	TradeLogPath     string  `yaml:"trade_log_path"` // append-only ENTRY/EXIT log (default whale-trades.log)
 	DrySimMode       string  `yaml:"dry_sim_mode"`   // tick (aggTrade entry/exit) or mark (REST mark poll)
 	DryEntrySlippageBps float64 `yaml:"dry_entry_slippage_bps"`
 	DryExitSlippageBps  float64 `yaml:"dry_exit_slippage_bps"`
+	// Backtest realism (aggTrade replay): signal → fill delay + adverse slip (live logs ~35ms / ~40bps).
+	BacktestEntryDelayMs      int     `yaml:"backtest_entry_delay_ms"`
+	BacktestExitDelayMs       int     `yaml:"backtest_exit_delay_ms"`
+	BacktestEntrySlippageBps  float64 `yaml:"backtest_entry_slippage_bps"`
+	BacktestExitSlippageBps   float64 `yaml:"backtest_exit_slippage_bps"`
 	CapitalUSDT      float64 `yaml:"capital_usdt"`
 	UseLiveBalance   bool    `yaml:"use_live_balance"`
-	// From .env when set: WHALE_ALLOCATION_PERCENT, WHALE_LEVERAGE (caps per symbol max).
+	// From .env when set: WHALE_ALLOCATION_PERCENT, WHALE_LEVERAGE, WHALE_MARGIN_USDT (fixed margin).
 	AllocationPercent float64 `yaml:"-"`
 	Leverage            int     `yaml:"-"`
+	MarginUSDT          float64 `yaml:"-"` // fixed margin per trade when > 0 (overrides alloc %)
 	CooldownSec      float64 `yaml:"cooldown_sec"`
 	MaxOpenPositions int     `yaml:"max_open_positions"`
 }
@@ -142,6 +151,8 @@ type BurstConfig struct {
 	MaxPrior1sViolentPct        float64 `yaml:"max_prior_1s_violent_pct"`      // 60s pre-dump max 1s spike
 	MinNotionalLongViolentUSDT  float64 `yaml:"min_notional_long_violent_usdt"`
 	MaxQuiet60ViolentUSDT       float64 `yaml:"max_quiet_60_violent_usdt"`
+	// EarlyCaptureAll: all watchlist symbols — enter on ~0.7%+ 1s legs; skip mega-only / prior_1s / pump chop gates.
+	EarlyCaptureAll bool `yaml:"early_capture_all"`
 }
 
 // BookLeadConfig predicts violent moves from bid/ask depth + trade flow before price runs.
@@ -324,8 +335,21 @@ func applyEnv(c *Config) {
 	if v := strings.TrimSpace(os.Getenv("WHALE_DRY_SIM_MODE")); v != "" {
 		c.DrySimMode = strings.ToLower(v)
 	}
+	if v := strings.TrimSpace(os.Getenv("WHALE_REVERSE_TRADE")); v != "" {
+		c.ReverseTrade = strings.EqualFold(v, "true") || v == "1"
+	}
 	if v := strings.TrimSpace(os.Getenv("WHALE_REVERSE_LIVE")); v != "" {
 		c.ReverseLive = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := strings.TrimSpace(os.Getenv("WHALE_MARGIN_USDT")); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil && n > 0 {
+			c.MarginUSDT = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("WHALE_REVERSE_SL_PERCENT")); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil && n > 0 {
+			c.ReverseStopLossPct = n
+		}
 	}
 	if v := strings.TrimSpace(os.Getenv("WHALE_MAX_LEVERAGE")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -367,6 +391,7 @@ func (c *Config) normalize() {
 	if b.SignalCooldownMs <= 0 {
 		b.SignalCooldownMs = 400
 	}
+	b.applyEarlyCaptureAll()
 	if c.Risk.MegaTrailActivatePct <= 0 {
 		c.Risk.MegaTrailActivatePct = 2.0
 	}
@@ -455,6 +480,43 @@ func (c *Config) normalize() {
 	for i := range c.Watchlist.ExtraSymbols {
 		c.Watchlist.ExtraSymbols[i] = strings.ToUpper(strings.TrimSpace(c.Watchlist.ExtraSymbols[i]))
 	}
+}
+
+// applyEarlyCaptureAll relaxes burst gates so every watchlist symbol can enter on early 1s legs (~0.7%+).
+func (b *BurstConfig) applyEarlyCaptureAll() {
+	if !b.EarlyCaptureAll {
+		return
+	}
+	b.ViolentBurstEnabled = true
+	if b.MaxEntrySecMovePct <= 0 || b.MaxEntrySecMovePct > 0.85 {
+		b.MaxEntrySecMovePct = 0.70
+	}
+	b.MinViolentSecMovePct = 0.70
+	if b.MaxViolentSecMovePct <= 0 {
+		b.MaxViolentSecMovePct = 16.0
+	}
+	if b.MinViolentSecNotionalUSDT <= 0 {
+		b.MinViolentSecNotionalUSDT = b.MinSecNotionalUSDT
+	}
+	if b.MinViolentSecNotionalUSDT <= 0 {
+		b.MinViolentSecNotionalUSDT = 10_000
+	}
+	b.PreTradeMegaOnly = false
+	b.MaxPrior1sViolentPct = 0
+	b.MaxRangeLongViolentPct = 0
+	b.MaxQuiet60ViolentUSDT = 0
+	b.MinNotionalLongViolentUSDT = 0
+	b.MaxFastMovePct = 0
+	b.MinMomentumAlign = 0
+	b.MinVolumeAccel = 0
+	b.MinBurstImpulse = 0
+	b.MaxQuietBeforeUSDT = 0
+	b.MaxQuietBeforeUltraUSDT = 0
+	b.MaxQuietBeforeFlatUSDT = 0
+	b.MaxSecNotionalUSDT = 0
+	b.MinSecQuiet60Ratio = 0
+	b.MinSecQuiet60RatioUltra = 0
+	b.MinSecQuiet60RatioFlat = 0
 }
 
 func (c *Config) ResolveWatchlist(client *binance.FuturesClient, perps []string) error {

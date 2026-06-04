@@ -29,14 +29,74 @@ func aggToTicks(trades []binance.AggTrade) []tradeTick {
 	return out
 }
 
+// appendTick warms the detector tape without evaluating signals (fast replay).
+func (d *BurstDetector) appendTick(price, qty float64, buyerIsMaker bool, at time.Time) {
+	if price <= 0 || qty <= 0 {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.ticks = append(d.ticks, tradeTick{
+		at: at, price: price, qty: qty, buyAggressive: !buyerIsMaker,
+	})
+	cut := at.Add(-d.lookbackDur())
+	i := 0
+	for i < len(d.ticks) && d.ticks[i].at.Before(cut) {
+		i++
+	}
+	if i > 0 {
+		d.ticks = d.ticks[i:]
+	}
+}
+
 // DiagnoseBurstNear replays trades and returns the closest burst evaluation to target (±search).
 func DiagnoseBurstNear(cfg BurstConfig, trades []binance.AggTrade, target time.Time, search time.Duration) (PumpDiag, float64, float64) {
+	return diagnoseBurstNear(cfg, trades, target, search, false)
+}
+
+// DiagnoseBurstNearFast warms tape before the probe window, then evaluates only ±search (much faster).
+func DiagnoseBurstNearFast(cfg BurstConfig, trades []binance.AggTrade, target time.Time, search time.Duration) (PumpDiag, float64, float64) {
+	return diagnoseBurstNear(cfg, trades, target, search, true)
+}
+
+func diagnoseBurstNear(cfg BurstConfig, trades []binance.AggTrade, target time.Time, search time.Duration, fast bool) (PumpDiag, float64, float64) {
 	ticks := aggToTicks(trades)
 	d := NewBurstDetector(cfg)
 	var best PumpDiag
 	bestDist := search + time.Second
+	probeStart := target.Add(-search)
+	probeEnd := target.Add(search)
+
+	if fast {
+		var warm []tradeTick
+		for _, t := range ticks {
+			if !t.at.Before(probeStart) {
+				break
+			}
+			warm = append(warm, t)
+		}
+		if len(warm) > 0 {
+			d.mu.Lock()
+			d.ticks = warm
+			cut := probeStart.Add(-d.lookbackDur())
+			i := 0
+			for i < len(d.ticks) && d.ticks[i].at.Before(cut) {
+				i++
+			}
+			if i > 0 {
+				d.ticks = d.ticks[i:]
+			}
+			d.mu.Unlock()
+		}
+	}
 
 	for _, t := range ticks {
+		if t.at.Before(probeStart) {
+			continue
+		}
+		if t.at.After(probeEnd) {
+			break
+		}
 		sig := d.OnAggTrade(t.price, t.qty, !t.buyAggressive, t.at)
 		dist := absDuration(t.at.Sub(target))
 		if dist > search {
@@ -113,6 +173,24 @@ func (d *BurstDetector) explainPumpReject(now time.Time, side Side, fastMove, se
 	absFast := math.Abs(fastMove)
 	absSec := math.Abs(secMove)
 	violent := d.isViolentCoordinatedBurst(absSec, secN)
+
+	if d.cfg.EarlyCaptureAll {
+		minN := d.cfg.MinSecNotionalUSDT
+		if minN <= 0 {
+			minN = 10_000
+		}
+		if secN < minN {
+			return fmt.Sprintf("sec_notional $%.0f < min $%.0f", secN, minN)
+		}
+		maxSec := d.maxEntrySecMovePct(absSec, secN)
+		if secMove > 0 && secMove > maxSec {
+			return fmt.Sprintf("sec_move +%.2f%% > max %.2f%%", secMove, maxSec)
+		}
+		if secMove < 0 && secMove < -maxSec {
+			return fmt.Sprintf("sec_move %.2f%% < max -%.2f%%", secMove, maxSec)
+		}
+		return ""
+	}
 
 	if violent {
 		if d.cfg.TrendWindowMs > 0 && d.cfg.MaxCounterTrendPct > 0 {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -32,6 +33,9 @@ func main() {
 	}
 	if v := strings.TrimSpace(os.Getenv("WHALE_DRY_RUN")); v != "" {
 		whaleCfg.DryRun = v == "1" || strings.EqualFold(v, "true")
+	}
+	if v := strings.TrimSpace(os.Getenv("WHALE_REVERSE_TRADE")); v != "" {
+		whaleCfg.ReverseTrade = v == "1" || strings.EqualFold(v, "true")
 	}
 	if v := strings.TrimSpace(os.Getenv("WHALE_REVERSE_LIVE")); v != "" {
 		whaleCfg.ReverseLive = v == "1" || strings.EqualFold(v, "true")
@@ -64,18 +68,28 @@ func main() {
 	if maxLev <= 0 {
 		maxLev = 50
 	}
-	log.Printf("[whale] starting %s dry_run=%v reverse_live=%v dry_sim=%s capital=%.0f alloc=%.1f%% sim_lev=%dx max_live_lev=%dx %s",
-		whaleCfg.Strategy, whaleCfg.DryRun, whaleCfg.ReverseLive, whaleCfg.DrySimMode, whaleCfg.CapitalUSDT, alloc, lev, maxLev,
-		whale.FormatStreams(whaleCfg))
+	marginNote := fmt.Sprintf("alloc=%.1f%%", alloc)
+	if whaleCfg.MarginUSDT > 0 {
+		marginNote = fmt.Sprintf("margin=%.2f USDT fixed", whaleCfg.MarginUSDT)
+	}
+	log.Printf("[whale] starting %s dry_run=%v reverse_trade=%v reverse_live=%v dry_sim=%s capital=%.0f %s sim_lev=%dx max_live_lev=%dx %s",
+		whaleCfg.Strategy, whaleCfg.DryRun, whaleCfg.ReverseTrade, whaleCfg.ReverseLive, whaleCfg.DrySimMode,
+		whaleCfg.CapitalUSDT, marginNote, lev, maxLev, whale.FormatStreams(whaleCfg))
+	if whaleCfg.ReverseTrade && whaleCfg.ReverseStopLossPct > 0 {
+		log.Printf("[whale] reverse SL: %.2f%%", whaleCfg.ReverseStopLossPct)
+	}
 	if whaleCfg.ReverseLive {
 		if !client.Configured() {
 			log.Fatal("[whale] WHALE_REVERSE_LIVE requires BINANCE_API_KEY and BINANCE_API_SECRET")
 		}
-		if whaleCfg.AllocationPercent <= 0 {
-			log.Fatal("[whale] WHALE_REVERSE_LIVE requires WHALE_ALLOCATION_PERCENT (live balance × pct per trade)")
+		if whaleCfg.AllocationPercent <= 0 && whaleCfg.MarginUSDT <= 0 {
+			log.Fatal("[whale] WHALE_REVERSE_LIVE requires WHALE_ALLOCATION_PERCENT or WHALE_MARGIN_USDT")
 		}
-		log.Printf("[whale] live mode: signal BUY→real BUY, signal SELL→real SELL; margin=live_balance×%.1f%%",
-			whaleCfg.AllocationPercent)
+		if whaleCfg.ReverseTrade {
+			log.Printf("[whale] live: signal BUY→trade SELL, signal SELL→trade BUY (opposite)")
+		} else {
+			log.Printf("[whale] live: same direction as signal")
+		}
 	}
 
 	runner, err := whale.NewRunner(whaleCfg, client)

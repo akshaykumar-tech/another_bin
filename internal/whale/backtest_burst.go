@@ -15,8 +15,14 @@ func RunBurstBacktest(cfg Config, client *binance.FuturesClient, symbol string, 
 		st.onTrade(symbol, tr)
 	}
 	if len(trades) > 0 {
+		last := trades[len(trades)-1]
 		if pos, ok := st.open[symbol]; ok {
-			st.closePosition(symbol, pos, trades[len(trades)-1].Price, trades[len(trades)-1].Time, "timeout")
+			reason := "timeout"
+			if pe := st.pendingExit[symbol]; pe != nil {
+				reason = pe.Reason
+				delete(st.pendingExit, symbol)
+			}
+			st.closePosition(symbol, pos, last.Price, last.Time, reason)
 		}
 	}
 	return st.summary
@@ -36,6 +42,8 @@ func newBurstReplay(cfg Config, client *binance.FuturesClient, verbose bool, pum
 			cfg:       cfg,
 			client:    client,
 			open:      make(map[string]*simPosition),
+			pending:     make(map[string]*pendingBurstEntry),
+			pendingExit: make(map[string]*pendingExit),
 			lastTrade: make(map[string]time.Time),
 			verbose:   verbose,
 		},
@@ -47,12 +55,15 @@ func newBurstReplay(cfg Config, client *binance.FuturesClient, verbose bool, pum
 
 func (st *burstReplayState) onTrade(sym string, tr binance.AggTrade) {
 	st.summary.TradesLoaded++
+	st.tryFillPendingExit(sym, tr.Price, tr.Time)
+	st.tryFillPendingEntry(sym, tr)
 	st.markToMarket(sym, tr.Price, tr.Time)
 
 	sig := st.burst.OnAggTrade(tr.Price, tr.Quantity, tr.BuyerIsMaker, tr.Time)
 	if sig == nil {
 		return
 	}
+	tradeSide := st.cfg.TradeSide(sig.Side)
 	st.summary.Signals++
 	if st.openCount >= st.cfg.MaxOpenPositions {
 		st.summary.SkippedMaxPos++
@@ -66,6 +77,9 @@ func (st *burstReplayState) onTrade(sym string, tr binance.AggTrade) {
 		st.summary.SkippedCooldown++
 		return
 	}
+	if pend := st.pending[sym]; pend != nil {
+		return
+	}
 	margin := st.marginFor(sig)
 	if tr.Price <= 0 {
 		return
@@ -74,19 +88,48 @@ func (st *burstReplayState) onTrade(sym string, tr binance.AggTrade) {
 		log.Printf("[backtest] BURST %s %s fast=%.2f%% 1s=%.2f%% vol=$%.0f @ %s",
 			sig.Side, sym, sig.FastMove, sig.MovePct, sig.SecVolume, tr.Time.Format("15:04:05.000"))
 	}
+	delay := time.Duration(st.cfg.BacktestEntryDelayMs) * time.Millisecond
+	if delay <= 0 {
+		st.openBurstPosition(sym, tradeSide, margin, tr.Time, tr.Price)
+		return
+	}
+		st.pending[sym] = &pendingBurstEntry{
+		Side: tradeSide, MarginUSDT: margin, MegaExit: true,
+		SignalAt: tr.Time, EnterAfter: tr.Time.Add(delay),
+	}
+}
+
+func (st *burstReplayState) tryFillPendingEntry(sym string, tr binance.AggTrade) {
+	p, ok := st.pending[sym]
+	if !ok || p == nil || tr.Time.Before(p.EnterAfter) || tr.Price <= 0 {
+		return
+	}
+	delete(st.pending, sym)
+	px := tr.Price
+	if bps := st.cfg.BacktestEntrySlippageBps; bps > 0 {
+		px = applySlippage(px, p.Side, bps, true)
+	} else if bps := st.cfg.DryEntrySlippageBps; bps > 0 {
+		px = applySlippage(px, p.Side, bps, true)
+	}
+	st.openBurstPosition(sym, p.Side, p.MarginUSDT, tr.Time, px)
+}
+
+func (st *burstReplayState) openBurstPosition(sym string, side Side, margin float64, at time.Time, entry float64) {
+	if entry <= 0 {
+		return
+	}
 	st.open[sym] = &simPosition{
-		Symbol: sym, Side: sig.Side, EntryPrice: tr.Price, MarginUSDT: margin,
-		OpenedAt: tr.Time, MegaExit: true, PeakPrice: tr.Price,
+		Symbol: sym, Side: side, EntryPrice: entry, MarginUSDT: margin,
+		Leverage: st.simLeverage(), OpenedAt: at, MegaExit: true, PeakPrice: entry,
 	}
 	st.openCount++
-	st.lastTrade[sym] = tr.Time
+	st.lastTrade[sym] = at
 	st.summary.Entries++
-
 	if !st.pumpFrom.IsZero() && !st.pumpTo.IsZero() &&
-		!tr.Time.Before(st.pumpFrom) && !tr.Time.After(st.pumpTo) && !st.pump.Found {
+		!at.Before(st.pumpFrom) && !at.After(st.pumpTo) && !st.pump.Found {
 		st.pump.Found = true
-		st.pump.EntryTime = tr.Time
-		st.pump.EntryPrice = tr.Price
+		st.pump.EntryTime = at
+		st.pump.EntryPrice = entry
 		st.pump.Signals = st.summary.Signals
 	}
 }

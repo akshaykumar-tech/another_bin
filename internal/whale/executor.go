@@ -86,24 +86,25 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 	e.mu.Unlock()
 
 	margin, lev := e.marginAndLeverage(sig)
-	side := string(sig.Side)
+	tradeSide := e.cfg.TradeSide(sig.Side)
+	side := string(tradeSide)
 	simMode := e.cfg.DrySimMode
 	if simMode == "" {
 		simMode = "tick"
 	}
 
 	if e.cfg.DryRun {
-		entry := e.simEntryPrice(sig)
+		entry := e.simEntryPrice(sig, tradeSide)
 		if entry <= 0 {
 			log.Printf("[whale] SIGNAL skip %s %s: no entry price", side, sym)
 			return
 		}
-		e.logSignalEntry(sig, entry, margin, lev)
+		e.logSignalEntry(sig, tradeSide, entry, margin, lev)
 		if e.journal != nil {
-			e.journal.LogEntry(sig, entry, margin, lev, simMode)
+			e.journal.LogEntry(sig, tradeSide, entry, margin, lev, simMode)
 		}
 		sim := &simPosition{
-			Symbol: sym, Side: sig.Side, EntryPrice: entry, MarginUSDT: margin, Leverage: lev,
+			Symbol: sym, Side: tradeSide, EntryPrice: entry, MarginUSDT: margin, Leverage: lev,
 			OpenedAt: time.Now(), MegaExit: sig.Mega || sig.Kind == SignalBurst,
 			PeakPrice: entry, LastPrice: entry,
 		}
@@ -136,13 +137,13 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 		return
 	}
 	entry, qty := parseFill(resp)
-	e.logSignalEntry(sig, entry, margin, effLev)
+	e.logSignalEntry(sig, tradeSide, entry, margin, effLev)
 	if e.journal != nil {
-		e.journal.LogEntry(sig, entry, margin, effLev, "live")
+		e.journal.LogEntry(sig, tradeSide, entry, margin, effLev, "live")
 	}
 
 	pos := &position{
-		Symbol: sym, Side: sig.Side, EntryPrice: entry, Qty: qty, MarginUSDT: margin, Leverage: effLev,
+		Symbol: sym, Side: tradeSide, EntryPrice: entry, Qty: qty, MarginUSDT: margin, Leverage: effLev,
 		OpenedAt: time.Now(), MegaExit: sig.Mega || sig.Kind == SignalBurst, PeakPrice: entry,
 	}
 	e.mu.Lock()
@@ -177,7 +178,7 @@ func (e *Executor) OnPriceTick(sym string, price float64, at time.Time) {
 	}
 }
 
-func (e *Executor) simEntryPrice(sig *Signal) float64 {
+func (e *Executor) simEntryPrice(sig *Signal, tradeSide Side) float64 {
 	entry := sig.EntryPrice
 	if entry <= 0 {
 		var err error
@@ -186,25 +187,28 @@ func (e *Executor) simEntryPrice(sig *Signal) float64 {
 			return 0
 		}
 	}
-	return applySlippage(entry, sig.Side, e.cfg.DryEntrySlippageBps, true)
+	return applySlippage(entry, tradeSide, e.cfg.DryEntrySlippageBps, true)
 }
 
 func (e *Executor) marginAndLeverage(sig *Signal) (margin float64, leverage int) {
-	// Dry-run sim only — fixed paper capital from WHALE_CAPITAL_USDT / whale.yaml.
-	capital := e.cfg.CapitalUSDT
-	var pct float64
-	if e.cfg.AllocationPercent > 0 {
-		pct = e.cfg.AllocationPercent / 100
-	} else if sig.Mega {
-		pct = e.cfg.Risk.MegaRiskPercent / 100
+	if e.cfg.MarginUSDT > 0 {
+		margin = e.cfg.MarginUSDT
 	} else {
-		pct = e.cfg.Risk.NormalRiskPercent / 100
+		capital := e.cfg.CapitalUSDT
+		var pct float64
+		if e.cfg.AllocationPercent > 0 {
+			pct = e.cfg.AllocationPercent / 100
+		} else if sig.Mega {
+			pct = e.cfg.Risk.MegaRiskPercent / 100
+		} else {
+			pct = e.cfg.Risk.NormalRiskPercent / 100
+		}
+		maxPct := e.cfg.Risk.MaxPositionPercent / 100
+		if pct > maxPct {
+			pct = maxPct
+		}
+		margin = capital * pct
 	}
-	maxPct := e.cfg.Risk.MaxPositionPercent / 100
-	if pct > maxPct {
-		pct = maxPct
-	}
-	margin = capital * pct
 	lev := e.cfg.Leverage
 	if lev <= 0 {
 		lev = 1
@@ -212,22 +216,26 @@ func (e *Executor) marginAndLeverage(sig *Signal) (margin float64, leverage int)
 	return margin, lev
 }
 
-func (e *Executor) logSignalEntry(sig *Signal, entry, margin float64, leverage int) {
+func (e *Executor) logSignalEntry(sig *Signal, tradeSide Side, entry, margin float64, leverage int) {
+	reverseNote := ""
+	if e.cfg.ReverseTrade && tradeSide != sig.Side {
+		reverseNote = fmt.Sprintf(" → trade %s", tradeSide)
+	}
 	switch sig.Kind {
 	case SignalBookLead:
-		log.Printf("[whale] SIGNAL %s %s book mode=%s imb=%.2fx flow=$%.0f move=%.2f%% entry=%.6f margin=%.2f lev=%dx",
-			sig.Side, sig.Symbol, sig.BookMode, sig.ImbalanceRatio, sig.TradeFlowUSDT, sig.MovePct, entry, margin, leverage)
+		log.Printf("[whale] SIGNAL %s %s%s book mode=%s imb=%.2fx flow=$%.0f move=%.2f%% entry=%.6f margin=%.2f lev=%dx",
+			sig.Side, sig.Symbol, reverseNote, sig.BookMode, sig.ImbalanceRatio, sig.TradeFlowUSDT, sig.MovePct, entry, margin, leverage)
 	case SignalBurst:
-		log.Printf("[whale] SIGNAL %s %s BURST fast=%.2f%% 1s=%.2f%% vol=$%.0f entry=%.6f margin=%.2f lev=%dx",
-			sig.Side, sig.Symbol, sig.FastMove, sig.MovePct, sig.SecVolume, entry, margin, leverage)
+		log.Printf("[whale] SIGNAL %s %s%s BURST fast=%.2f%% 1s=%.2f%% vol=$%.0f entry=%.6f margin=%.2f lev=%dx",
+			sig.Side, sig.Symbol, reverseNote, sig.FastMove, sig.MovePct, sig.SecVolume, entry, margin, leverage)
 	default:
-		log.Printf("[whale] SIGNAL %s %s flash mode=%s 1s=%.2f%% entry=%.6f margin=%.2f lev=%dx",
-			sig.Side, sig.Symbol, sig.FlashMode, sig.MovePct, entry, margin, leverage)
+		log.Printf("[whale] SIGNAL %s %s%s flash mode=%s 1s=%.2f%% entry=%.6f margin=%.2f lev=%dx",
+			sig.Side, sig.Symbol, reverseNote, sig.FlashMode, sig.MovePct, entry, margin, leverage)
 	}
 }
 
 func (e *Executor) logExit(pos *simPosition, exitPrice float64, at time.Time, reason string, partialAlready float64) {
-	pnl := closeSimPnL(e.cfg.Risk, pos, exitPrice)
+	pnl := closeSimPnL(e.cfg.RiskForExit(), pos, exitPrice)
 	if partialAlready > 0 {
 		pnl += partialAlready
 	}
@@ -286,7 +294,7 @@ func (e *Executor) closeDry(sym, reason string) {
 	at := time.Now()
 	e.logExit(pos, exit, at, reason, part)
 	if e.journal != nil {
-		e.journal.LogExit(e.cfg.Risk, pos, exit, at, reason, part)
+		e.journal.LogExit(e.cfg.RiskForExit(), pos, exit, at, reason, part)
 	}
 	e.closeReverseLive(sym, exit, reason, at)
 }
@@ -324,7 +332,7 @@ func (e *Executor) manageDryRunMarkPoll(ctx context.Context, pos *simPosition) {
 }
 
 func (e *Executor) dryExitStep(pos *simPosition, price float64, at time.Time) bool {
-	r := e.cfg.Risk
+	r := e.cfg.RiskForExit()
 	var closed bool
 	var reason string
 	var partial float64
@@ -353,7 +361,7 @@ func (e *Executor) dryExitStep(pos *simPosition, price float64, at time.Time) bo
 		e.mu.Unlock()
 		e.logExit(pos, price, at, reason, part)
 		if e.journal != nil {
-			e.journal.LogExit(e.cfg.Risk, pos, price, at, reason, part)
+			e.journal.LogExit(e.cfg.RiskForExit(), pos, price, at, reason, part)
 		}
 		e.closeReverseLive(pos.Symbol, price, reason, at)
 		return true
@@ -496,7 +504,7 @@ func (e *Executor) manageStandardExit(ctx context.Context, pos *position) {
 		sim := liveSimFrom(pos, tp1Done)
 		e.logExit(sim, mp, time.Now(), reason, partialUSDT)
 		if e.journal != nil {
-			e.journal.LogExit(e.cfg.Risk, sim, mp, time.Now(), reason, partialUSDT)
+			e.journal.LogExit(e.cfg.RiskForExit(), sim, mp, time.Now(), reason, partialUSDT)
 		}
 	}
 

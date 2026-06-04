@@ -46,10 +46,10 @@ func (j *TradeJournal) ensureHeader() error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return j.appendLine("# whale trade journal — ENTRY/EXIT sim=tick + LIVE_ENTRY/LIVE_EXIT same-direction Binance (tab-separated)")
+	return j.appendLine("# whale trade journal — ENTRY/EXIT sim + LIVE (signal_side vs trade_side when reverse)")
 }
 
-func (j *TradeJournal) LogEntry(sig *Signal, entryPrice, margin float64, leverage int, simMode string) {
+func (j *TradeJournal) LogEntry(sig *Signal, tradeSide Side, entryPrice, margin float64, leverage int, simMode string) {
 	if j == nil || sig == nil {
 		return
 	}
@@ -62,9 +62,9 @@ func (j *TradeJournal) LogEntry(sig *Signal, entryPrice, margin float64, leverag
 		lev = 1
 	}
 	notional := margin * float64(lev)
-	line := fmt.Sprintf("ENTRY\t%s\t%s\t%s\t%s\tfast=%.2f%%\t1s=%.2f%%\tvol=$%.0f\tentry=%.6f\tmargin=%.2f\tlev=%dx\tnotional=%.2f\tsim=%s",
+	line := fmt.Sprintf("ENTRY\t%s\t%s\t%s\t%s\tsignal_side=%s\ttrade_side=%s\tfast=%.2f%%\t1s=%.2f%%\tvol=$%.0f\tentry=%.6f\tmargin=%.2f\tlev=%dx\tnotional=%.2f\tsim=%s",
 		time.Now().UTC().Format(time.RFC3339),
-		sig.Side, sig.Symbol, kind,
+		tradeSide, sig.Symbol, kind, sig.Side, tradeSide,
 		sig.FastMove, sig.MovePct, sig.SecVolume, entryPrice, margin, lev, notional, simMode)
 	_ = j.appendLine(line)
 }
@@ -121,11 +121,10 @@ func priceChangePct(side Side, entry, exit float64) float64 {
 	return (entry - exit) / entry * 100
 }
 
-func (j *TradeJournal) LogLiveEntry(sig *Signal, signalEntry, liveEntry, margin float64, leverage int) {
+func (j *TradeJournal) LogLiveEntry(sig *Signal, realSide Side, signalEntry, liveEntry, margin float64, leverage int) {
 	if j == nil || sig == nil {
 		return
 	}
-	realSide := sig.Side // same direction as signal
 	lev := leverage
 	if lev <= 0 {
 		lev = 1

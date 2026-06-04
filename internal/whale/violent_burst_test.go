@@ -42,6 +42,19 @@ func TestViolentBurstBypassesFastMoveGate(t *testing.T) {
 	}
 }
 
+func TestEarlyCaptureAllSkipsViolentPreTradeGates(t *testing.T) {
+	cfg := BurstConfig{EarlyCaptureAll: true}
+	cfg.applyEarlyCaptureAll()
+	s := PreTradeSnap{Range2h: 10.15, Prior1s: 3.97, Quiet60: 115_000}
+	if r := ExplainViolentPreTradeReject(cfg, s); r != "" {
+		t.Fatalf("early capture should not reject: %s", r)
+	}
+	d := NewBurstDetector(cfg)
+	if !d.passesPreTradeForBurst(time.Now(), 6.0, 15_000) {
+		t.Fatalf("pre_trade should pass, reject=%q", d.lastPumpReject)
+	}
+}
+
 func TestViolentPreTradeUsesRelaxedLongGates(t *testing.T) {
 	cfg := BurstConfig{
 		ViolentBurstEnabled:        true,

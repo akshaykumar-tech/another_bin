@@ -30,14 +30,29 @@ func (p *simPosition) NotionalUSDT() float64 {
 	return p.MarginUSDT * float64(lev)
 }
 
+type pendingBurstEntry struct {
+	Side       Side
+	MarginUSDT float64
+	MegaExit   bool
+	SignalAt   time.Time
+	EnterAfter time.Time
+}
+
+type pendingExit struct {
+	Reason     string
+	CloseAfter time.Time
+}
+
 type replayState struct {
 	cfg    Config
 	client *binance.FuturesClient
 
 	flash map[string]*FlashDetector
 
-	open      map[string]*simPosition
-	openCount int
+	open        map[string]*simPosition
+	pending     map[string]*pendingBurstEntry
+	pendingExit map[string]*pendingExit
+	openCount   int
 	lastTrade map[string]time.Time
 
 	summary BacktestSummary
@@ -49,8 +64,10 @@ func newReplayState(cfg Config, client *binance.FuturesClient, verbose bool) *re
 		cfg:       cfg,
 		client:    client,
 		flash:     make(map[string]*FlashDetector),
-		open:      make(map[string]*simPosition),
-		lastTrade: make(map[string]time.Time),
+		open:        make(map[string]*simPosition),
+		pending:     make(map[string]*pendingBurstEntry),
+		pendingExit: make(map[string]*pendingExit),
+		lastTrade:   make(map[string]time.Time),
 		verbose:   verbose,
 	}
 	for _, sym := range cfg.Symbols {
@@ -137,10 +154,17 @@ func (st *replayState) dispatchSignal(sig *Signal, entry float64) {
 }
 
 func (st *replayState) marginFor(sig *Signal) float64 {
+	if st.cfg.MarginUSDT > 0 {
+		return st.cfg.MarginUSDT
+	}
 	capital := st.cfg.CapitalUSDT
-	pct := st.cfg.Risk.NormalRiskPercent / 100
-	if sig.Mega {
+	var pct float64
+	if st.cfg.AllocationPercent > 0 {
+		pct = st.cfg.AllocationPercent / 100
+	} else if sig.Mega {
 		pct = st.cfg.Risk.MegaRiskPercent / 100
+	} else {
+		pct = st.cfg.Risk.NormalRiskPercent / 100
 	}
 	maxPct := st.cfg.Risk.MaxPositionPercent / 100
 	if pct > maxPct {
@@ -149,18 +173,53 @@ func (st *replayState) marginFor(sig *Signal) float64 {
 	return capital * pct
 }
 
+func (st *replayState) simLeverage() int {
+	if st.cfg.Leverage > 0 {
+		return st.cfg.Leverage
+	}
+	return 1
+}
+
+func (st *replayState) tryFillPendingExit(sym string, price float64, at time.Time) {
+	pe, ok := st.pendingExit[sym]
+	if !ok || pe == nil || at.Before(pe.CloseAfter) || price <= 0 {
+		return
+	}
+	pos := st.open[sym]
+	if pos == nil {
+		delete(st.pendingExit, sym)
+		return
+	}
+	delete(st.pendingExit, sym)
+	st.closePosition(sym, pos, price, at, pe.Reason)
+}
+
+func (st *replayState) scheduleClose(sym string, pos *simPosition, price float64, at time.Time, reason string) {
+	delay := time.Duration(st.cfg.BacktestExitDelayMs) * time.Millisecond
+	if delay <= 0 {
+		st.closePosition(sym, pos, price, at, reason)
+		return
+	}
+	st.pendingExit[sym] = &pendingExit{Reason: reason, CloseAfter: at.Add(delay)}
+}
+
 func (st *replayState) markToMarket(sym string, price float64, at time.Time) {
+	st.tryFillPendingExit(sym, price, at)
+
 	pos, ok := st.open[sym]
 	if !ok || price <= 0 {
 		return
 	}
-
-	if at.Sub(pos.OpenedAt) >= backtestHoldTimeout {
-		st.closePosition(sym, pos, price, at, "timeout")
+	if st.pendingExit[sym] != nil {
 		return
 	}
 
-	r := st.cfg.Risk
+	if at.Sub(pos.OpenedAt) >= backtestHoldTimeout {
+		st.scheduleClose(sym, pos, price, at, "timeout")
+		return
+	}
+
+	r := st.cfg.RiskForExit()
 	var closed bool
 	var reason string
 	var partial float64
@@ -174,7 +233,7 @@ func (st *replayState) markToMarket(sym string, price float64, at time.Time) {
 		st.summary.TotalPnLUSDT += partial
 	}
 	if closed {
-		st.closePosition(sym, pos, price, at, reason)
+		st.scheduleClose(sym, pos, price, at, reason)
 	}
 }
 
@@ -182,7 +241,12 @@ func (st *replayState) closePosition(sym string, pos *simPosition, price float64
 	if price <= 0 {
 		price = pos.EntryPrice
 	}
-	pnl := closeSimPnL(st.cfg.Risk, pos, price)
+	if bps := st.cfg.BacktestExitSlippageBps; bps > 0 {
+		price = applySlippage(price, pos.Side, bps, false)
+	} else if bps := st.cfg.DryExitSlippageBps; bps > 0 {
+		price = applySlippage(price, pos.Side, bps, false)
+	}
+	pnl := closeSimPnL(st.cfg.RiskForExit(), pos, price)
 	st.summary.TotalPnLUSDT += pnl
 	switch reason {
 	case "sl":

@@ -52,13 +52,15 @@ func (e *Executor) reverseLiveSizing(sym string) (margin, notional float64, lev 
 	if bal <= 0 {
 		return 0, 0, 0, bal, fmt.Errorf("available balance is zero")
 	}
-	if e.cfg.AllocationPercent <= 0 {
-		return 0, 0, 0, bal, fmt.Errorf("WHALE_ALLOCATION_PERCENT not set")
-	}
 	lev = e.reverseLeverage(sym)
-	pct := e.cfg.AllocationPercent / 100
-	// Live sizing uses WHALE_ALLOCATION_PERCENT only (yaml max_position_percent is sim-only).
-	margin = bal * pct
+	if e.cfg.MarginUSDT > 0 {
+		margin = e.cfg.MarginUSDT
+	} else if e.cfg.AllocationPercent > 0 {
+		pct := e.cfg.AllocationPercent / 100
+		margin = bal * pct
+	} else {
+		return 0, 0, 0, bal, fmt.Errorf("set WHALE_ALLOCATION_PERCENT or WHALE_MARGIN_USDT")
+	}
 	notional = margin * float64(lev)
 	const minNotional = 5.0
 	if notional < minNotional {
@@ -78,8 +80,10 @@ func (e *Executor) openReverseLive(sig *Signal, signalEntry float64) {
 		return
 	}
 	sym := sig.Symbol
-	// Same direction as burst signal (BUY signal → BUY live, SELL → SELL).
 	realSide := sig.Side
+	if e.cfg.ReverseTrade {
+		realSide = oppositeSide(sig.Side)
+	}
 
 	lev := e.reverseLeverage(sym)
 	if err := e.client.SetLeverage(sym, lev); err != nil {
@@ -119,11 +123,16 @@ func (e *Executor) openReverseLive(sig *Signal, signalEntry float64) {
 	e.reverseLive[sym] = rp
 	e.mu.Unlock()
 
-	log.Printf("[whale] live OPEN %s %s entry=%.6f live=%.6f qty=%.8f margin=%.2f lev=%dx (%s)",
-		realSide, sym, signalEntry, entry, qty, margin, lev, time.Since(start))
+	if e.cfg.ReverseTrade {
+		log.Printf("[whale] live OPEN %s %s (signal was %s) entry=%.6f live=%.6f qty=%.8f margin=%.2f lev=%dx (%s)",
+			realSide, sym, sig.Side, signalEntry, entry, qty, margin, lev, time.Since(start))
+	} else {
+		log.Printf("[whale] live OPEN %s %s entry=%.6f live=%.6f qty=%.8f margin=%.2f lev=%dx (%s)",
+			realSide, sym, signalEntry, entry, qty, margin, lev, time.Since(start))
+	}
 
 	if e.journal != nil {
-		e.journal.LogLiveEntry(sig, signalEntry, entry, margin, lev)
+		e.journal.LogLiveEntry(sig, realSide, signalEntry, entry, margin, lev)
 	}
 }
 
@@ -186,7 +195,7 @@ func (e *Executor) closeReverseLive(sym string, signalExit float64, reason strin
 		MarginUSDT: rp.MarginUSDT, Leverage: rp.Leverage, OpenedAt: rp.OpenedAt,
 		Partial: rp.Partial,
 	}
-	pnl := closeSimPnL(e.cfg.Risk, simPos, liveExit)
+	pnl := closeSimPnL(e.cfg.RiskForExit(), simPos, liveExit)
 	ch := priceChangePct(rp.RealSide, rp.EntryPrice, liveExit)
 
 	log.Printf("[whale] live EXIT %s %s reason=%s signal_exit=%.6f live_exit=%.6f pnl=%+.2f USDT (%+.2f%%) hold=%s",

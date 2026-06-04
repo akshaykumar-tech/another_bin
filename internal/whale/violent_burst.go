@@ -28,6 +28,9 @@ func (d *BurstDetector) isViolentCoordinatedBurst(absSecMove, secNotional float6
 }
 
 func (d *BurstDetector) passesPreTradeForBurst(now time.Time, absSecMove, secNotional float64) bool {
+	if d.cfg.EarlyCaptureAll {
+		return true
+	}
 	if !d.cfg.PreTradeEnabled {
 		return true
 	}
@@ -43,6 +46,9 @@ func (d *BurstDetector) passesPreTradeForBurst(now time.Time, absSecMove, secNot
 
 // ExplainViolentPreTradeReject reports why a violent dump fails long-window gates.
 func ExplainViolentPreTradeReject(cfg BurstConfig, s PreTradeSnap) string {
+	if cfg.EarlyCaptureAll {
+		return ""
+	}
 	if cfg.PreTradeLongWindowMs <= 0 {
 		return ""
 	}

@@ -1,0 +1,178 @@
+{
+  "date_utc": "2026-06-02",
+  "min_move_pct": 6.0,
+  "max_move_pct": 20.0,
+  "symbols_ok": 295,
+  "symbols_missing_zip": 0,
+  "calendar_1s": {
+    "bars_1s": 2016386,
+    "extreme_amp_1s": 11,
+    "extreme_net_1s": 1,
+    "extreme_net_up_1s": 1
+  },
+  "rolling_1s": null,
+  "per_symbol_calendar_hits": {
+    "EVAAUSDT": {
+      "bars_1s": 11295,
+      "extreme_amp_1s": 2,
+      "extreme_net_1s": 1,
+      "extreme_net_up_1s": 1
+    },
+    "JCTUSDT": {
+      "bars_1s": 12148,
+      "extreme_amp_1s": 1
+    },
+    "EPICUSDT": {
+      "bars_1s": 61918,
+      "extreme_amp_1s": 1
+    },
+    "KOMAUSDT": {
+      "bars_1s": 4945,
+      "extreme_amp_1s": 1
+    },
+    "NOMUSDT": {
+      "bars_1s": 16022,
+      "extreme_amp_1s": 1
+    },
+    "PUMPBTCUSDT": {
+      "bars_1s": 2317,
+      "extreme_amp_1s": 1
+    },
+    "PORTALUSDT": {
+      "bars_1s": 68859,
+      "extreme_amp_1s": 2
+    },
+    "TACUSDT": {
+      "bars_1s": 10880,
+      "extreme_amp_1s": 1
+    },
+    "TAKEUSDT": {
+      "bars_1s": 13669,
+      "extreme_amp_1s": 1
+    }
+  },
+  "top_calendar_events": [
+    {
+      "sec_ms": 1780395471000,
+      "net_pct": 3.8787,
+      "up_wick_pct": 8.9508,
+      "down_wick_pct": 0.0,
+      "amp_pct": 8.9508,
+      "notional_usdt": 159404.69,
+      "trades": 801,
+      "reversal": false,
+      "symbol": "TACUSDT"
+    },
+    {
+      "sec_ms": 1780404421000,
+      "net_pct": 3.087,
+      "up_wick_pct": 7.3043,
+      "down_wick_pct": 0.0,
+      "amp_pct": 7.3043,
+      "notional_usdt": 240984.3,
+      "trades": 501,
+      "reversal": false,
+      "symbol": "NOMUSDT"
+    },
+    {
+      "sec_ms": 1780401778000,
+      "net_pct": 0.967,
+      "up_wick_pct": 6.7687,
+      "down_wick_pct": 0.0,
+      "amp_pct": 6.7687,
+      "notional_usdt": 41744.86,
+      "trades": 177,
+      "reversal": false,
+      "symbol": "PUMPBTCUSDT"
+    },
+    {
+      "sec_ms": 1780429126000,
+      "net_pct": -4.4651,
+      "up_wick_pct": 0.0,
+      "down_wick_pct": 6.7527,
+      "amp_pct": 6.7527,
+      "notional_usdt": 67462.83,
+      "trades": 300,
+      "reversal": false,
+      "symbol": "TAKEUSDT"
+    },
+    {
+      "sec_ms": 1780422558000,
+      "net_pct": 5.0022,
+      "up_wick_pct": 6.6598,
+      "down_wick_pct": 0.0734,
+      "amp_pct": 6.6598,
+      "notional_usdt": 61260.47,
+      "trades": 439,
+      "reversal": false,
+      "symbol": "KOMAUSDT"
+    },
+    {
+      "sec_ms": 1780403125000,
+      "net_pct": 5.9124,
+      "up_wick_pct": 6.6543,
+      "down_wick_pct": 0.0,
+      "amp_pct": 6.6543,
+      "notional_usdt": 446535.96,
+      "trades": 1338,
+      "reversal": false,
+      "symbol": "EPICUSDT"
+    },
+    {
+      "sec_ms": 1780410044000,
+      "net_pct": -4.3388,
+      "up_wick_pct": 0.0,
+      "down_wick_pct": 6.5025,
+      "amp_pct": 6.5025,
+      "notional_usdt": 146000.92,
+      "trades": 450,
+      "reversal": false,
+      "symbol": "JCTUSDT"
+    },
+    {
+      "sec_ms": 1780422183000,
+      "net_pct": -3.4763,
+      "up_wick_pct": 0.2589,
+      "down_wick_pct": 6.4986,
+      "amp_pct": 6.4986,
+      "notional_usdt": 586702.91,
+      "trades": 1424,
+      "reversal": false,
+      "symbol": "PORTALUSDT"
+    },
+    {
+      "sec_ms": 1780366056000,
+      "net_pct": -4.2108,
+      "up_wick_pct": 0.0,
+      "down_wick_pct": 6.4631,
+      "amp_pct": 6.4631,
+      "notional_usdt": 151604.43,
+      "trades": 1356,
+      "reversal": false,
+      "symbol": "EVAAUSDT"
+    },
+    {
+      "sec_ms": 1780386555000,
+      "net_pct": 6.1443,
+      "up_wick_pct": 6.3433,
+      "down_wick_pct": 0.0,
+      "amp_pct": 6.3433,
+      "notional_usdt": 85753.51,
+      "trades": 596,
+      "reversal": false,
+      "symbol": "EVAAUSDT"
+    },
+    {
+      "sec_ms": 1780421026000,
+      "net_pct": 4.099,
+      "up_wick_pct": 6.0712,
+      "down_wick_pct": 0.1549,
+      "amp_pct": 6.0712,
+      "notional_usdt": 535077.59,
+      "trades": 1246,
+      "reversal": false,
+      "symbol": "PORTALUSDT"
+    }
+  ],
+  "sync_reversal_seconds": []
+}
