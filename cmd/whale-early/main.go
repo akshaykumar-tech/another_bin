@@ -48,10 +48,11 @@ func main() {
 		}
 	}
 
-	if len(cfg.Symbols) == 0 {
-		perps := client.USDTPerpetualSymbols()
-		_ = cfg.ResolveWatchlist(client, perps)
+	perps := client.USDTPerpetualSymbols()
+	if err := cfg.ResolveWatchlist(client, perps); err != nil {
+		log.Fatalf("[early] watchlist: %v", err)
 	}
+	cfg.TuneForSymbolCount()
 	if len(cfg.Symbols) == 0 {
 		log.Fatal("[early] no symbols")
 	}

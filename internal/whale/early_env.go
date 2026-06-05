@@ -55,6 +55,14 @@ func ApplyEarlyEnv(c *Config) {
 	if v := strings.TrimSpace(os.Getenv("EARLY_DIRECTION")); v != "" {
 		c.Early.Direction = strings.ToLower(v)
 	}
+	if v := strings.TrimSpace(os.Getenv("EARLY_WATCHLIST_SIZE")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Watchlist.Size = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EARLY_WATCHLIST_MODE")); v != "" {
+		c.Watchlist.Mode = strings.ToLower(v)
+	}
 }
 
 // LoadEarlyConfig loads whale-early.yaml + EARLY_* env.

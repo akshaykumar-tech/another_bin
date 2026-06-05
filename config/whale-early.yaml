@@ -4,18 +4,11 @@
 strategy: early
 
 watchlist:
-  mode: custom
+  mode: lowest_volume   # 100 thinnest USDT perps (early strategy target universe)
+  size: 100
   extra_symbols: []
 
-symbols:
-  - EVAAUSDT
-  - JCTUSDT
-  - KOMAUSDT
-  - NOMUSDT
-  - PUMPBTCUSDT
-  - PORTALUSDT
-  - TACUSDT
-  - TAKEUSDT
+symbols: []   # filled by watchlist resolver at startup
 
 early:
   rule: quiet_flat          # quiet_flat | dead_tape

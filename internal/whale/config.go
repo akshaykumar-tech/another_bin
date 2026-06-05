@@ -561,7 +561,7 @@ func (c *Config) ResolveWatchlist(client *binance.FuturesClient, perps []string)
 func (c *Config) TuneForSymbolCount() {
 	n := len(c.Symbols)
 	maxPerConn := 80
-	if c.UsesBurst() || c.UsesFlash() {
+	if c.UsesBurst() || c.UsesFlash() || c.UsesEarly() {
 		maxPerConn = 80
 	} else if c.UsesBookLead() {
 		maxPerConn = 40 // depth+aggTrade = 2 streams per symbol
