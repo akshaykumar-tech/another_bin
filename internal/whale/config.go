@@ -16,6 +16,7 @@ const (
 	StrategyFlash    = "flash"
 	StrategyBookLead = "booklead"
 	StrategyBurst    = "burst"
+	StrategyEarly    = "early"
 )
 
 type Config struct {
@@ -32,10 +33,12 @@ type Config struct {
 	Flash    FlashConfig    `yaml:"flash"`
 	BookLead BookLeadConfig `yaml:"booklead"`
 	Burst    BurstConfig    `yaml:"burst"`
+	Early    EarlyWatchConfig `yaml:"early"`
 	Risk      Risk         `yaml:"risk"`
 	WebSocket WebSocketCfg `yaml:"websocket"`
 
 	DryRun           bool    `yaml:"dry_run"`
+	EarlyLiveTrade   bool    `yaml:"early_live_trade"` // EARLY_LIVE_TRADE: real Binance orders
 	// ReverseTrade: execute opposite of burst signal (signal BUY → trade SELL). Same detector, flipped PnL.
 	ReverseTrade     bool    `yaml:"reverse_trade"`
 	ReverseLive      bool    `yaml:"reverse_live"` // WHALE_REVERSE_LIVE: real Binance orders (opposite if reverse_trade)
@@ -585,6 +588,10 @@ func (c *Config) UsesFlash() bool {
 func (c *Config) UsesBurst() bool {
 	s := strings.ToLower(strings.TrimSpace(c.Strategy))
 	return s == StrategyBurst
+}
+
+func (c *Config) UsesEarly() bool {
+	return strings.EqualFold(strings.TrimSpace(c.Strategy), StrategyEarly)
 }
 
 func (c *Config) UsesBookLead() bool {

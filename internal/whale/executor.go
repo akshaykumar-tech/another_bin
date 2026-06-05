@@ -23,6 +23,7 @@ type Executor struct {
 	dryOpen    map[string]*simPosition
 	dryPartial map[string]float64
 	reverseLive map[string]*reversePosition
+	earlyLive   map[string]*earlyLivePosition
 	closing     map[string]bool // per-symbol exit in progress (avoids duplicate EXIT logs)
 	dryOpenSyms sync.Map                    // fast HasDryPosition without scanning all symbols
 }
@@ -37,6 +38,9 @@ func (e *Executor) countOpenSlotsLocked() int {
 		seen[s] = struct{}{}
 	}
 	for s := range e.reverseLive {
+		seen[s] = struct{}{}
+	}
+	for s := range e.earlyLive {
 		seen[s] = struct{}{}
 	}
 	return len(seen)
@@ -74,7 +78,7 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 	if sig == nil {
 		return
 	}
-	if !e.cfg.AllowsSignalSide(sig.Side) {
+	if sig.Kind != SignalEarly && !e.cfg.AllowsSignalSide(sig.Side) {
 		return
 	}
 	sym := sig.Symbol
@@ -144,10 +148,15 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 		if absMove < 0 {
 			absMove = -absMove
 		}
+		megaExit := sig.Mega || sig.Kind == SignalBurst
+		if sig.Kind == SignalEarly {
+			megaExit = false
+		}
 		sim := &simPosition{
 			Symbol: sym, Side: tradeSide, EntryPrice: entry, MarginUSDT: margin, Leverage: lev,
-			OpenedAt: time.Now(), MegaExit: sig.Mega || sig.Kind == SignalBurst,
+			OpenedAt: time.Now(), MegaExit: megaExit,
 			PeakPrice: entry, LastPrice: entry, SignalAbsMovePct: absMove,
+			SignalKind: sig.Kind,
 		}
 		e.mu.Lock()
 		e.dryOpen[sym] = sim
@@ -158,9 +167,11 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 		if e.cfg.ReverseLive {
 			go e.openReverseLive(sig, entry)
 		}
-		// Tick mode: aggTrade exits + mark poll (thin coins may have no ticks for minutes).
-		go e.dryRunTimeout(ctx, sym)
-		go e.manageDryRunMarkPoll(ctx, sym)
+		if sig.Kind == SignalEarly && e.cfg.EarlyLiveTrade {
+			go e.openEarlyLive(sig, entry)
+		}
+		go e.dryRunTimeout(ctx, sym, sig.Kind)
+		go e.manageDryRunMarkPoll(ctx, sym, sig.Kind)
 		return
 	}
 
@@ -178,10 +189,29 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 	}
 	entry, qty := parseFill(resp)
 	e.logSignalEntry(sig, tradeSide, entry, margin, effLev)
+
+	if sig.Kind == SignalEarly {
+		ep := &earlyLivePosition{
+			Symbol: sym, Side: tradeSide, EntryPrice: entry, Qty: qty,
+			MarginUSDT: margin, Leverage: effLev, OpenedAt: time.Now(),
+		}
+		e.mu.Lock()
+		e.earlyLive = e.ensureEarlyLiveMap()
+		e.earlyLive[sym] = ep
+		e.openCount++
+		e.lastTrade[sym] = time.Now()
+		e.mu.Unlock()
+		if e.journal != nil {
+			e.journal.LogLiveEntry(sig, tradeSide, sig.EntryPrice, entry, margin, effLev)
+		}
+		opened = true
+		go e.manageEarlyLiveExit(sym)
+		return
+	}
+
 	if e.journal != nil {
 		e.journal.LogEntry(sig, tradeSide, entry, margin, effLev, "live")
 	}
-
 	pos := &position{
 		Symbol: sym, Side: tradeSide, EntryPrice: entry, Qty: qty, MarginUSDT: margin, Leverage: effLev,
 		OpenedAt: time.Now(), MegaExit: sig.Mega || sig.Kind == SignalBurst, PeakPrice: entry,
@@ -283,6 +313,9 @@ func (e *Executor) logSignalEntry(sig *Signal, tradeSide Side, entry, margin flo
 	case SignalBurst:
 		log.Printf("[whale] SIGNAL %s %s%s BURST fast=%.2f%% 1s=%.2f%% vol=$%.0f entry=%.6f margin=%.2f lev=%dx",
 			sig.Side, sig.Symbol, reverseNote, sig.FastMove, sig.MovePct, sig.SecVolume, entry, margin, leverage)
+	case SignalEarly:
+		log.Printf("[whale] SIGNAL %s %s%s EARLY r60=%.2f%% entry=%.6f margin=%.2f lev=%dx",
+			sig.Side, sig.Symbol, reverseNote, sig.MovePct, entry, margin, leverage)
 	default:
 		log.Printf("[whale] SIGNAL %s %s%s flash mode=%s 1s=%.2f%% entry=%.6f margin=%.2f lev=%dx",
 			sig.Side, sig.Symbol, reverseNote, sig.FlashMode, sig.MovePct, entry, margin, leverage)
@@ -317,12 +350,27 @@ func parseFill(resp map[string]any) (price, qty float64) {
 	return price, qty
 }
 
-func (e *Executor) dryRunTimeout(ctx context.Context, sym string) {
+func (e *Executor) dryHoldDuration(kind SignalKind) time.Duration {
+	if kind == SignalEarly {
+		if m := e.cfg.Early.HoldMinutes; m > 0 {
+			return time.Duration(m) * time.Minute
+		}
+		return 30 * time.Minute
+	}
+	return 10 * time.Minute
+}
+
+func (e *Executor) dryRunTimeout(ctx context.Context, sym string, kind SignalKind) {
+	hold := e.dryHoldDuration(kind)
 	select {
 	case <-ctx.Done():
 		e.closeDry(sym, "ctx")
-	case <-time.After(10 * time.Minute):
-		e.closeDry(sym, "timeout")
+	case <-time.After(hold):
+		reason := "timeout"
+		if kind == SignalEarly {
+			reason = "early_hold"
+		}
+		e.closeDry(sym, reason)
 	}
 }
 
@@ -382,11 +430,14 @@ func (e *Executor) closeDry(sym, reason string) {
 	if e.cfg.ReverseLive {
 		e.closeReverseLive(sym, exit, reason, at)
 	}
+	if e.cfg.EarlyLiveTrade {
+		e.closeEarlyLive(sym, reason, at)
+	}
 	e.notifyTradeClosed(sym)
 }
 
-func (e *Executor) manageDryRunMarkPoll(ctx context.Context, sym string) {
-	deadline := time.After(10 * time.Minute)
+func (e *Executor) manageDryRunMarkPoll(ctx context.Context, sym string, kind SignalKind) {
+	deadline := time.After(e.dryHoldDuration(kind))
 	tick := time.NewTicker(500 * time.Millisecond)
 	defer tick.Stop()
 
@@ -396,7 +447,11 @@ func (e *Executor) manageDryRunMarkPoll(ctx context.Context, sym string) {
 			e.closeDry(sym, "ctx")
 			return
 		case <-deadline:
-			e.closeDry(sym, "timeout")
+			reason := "timeout"
+			if kind == SignalEarly {
+				reason = "early_hold"
+			}
+			e.closeDry(sym, reason)
 			return
 		case <-tick.C:
 			e.mu.Lock()
@@ -437,6 +492,24 @@ func (e *Executor) manageDryRunMarkPoll(ctx context.Context, sym string) {
 }
 
 func (e *Executor) dryExitStep(pos *simPosition, price float64, at time.Time) bool {
+	if pos.SignalKind == SignalEarly {
+		if at.Sub(pos.OpenedAt) >= e.dryHoldDuration(SignalEarly) {
+			if !e.claimDryExit(pos.Symbol) {
+				return true
+			}
+			e.logExit(pos, price, at, "early_hold", 0)
+			if e.journal != nil {
+				e.journal.LogExit(e.cfg.RiskForExit(), pos, price, at, "early_hold", 0)
+			}
+			if e.cfg.EarlyLiveTrade {
+				e.closeEarlyLive(pos.Symbol, "early_hold", at)
+			}
+			e.notifyTradeClosed(pos.Symbol)
+			e.finishDryClose(pos.Symbol)
+			return true
+		}
+		return false
+	}
 	var closed bool
 	var reason string
 	var partial float64

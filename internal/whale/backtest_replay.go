@@ -21,6 +21,7 @@ type simPosition struct {
 	SignalAbsMovePct float64 // |1s move| at entry — scalp vs mega exit profile
 	PeakPrice       float64
 	LastPrice       float64 // last mark/tick for dry timeout exit
+	SignalKind      SignalKind
 }
 
 func (p *simPosition) NotionalUSDT() float64 {
