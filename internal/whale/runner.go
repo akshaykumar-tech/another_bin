@@ -19,6 +19,7 @@ type Runner struct {
 	ws     *FuturesWS
 	exec    *Executor
 	journal *TradeJournal
+	focus   *FocusController
 
 	flash    sync.Map
 	bookLead sync.Map
@@ -40,11 +41,13 @@ func NewRunner(cfg Config, client *binance.FuturesClient) (*Runner, error) {
 	if err != nil {
 		return nil, err
 	}
+	focus := NewFocusController(cfg.FocusCooldownSec)
 	return &Runner{
-		cfg:    cfg,
-		client: client,
-		ws:     NewFuturesWS(cfg),
-		exec:   NewExecutor(cfg, client, journal),
+		cfg:     cfg,
+		client:  client,
+		ws:      NewFuturesWS(cfg, focus),
+		focus:   focus,
+		exec:    NewExecutor(cfg, client, journal, focus),
 		journal: journal,
 	}, nil
 }
@@ -67,9 +70,9 @@ func (r *Runner) Run(ctx context.Context) error {
 		if b.PumpOnly {
 			mode = "burst pump-only"
 		}
-		log.Printf("[whale] %s | symbols=%d | 100ms>=%.2f%% | $1s>=%.0f | cooldown=%.0fs | mega tp=%.0f%%",
+		log.Printf("[whale] %s | symbols=%d | 100ms>=%.2f%% | $1s>=%.0f | cooldown=%.0fs | focus_pause=%.0fs | mega tp=%.0f%%",
 			mode, len(r.cfg.Symbols), b.MinFastMovePct, b.MinSecNotionalUSDT, r.cfg.CooldownSec,
-			r.cfg.Risk.MegaTakeProfitPct)
+			r.cfg.FocusCooldownSec, r.cfg.Risk.MegaTakeProfitPct)
 	}
 	if r.cfg.UsesBookLead() {
 		bl := r.cfg.BookLead
@@ -93,14 +96,25 @@ func (r *Runner) Run(ctx context.Context) error {
 			len(r.cfg.Symbols), r.cfg.Flash.MinSecMovePct, r.cfg.Flash.EarlySecMovePct, r.cfg.Flash.MinFastMovePct)
 	}
 
-	workers := runtime.NumCPU() * 2
-	if workers < 4 {
-		workers = 4
+	nSym := len(r.cfg.Symbols)
+	workers := runtime.NumCPU() * 4
+	switch {
+	case nSym >= 200:
+		workers = nSym / 6
+	case nSym >= 100:
+		workers = nSym / 4
+	case nSym >= 50:
+		workers = nSym / 2
+	default:
+		workers = nSym
 	}
-	if workers > 32 {
-		workers = 32
+	if workers < 8 {
+		workers = 8
 	}
-	log.Printf("[whale] event workers=%d", workers)
+	if workers > 64 {
+		workers = 64
+	}
+	log.Printf("[whale] event workers=%d ws_queue=%d", workers, cap(r.ws.events))
 	for i := 0; i < workers; i++ {
 		go r.eventWorker(ctx)
 	}
@@ -118,9 +132,9 @@ func (r *Runner) statsHeartbeat(ctx context.Context) {
 		case <-t.C:
 			tr := r.tradesProcessed.Swap(0)
 			bu := r.burstsFired.Swap(0)
-			recv, enq, drop := r.ws.ConsumeStats()
-			log.Printf("[whale] health 1h: ws_recv=%d enqueued=%d dropped=%d trades=%d bursts=%d",
-				recv, enq, drop, tr, bu)
+			recv, enq, drop, filt := r.ws.ConsumeStats()
+			log.Printf("[whale] health 1h: ws_recv=%d enqueued=%d ws_filtered=%d dropped=%d trades=%d bursts=%d",
+				recv, enq, filt, drop, tr, bu)
 		}
 	}
 }
@@ -151,6 +165,9 @@ func (r *Runner) eventWorker(ctx context.Context) {
 
 func (r *Runner) processEvent(ev StreamEvent) {
 	sym := ev.Symbol
+	if r.focus != nil && !r.focus.AllowsEvent(sym) {
+		return
+	}
 	if ev.Trade != nil {
 		r.processTrade(sym, ev)
 	}
@@ -193,7 +210,8 @@ func (r *Runner) processTrade(sym string, ev StreamEvent) {
 			r.dispatchSignal(sig)
 		}
 	}
-	if r.cfg.DryRun && r.cfg.UsesTickDrySim() {
+	// Only tick-exit symbols with an open dry position (avoid 300× mutex per aggTrade).
+	if r.cfg.DryRun && r.cfg.UsesTickDrySim() && r.exec.HasDryPosition(sym) {
 		r.exec.OnPriceTick(sym, price, tradeAt)
 	}
 }
@@ -212,6 +230,9 @@ func (r *Runner) processDepth(sym string, ev StreamEvent) {
 }
 
 func (r *Runner) dispatchSignal(sig *Signal) {
+	if r.focus != nil && (r.focus.InCooldown() || !r.focus.AllowsEvent(sig.Symbol)) {
+		return
+	}
 	go r.exec.HandleSignal(context.Background(), sig)
 }
 

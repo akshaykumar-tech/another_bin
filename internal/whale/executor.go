@@ -14,6 +14,7 @@ type Executor struct {
 	cfg     Config
 	client  *binance.FuturesClient
 	journal *TradeJournal
+	focus   *FocusController
 
 	mu         sync.Mutex
 	openCount  int
@@ -22,7 +23,9 @@ type Executor struct {
 	dryOpen    map[string]*simPosition
 	dryPartial map[string]float64
 	reverseLive map[string]*reversePosition
-	closing     map[string]bool // per-symbol exit in progress (avoids duplicate EXIT logs)
+	shadowPos   map[string]*reversePosition // shadow mode: prices only, no orders
+	closing     map[string]bool             // per-symbol exit in progress (avoids duplicate EXIT logs)
+	dryOpenSyms sync.Map                    // fast HasDryPosition without scanning all symbols
 }
 
 // countOpenSlotsLocked returns unique symbols with dry, live, or reverse-live (caller must hold e.mu).
@@ -35,6 +38,9 @@ func (e *Executor) countOpenSlotsLocked() int {
 		seen[s] = struct{}{}
 	}
 	for s := range e.reverseLive {
+		seen[s] = struct{}{}
+	}
+	for s := range e.shadowPos {
 		seen[s] = struct{}{}
 	}
 	return len(seen)
@@ -53,8 +59,9 @@ type position struct {
 	Partial    bool
 }
 
-func NewExecutor(cfg Config, client *binance.FuturesClient, journal *TradeJournal) *Executor {
+func NewExecutor(cfg Config, client *binance.FuturesClient, journal *TradeJournal, focus *FocusController) *Executor {
 	return &Executor{
+		focus: focus,
 		cfg:        cfg,
 		client:     client,
 		journal:    journal,
@@ -63,6 +70,7 @@ func NewExecutor(cfg Config, client *binance.FuturesClient, journal *TradeJourna
 		dryOpen:    make(map[string]*simPosition),
 		dryPartial: make(map[string]float64),
 		reverseLive: make(map[string]*reversePosition),
+		shadowPos:   make(map[string]*reversePosition),
 		closing:     make(map[string]bool),
 	}
 }
@@ -90,7 +98,12 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 			e.mu.Unlock()
 			return
 		}
-		if e.cfg.ReverseLive {
+		if e.cfg.ShadowLive {
+			if _, sh := e.shadowPos[sym]; sh {
+				e.mu.Unlock()
+				return
+			}
+		} else if e.cfg.ReverseLive {
 			if _, live := e.reverseLive[sym]; live {
 				e.mu.Unlock()
 				return
@@ -101,6 +114,16 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 		return
 	}
 	e.mu.Unlock()
+
+	if e.focus != nil && !e.focus.TryBegin(sym) {
+		return
+	}
+	opened := false
+	defer func() {
+		if !opened && e.focus != nil {
+			e.focus.ReleaseWithoutTrade(sym)
+		}
+	}()
 
 	margin, lev := e.marginAndLeverage(sig)
 	tradeSide := e.cfg.TradeSide(sig.Side)
@@ -116,6 +139,7 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 			log.Printf("[whale] SIGNAL skip %s %s: no entry price", side, sym)
 			return
 		}
+		opened = true
 		e.logSignalEntry(sig, tradeSide, entry, margin, lev)
 		if e.journal != nil {
 			e.journal.LogEntry(sig, tradeSide, entry, margin, lev, simMode)
@@ -127,18 +151,18 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 		}
 		e.mu.Lock()
 		e.dryOpen[sym] = sim
+		e.trackDryOpen(sym)
 		e.openCount++
 		e.lastTrade[sym] = time.Now()
 		e.mu.Unlock()
-		if e.cfg.ReverseLive {
-			// Sync open: avoids live order after dry already hit SL on first tick (ICNT-style race).
-			e.openReverseLive(sig, entry)
+		if e.cfg.ShadowLive {
+			e.openShadowLive(sig, entry) // sync under focus — probe then exit ticks for this symbol only
+		} else if e.cfg.ReverseLive {
+			go e.openReverseLive(sig, entry)
 		}
-		if e.cfg.UsesTickDrySim() {
-			go e.dryRunTimeout(ctx, sym)
-		} else {
-			go e.manageDryRunMarkPoll(ctx, sim)
-		}
+		// Tick mode: aggTrade exits + mark poll (thin coins may have no ticks for minutes).
+		go e.dryRunTimeout(ctx, sym)
+		go e.manageDryRunMarkPoll(ctx, sym)
 		return
 	}
 
@@ -170,8 +194,24 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 	e.lastTrade[sym] = time.Now()
 	e.mu.Unlock()
 
+	opened = true
 	go e.manageExit(ctx, pos)
 }
+
+func (e *Executor) notifyTradeClosed(sym string) {
+	if e.focus != nil {
+		e.focus.EndTradeCooldown(sym)
+	}
+}
+
+// HasDryPosition reports whether tick-based exit should run for this symbol.
+func (e *Executor) HasDryPosition(sym string) bool {
+	_, ok := e.dryOpenSyms.Load(sym)
+	return ok
+}
+
+func (e *Executor) trackDryOpen(sym string) { e.dryOpenSyms.Store(sym, struct{}{}) }
+func (e *Executor) untrackDryOpen(sym string) { e.dryOpenSyms.Delete(sym) }
 
 // OnPriceTick updates open dry positions from live aggTrade (tick sim mode).
 func (e *Executor) OnPriceTick(sym string, price float64, at time.Time) {
@@ -190,13 +230,19 @@ func (e *Executor) OnPriceTick(sym string, price float64, at time.Time) {
 	}
 	px := applySlippage(price, pos.Side, e.cfg.DryExitSlippageBps, false)
 	pos.LastPrice = px
-	if e.dryExitStep(pos, px, at) {
-		e.closing[sym] = true
-		delete(e.dryOpen, sym)
-		delete(e.dryPartial, sym)
-		e.openCount--
-	}
 	e.mu.Unlock()
+
+	if e.dryExitStep(pos, px, at) {
+		e.mu.Lock()
+		if _, still := e.dryOpen[sym]; still {
+			e.closing[sym] = true
+			delete(e.dryOpen, sym)
+			delete(e.dryPartial, sym)
+			e.openCount--
+			e.untrackDryOpen(sym)
+		}
+		e.mu.Unlock()
+	}
 }
 
 func (e *Executor) simEntryPrice(sig *Signal, tradeSide Side) float64 {
@@ -300,6 +346,7 @@ func (e *Executor) closeDry(sym, reason string) {
 		return
 	}
 	delete(e.dryOpen, sym)
+	e.untrackDryOpen(sym)
 	part := e.dryPartial[sym]
 	delete(e.dryPartial, sym)
 	e.openCount--
@@ -317,13 +364,17 @@ func (e *Executor) closeDry(sym, reason string) {
 	if e.journal != nil {
 		e.journal.LogExit(e.cfg.RiskForExit(), pos, exit, at, reason, part)
 	}
-	e.closeReverseLive(sym, exit, reason, at)
+	if e.cfg.ShadowLive {
+		e.closeShadowLive(sym, exit, reason, at)
+	} else {
+		e.closeReverseLive(sym, exit, reason, at)
+	}
+	e.notifyTradeClosed(sym)
 }
 
-func (e *Executor) manageDryRunMarkPoll(ctx context.Context, pos *simPosition) {
-	sym := pos.Symbol
+func (e *Executor) manageDryRunMarkPoll(ctx context.Context, sym string) {
 	deadline := time.After(10 * time.Minute)
-	tick := time.NewTicker(200 * time.Millisecond)
+	tick := time.NewTicker(500 * time.Millisecond)
 	defer tick.Stop()
 
 	for {
@@ -335,16 +386,45 @@ func (e *Executor) manageDryRunMarkPoll(ctx context.Context, pos *simPosition) {
 			e.closeDry(sym, "timeout")
 			return
 		case <-tick.C:
+			e.mu.Lock()
+			if e.closing[sym] {
+				e.mu.Unlock()
+				return
+			}
+			pos, ok := e.dryOpen[sym]
+			if !ok {
+				e.mu.Unlock()
+				return
+			}
+			e.mu.Unlock()
+
 			mp, err := e.client.MarkPrice(sym)
 			if err != nil || mp <= 0 {
 				continue
 			}
-			pos.LastPrice = mp
-			if e.dryExitStep(pos, mp, time.Now()) {
+			e.mu.Lock()
+			if e.closing[sym] {
+				e.mu.Unlock()
+				return
+			}
+			pos, ok = e.dryOpen[sym]
+			if !ok {
+				e.mu.Unlock()
+				return
+			}
+			px := applySlippage(mp, pos.Side, e.cfg.DryExitSlippageBps, false)
+			pos.LastPrice = px
+			e.mu.Unlock()
+
+			if e.dryExitStep(pos, px, time.Now()) {
 				e.mu.Lock()
-				delete(e.dryOpen, sym)
-				delete(e.dryPartial, sym)
-				e.openCount--
+				if _, still := e.dryOpen[sym]; still {
+					e.closing[sym] = true
+					delete(e.dryOpen, sym)
+					e.untrackDryOpen(sym)
+					delete(e.dryPartial, sym)
+					e.openCount--
+				}
 				e.mu.Unlock()
 				return
 			}
@@ -367,7 +447,9 @@ func (e *Executor) dryExitStep(pos *simPosition, price float64, at time.Time) bo
 		e.mu.Lock()
 		e.dryPartial[pos.Symbol] += partial
 		e.mu.Unlock()
-		if e.cfg.ReverseLive {
+		if e.cfg.ShadowLive {
+			e.reduceShadowLive(pos.Symbol, e.cfg.Risk.PartialExitFraction)
+		} else if e.cfg.ReverseLive {
 			e.reduceReverseLive(pos.Symbol, e.cfg.Risk.PartialExitFraction)
 		}
 		if e.journal != nil {
@@ -383,7 +465,12 @@ func (e *Executor) dryExitStep(pos *simPosition, price float64, at time.Time) bo
 		if e.journal != nil {
 			e.journal.LogExit(e.cfg.RiskForExit(), pos, price, at, reason, part)
 		}
-		e.closeReverseLive(pos.Symbol, price, reason, at)
+		if e.cfg.ShadowLive {
+			e.closeShadowLive(pos.Symbol, price, reason, at)
+		} else {
+			e.closeReverseLive(pos.Symbol, price, reason, at)
+		}
+		e.notifyTradeClosed(pos.Symbol)
 		e.mu.Lock()
 		delete(e.closing, pos.Symbol)
 		e.mu.Unlock()

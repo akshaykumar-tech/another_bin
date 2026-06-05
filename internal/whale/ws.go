@@ -47,18 +47,25 @@ type StreamEvent struct {
 
 type FuturesWS struct {
 	cfg    Config
+	focus  *FocusController
 	events chan StreamEvent
 
 	dropped  atomic.Uint64
+	filtered atomic.Uint64 // dropped at enqueue when focus/cooldown (not queue full)
 	enqueued atomic.Uint64
 	received atomic.Uint64
 }
 
-func NewFuturesWS(cfg Config) *FuturesWS {
+func NewFuturesWS(cfg Config, focus *FocusController) *FuturesWS {
 	n := len(cfg.Symbols)
-	buf := n * 8
-	if n >= 200 && buf < 12288 {
-		buf = 12288 // larger watchlists: reduce aggTrade drops under bursts
+	buf := n * 128
+	switch {
+	case n >= 200:
+		buf = 65536
+	case n >= 100:
+		buf = 32768
+	case n >= 50:
+		buf = 16384
 	}
 	if buf < 4096 {
 		buf = 4096
@@ -68,6 +75,7 @@ func NewFuturesWS(cfg Config) *FuturesWS {
 	}
 	return &FuturesWS{
 		cfg:    cfg,
+		focus:  focus,
 		events: make(chan StreamEvent, buf),
 	}
 }
@@ -186,8 +194,8 @@ func (w *FuturesWS) Run(ctx context.Context) error {
 }
 
 // ConsumeStats returns WS counters since last call and resets them.
-func (w *FuturesWS) ConsumeStats() (recv, enqueued, dropped uint64) {
-	return w.received.Swap(0), w.enqueued.Swap(0), w.dropped.Swap(0)
+func (w *FuturesWS) ConsumeStats() (recv, enqueued, dropped, filtered uint64) {
+	return w.received.Swap(0), w.enqueued.Swap(0), w.dropped.Swap(0), w.filtered.Swap(0)
 }
 
 func (w *FuturesWS) reconnectEndpoint(ctx context.Context, id int, url string, symCount int, route string) {
@@ -265,7 +273,6 @@ func (w *FuturesWS) runEndpoint(ctx context.Context, id int, url string, symCoun
 }
 
 func (w *FuturesWS) enqueue(msg []byte, recv time.Time) {
-	w.received.Add(1)
 	var wrap combinedWrapper
 	payload := msg
 	if err := json.Unmarshal(msg, &wrap); err == nil && len(wrap.Data) > 0 {
@@ -299,13 +306,25 @@ func (w *FuturesWS) enqueue(msg []byte, recv time.Time) {
 	default:
 		return
 	}
+	if w.focus != nil && !w.focus.AllowsEvent(ev.Symbol) {
+		w.filtered.Add(1)
+		return
+	}
+	w.received.Add(1)
 	select {
 	case w.events <- ev:
 		w.enqueued.Add(1)
 	default:
-		n := w.dropped.Add(1)
-		if n == 1 || n%5000 == 0 {
-			log.Printf("[whale_ws] WARNING: dropped %d aggTrade/depth events (queue full)", n)
+		// Brief block before drop — helps during micro-bursts without stalling readers long.
+		select {
+		case w.events <- ev:
+			w.enqueued.Add(1)
+		case <-time.After(5 * time.Millisecond):
+			n := w.dropped.Add(1)
+			if n == 1 || n%5000 == 0 {
+				log.Printf("[whale_ws] WARNING: dropped %d aggTrade/depth events (queue full, cap=%d)",
+					n, cap(w.events))
+			}
 		}
 	}
 }

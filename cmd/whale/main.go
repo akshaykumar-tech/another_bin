@@ -40,6 +40,12 @@ func main() {
 	if v := strings.TrimSpace(os.Getenv("WHALE_REVERSE_LIVE")); v != "" {
 		whaleCfg.ReverseLive = v == "1" || strings.EqualFold(v, "true")
 	}
+	if v := strings.TrimSpace(os.Getenv("WHALE_SHADOW_LIVE")); v != "" {
+		whaleCfg.ShadowLive = v == "1" || strings.EqualFold(v, "true")
+	}
+	if whaleCfg.ShadowLive {
+		whaleCfg.ReverseLive = false
+	}
 
 	client := binance.NewFuturesClient("https://fapi.binance.com", appCfg.BinanceAPIKey, appCfg.BinanceAPISecret)
 	if err := client.WarmSymbolCache(); err != nil {
@@ -72,11 +78,22 @@ func main() {
 	if whaleCfg.MarginUSDT > 0 {
 		marginNote = fmt.Sprintf("margin=%.2f USDT fixed", whaleCfg.MarginUSDT)
 	}
-	log.Printf("[whale] starting %s dry_run=%v reverse_trade=%v reverse_live=%v dry_sim=%s capital=%.0f %s sim_lev=%dx max_live_lev=%dx %s",
-		whaleCfg.Strategy, whaleCfg.DryRun, whaleCfg.ReverseTrade, whaleCfg.ReverseLive, whaleCfg.DrySimMode,
-		whaleCfg.CapitalUSDT, marginNote, lev, maxLev, whale.FormatStreams(whaleCfg))
+	log.Printf("[whale] starting %s dry_run=%v reverse_trade=%v reverse_live=%v shadow_live=%v dry_sim=%s capital=%.0f %s sim_lev=%dx max_live_lev=%dx %s",
+		whaleCfg.Strategy, whaleCfg.DryRun, whaleCfg.ReverseTrade, whaleCfg.ReverseLive, whaleCfg.ShadowLive,
+		whaleCfg.DrySimMode, whaleCfg.CapitalUSDT, marginNote, lev, maxLev, whale.FormatStreams(whaleCfg))
 	if whaleCfg.ReverseTrade && whaleCfg.ReverseStopLossPct > 0 {
 		log.Printf("[whale] reverse SL: %.2f%%", whaleCfg.ReverseStopLossPct)
+	}
+	if whaleCfg.ShadowLive {
+		if !client.Configured() {
+			log.Fatal("[whale] WHALE_SHADOW_LIVE requires BINANCE_API_KEY and BINANCE_API_SECRET (probe orders)")
+		}
+		shLev := whaleCfg.ShadowLeverage
+		if shLev <= 0 {
+			shLev = lev
+		}
+		log.Printf("[whale] shadow mode: probe MARKET orders (notional=%.0f×%dx=%.0f USDT, expect margin FAIL) | record price at reject → SHADOW_* log",
+			whaleCfg.ShadowMarginUSDT, shLev, whaleCfg.ShadowMarginUSDT*float64(shLev))
 	}
 	if whaleCfg.ReverseLive {
 		if !client.Configured() {
