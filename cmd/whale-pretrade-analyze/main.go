@@ -111,7 +111,7 @@ func main() {
 		groups[m.label] = append(groups[m.label], m)
 	}
 
-	fmt.Println("=== PRE-TRADE METRICS (before entry) ===\n")
+	fmt.Println("=== PRE-TRADE METRICS (before entry) ===")
 	headers := []string{"label", "n", "quiet60s$", "quiet5s$", "range60s%", "trend60s%", "trades60s", "max1s60s%", "secVol$", "move30sAfter%"}
 	for _, gname := range []string{"mega", "other13", "normal15", "auto13", "auto15"} {
 		g := groups[gname]
@@ -135,7 +135,7 @@ func main() {
 		fmt.Println()
 	}
 
-	fmt.Println("=== PER ENTRY (labeled) ===\n")
+	fmt.Println("=== PER ENTRY (labeled) ===")
 	for _, m := range all {
 		if m.label == "auto13" || m.label == "auto15" || m.label == "mega?" {
 			continue

@@ -17,9 +17,10 @@ type simPosition struct {
 	Leverage    int // 0/1 = no mult; else PnL uses margin*leverage
 	OpenedAt    time.Time
 	Partial     bool
-	MegaExit    bool
-	PeakPrice   float64
-	LastPrice   float64 // last mark/tick for dry timeout exit
+	MegaExit        bool
+	SignalAbsMovePct float64 // |1s move| at entry — scalp vs mega exit profile
+	PeakPrice       float64
+	LastPrice       float64 // last mark/tick for dry timeout exit
 }
 
 func (p *simPosition) NotionalUSDT() float64 {
@@ -31,11 +32,13 @@ func (p *simPosition) NotionalUSDT() float64 {
 }
 
 type pendingBurstEntry struct {
-	Side       Side
-	MarginUSDT float64
-	MegaExit   bool
-	SignalAt   time.Time
-	EnterAfter time.Time
+	Side             Side
+	MarginUSDT       float64
+	MegaExit         bool
+	SignalAt         time.Time
+	EnterAfter       time.Time
+	SignalPrice      float64
+	SignalAbsMovePct float64
 }
 
 type pendingExit struct {
@@ -214,20 +217,12 @@ func (st *replayState) markToMarket(sym string, price float64, at time.Time) {
 		return
 	}
 
-	if at.Sub(pos.OpenedAt) >= backtestHoldTimeout {
+	if at.Sub(pos.OpenedAt) >= positionMaxHold(st.cfg, pos) {
 		st.scheduleClose(sym, pos, price, at, "timeout")
 		return
 	}
 
-	r := st.cfg.RiskForExit()
-	var closed bool
-	var reason string
-	var partial float64
-	if pos.MegaExit {
-		closed, reason, partial = megaExitStep(r, pos, price, at)
-	} else {
-		closed, reason, partial = standardExitStep(r, pos, price)
-	}
+	closed, reason, partial := positionExitStep(st.cfg, pos, price, at)
 	if partial > 0 {
 		st.summary.ExitsTP1++
 		st.summary.TotalPnLUSDT += partial

@@ -107,8 +107,11 @@ type BurstConfig struct {
 	MinFastVolSharePct  float64 `yaml:"min_fast_vol_share_pct"`
 	MinBurstImpulse     float64 `yaml:"min_burst_impulse"`      // min sec$ / quiet$ before 1s leg
 	MaxEntrySecMovePct  float64 `yaml:"max_entry_sec_move_pct"` // cap 1s move at entry (avoid chase)
+	MaxEntryBouncePct        float64 `yaml:"max_entry_bounce_pct"`         // cancel delayed entry if price bounced against signal
+	MinEntryContinuationPct  float64 `yaml:"min_entry_continuation_pct"` // sell: fill must be ≥N% below signal (dump still going)
 	MaxFastMovePct      float64 `yaml:"max_fast_move_pct"`      // cap 100ms spike at entry
 	MinMomentumAlign    float64 `yaml:"min_momentum_align"`     // min |1s%|/|100ms| same direction
+	MinFastSecRatio     float64 `yaml:"min_fast_sec_ratio"`     // min |fast%|/|1s%| same sign — blocks late 1s chase
 	TrendWindowMs       int     `yaml:"trend_window_ms"`
 	MaxCounterTrendPct  float64 `yaml:"max_counter_trend_pct"`
 	// Cascade: violent multi-second leg (catches 13 May 13:30-style dumps when 1s spike is late).
@@ -152,8 +155,15 @@ type BurstConfig struct {
 	MaxPrior1sViolentPct        float64 `yaml:"max_prior_1s_violent_pct"`      // 60s pre-dump max 1s spike
 	MinNotionalLongViolentUSDT  float64 `yaml:"min_notional_long_violent_usdt"`
 	MaxQuiet60ViolentUSDT       float64 `yaml:"max_quiet_60_violent_usdt"`
+	MinViolentFastSecRatio      float64 `yaml:"min_violent_fast_sec_ratio"`   // coordinated dump: |fast|≈|1s|
+	MaxPreDumpRange60sPct       float64 `yaml:"max_pre_dump_range_60s_pct"`   // skip if 60s tape already wild
+	MinViolentSecQuiet60Ratio   float64 `yaml:"min_violent_sec_quiet60_ratio"` // sec/q60 blast impulse
 	// EarlyCaptureAll: all watchlist symbols — enter on ~0.7%+ 1s legs; skip mega-only / prior_1s / pump chop gates.
 	EarlyCaptureAll bool `yaml:"early_capture_all"`
+	// SignalSides: both | buy | sell — only act on matching burst direction (pre-trade filter).
+	SignalSides string `yaml:"signal_sides"`
+	// BlockSymbols: skip entries on symbols with negative backtest expectancy.
+	BlockSymbols []string `yaml:"block_symbols"`
 }
 
 // BookLeadConfig predicts violent moves from bid/ask depth + trade flow before price runs.
@@ -186,9 +196,22 @@ type Risk struct {
 	MegaTrailWidenPeakPct  float64 `yaml:"mega_trail_widen_peak_pct"`  // widen trail when peak exceeds
 	MegaTrailWidenDistPct  float64 `yaml:"mega_trail_widen_dist_pct"`
 	MegaTrailMinHoldMs     int     `yaml:"mega_trail_min_hold_ms"` // no trail exit in first N ms
+	// Wider SL on violent entries: max(base, |signal%| * ratio) when |signal| >= min_move.
+	MegaSLSignalRatio      float64 `yaml:"mega_sl_signal_ratio"`
+	MegaSLSignalMinMovePct float64 `yaml:"mega_sl_signal_min_move_pct"`
 	// Scratch chop: exit if peak favorable move < min within window (no mega follow-through).
 	MegaConfirmWindowMs        int     `yaml:"mega_confirm_window_ms"`
 	MegaConfirmMinFavorablePct float64 `yaml:"mega_confirm_min_favorable_pct"`
+	// Violent dump scalp exit: tight trail + stall scratch (replaces 10m timeout bleed).
+	ViolentScalpEnabled          bool    `yaml:"violent_scalp_enabled"`
+	ViolentScalpMinMovePct       float64 `yaml:"violent_scalp_min_move_pct"`
+	ViolentScalpMaxMovePct       float64 `yaml:"violent_scalp_max_move_pct"`
+	ViolentScalpStallMs          int     `yaml:"violent_scalp_stall_ms"`
+	ViolentScalpStallMinPct      float64 `yaml:"violent_scalp_stall_min_pct"`
+	ViolentScalpTrailActivatePct float64 `yaml:"violent_scalp_trail_activate_pct"`
+	ViolentScalpTrailDistPct     float64 `yaml:"violent_scalp_trail_dist_pct"`
+	ViolentScalpMaxHoldMs        int     `yaml:"violent_scalp_max_hold_ms"`
+	ViolentScalpTPPct            float64 `yaml:"violent_scalp_tp_pct"`
 }
 
 type WebSocketCfg struct {

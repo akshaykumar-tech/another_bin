@@ -74,7 +74,13 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 	if sig == nil {
 		return
 	}
+	if !e.cfg.AllowsSignalSide(sig.Side) {
+		return
+	}
 	sym := sig.Symbol
+	if e.cfg.IsSymbolBlocked(sym) {
+		return
+	}
 	if !e.cfg.DryRun && !e.client.SymbolTradable(sym) {
 		return
 	}
@@ -134,10 +140,14 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 		if e.journal != nil {
 			e.journal.LogEntry(sig, tradeSide, entry, margin, lev, simMode)
 		}
+		absMove := sig.MovePct
+		if absMove < 0 {
+			absMove = -absMove
+		}
 		sim := &simPosition{
 			Symbol: sym, Side: tradeSide, EntryPrice: entry, MarginUSDT: margin, Leverage: lev,
 			OpenedAt: time.Now(), MegaExit: sig.Mega || sig.Kind == SignalBurst,
-			PeakPrice: entry, LastPrice: entry,
+			PeakPrice: entry, LastPrice: entry, SignalAbsMovePct: absMove,
 		}
 		e.mu.Lock()
 		e.dryOpen[sym] = sim
@@ -220,17 +230,7 @@ func (e *Executor) OnPriceTick(sym string, price float64, at time.Time) {
 	pos.LastPrice = px
 	e.mu.Unlock()
 
-	if e.dryExitStep(pos, px, at) {
-		e.mu.Lock()
-		if _, still := e.dryOpen[sym]; still {
-			e.closing[sym] = true
-			delete(e.dryOpen, sym)
-			delete(e.dryPartial, sym)
-			e.openCount--
-			e.untrackDryOpen(sym)
-		}
-		e.mu.Unlock()
-	}
+	_ = e.dryExitStep(pos, px, at)
 }
 
 func (e *Executor) simEntryPrice(sig *Signal, tradeSide Side) float64 {
@@ -326,16 +326,43 @@ func (e *Executor) dryRunTimeout(ctx context.Context, sym string) {
 	}
 }
 
+func (e *Executor) claimDryExit(sym string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closing[sym] {
+		return false
+	}
+	if _, ok := e.dryOpen[sym]; !ok {
+		return false
+	}
+	e.closing[sym] = true
+	return true
+}
+
+func (e *Executor) finishDryClose(sym string) {
+	e.mu.Lock()
+	delete(e.dryOpen, sym)
+	e.untrackDryOpen(sym)
+	delete(e.dryPartial, sym)
+	e.openCount--
+	e.mu.Unlock()
+}
+
 func (e *Executor) closeDry(sym, reason string) {
 	e.mu.Lock()
+	if e.closing[sym] {
+		e.mu.Unlock()
+		return
+	}
 	pos, ok := e.dryOpen[sym]
 	if !ok {
 		e.mu.Unlock()
 		return
 	}
+	e.closing[sym] = true
+	part := e.dryPartial[sym]
 	delete(e.dryOpen, sym)
 	e.untrackDryOpen(sym)
-	part := e.dryPartial[sym]
 	delete(e.dryPartial, sym)
 	e.openCount--
 	e.mu.Unlock()
@@ -403,15 +430,6 @@ func (e *Executor) manageDryRunMarkPoll(ctx context.Context, sym string) {
 			e.mu.Unlock()
 
 			if e.dryExitStep(pos, px, time.Now()) {
-				e.mu.Lock()
-				if _, still := e.dryOpen[sym]; still {
-					e.closing[sym] = true
-					delete(e.dryOpen, sym)
-					e.untrackDryOpen(sym)
-					delete(e.dryPartial, sym)
-					e.openCount--
-				}
-				e.mu.Unlock()
 				return
 			}
 		}
@@ -419,15 +437,10 @@ func (e *Executor) manageDryRunMarkPoll(ctx context.Context, sym string) {
 }
 
 func (e *Executor) dryExitStep(pos *simPosition, price float64, at time.Time) bool {
-	r := e.cfg.RiskForExit()
 	var closed bool
 	var reason string
 	var partial float64
-	if pos.MegaExit {
-		closed, reason, partial = megaExitStep(r, pos, price, at)
-	} else {
-		closed, reason, partial = standardExitStep(r, pos, price)
-	}
+	closed, reason, partial = positionExitStep(e.cfg, pos, price, at)
 	if partial > 0 && !pos.Partial {
 		pos.Partial = true
 		e.mu.Lock()
@@ -441,6 +454,9 @@ func (e *Executor) dryExitStep(pos *simPosition, price float64, at time.Time) bo
 		}
 	}
 	if closed {
+		if !e.claimDryExit(pos.Symbol) {
+			return true
+		}
 		part := 0.0
 		e.mu.Lock()
 		part = e.dryPartial[pos.Symbol]
@@ -453,9 +469,7 @@ func (e *Executor) dryExitStep(pos *simPosition, price float64, at time.Time) bo
 			e.closeReverseLive(pos.Symbol, price, reason, at)
 		}
 		e.notifyTradeClosed(pos.Symbol)
-		e.mu.Lock()
-		delete(e.closing, pos.Symbol)
-		e.mu.Unlock()
+		e.finishDryClose(pos.Symbol)
 		return true
 	}
 	return false
@@ -524,7 +538,7 @@ func (e *Executor) manageMegaExit(ctx context.Context, pos *position) {
 				continue
 			}
 			sim := liveSimFrom(pos, partialDone)
-			closed, reason, partialPnL := megaExitStep(r, sim, mp, time.Now())
+			closed, reason, partialPnL := positionExitStep(e.cfg, sim, mp, time.Now())
 			pos.PeakPrice = sim.PeakPrice
 			if partialPnL > 0 && !partialDone {
 				half := remaining * partialFrac

@@ -63,6 +63,9 @@ func (st *burstReplayState) onTrade(sym string, tr binance.AggTrade) {
 	if sig == nil {
 		return
 	}
+	if !st.cfg.AllowsSignalSide(sig.Side) || st.cfg.IsSymbolBlocked(sym) {
+		return
+	}
 	tradeSide := st.cfg.TradeSide(sig.Side)
 	st.summary.Signals++
 	if st.openCount >= st.cfg.MaxOpenPositions {
@@ -90,12 +93,13 @@ func (st *burstReplayState) onTrade(sym string, tr binance.AggTrade) {
 	}
 	delay := time.Duration(st.cfg.BacktestEntryDelayMs) * time.Millisecond
 	if delay <= 0 {
-		st.openBurstPosition(sym, tradeSide, margin, tr.Time, tr.Price)
+		st.openBurstPosition(sym, tradeSide, margin, tr.Time, tr.Price, sig)
 		return
 	}
-		st.pending[sym] = &pendingBurstEntry{
+	st.pending[sym] = &pendingBurstEntry{
 		Side: tradeSide, MarginUSDT: margin, MegaExit: true,
-		SignalAt: tr.Time, EnterAfter: tr.Time.Add(delay),
+		SignalAt: tr.Time, EnterAfter: tr.Time.Add(delay), SignalPrice: tr.Price,
+		SignalAbsMovePct: absPct(sig.MovePct),
 	}
 }
 
@@ -104,6 +108,26 @@ func (st *burstReplayState) tryFillPendingEntry(sym string, tr binance.AggTrade)
 	if !ok || p == nil || tr.Time.Before(p.EnterAfter) || tr.Price <= 0 {
 		return
 	}
+	if bounce := st.cfg.Burst.MaxEntryBouncePct; bounce > 0 && p.SignalPrice > 0 {
+		if p.Side == SideSell && tr.Price > p.SignalPrice*(1+bounce/100) {
+			delete(st.pending, sym)
+			return
+		}
+		if p.Side == SideBuy && tr.Price < p.SignalPrice*(1-bounce/100) {
+			delete(st.pending, sym)
+			return
+		}
+	}
+	if cont := st.cfg.Burst.MinEntryContinuationPct; cont > 0 && p.SignalPrice > 0 {
+		if p.Side == SideSell && tr.Price > p.SignalPrice*(1-cont/100) {
+			delete(st.pending, sym)
+			return
+		}
+		if p.Side == SideBuy && tr.Price < p.SignalPrice*(1+cont/100) {
+			delete(st.pending, sym)
+			return
+		}
+	}
 	delete(st.pending, sym)
 	px := tr.Price
 	if bps := st.cfg.BacktestEntrySlippageBps; bps > 0 {
@@ -111,16 +135,28 @@ func (st *burstReplayState) tryFillPendingEntry(sym string, tr binance.AggTrade)
 	} else if bps := st.cfg.DryEntrySlippageBps; bps > 0 {
 		px = applySlippage(px, p.Side, bps, true)
 	}
-	st.openBurstPosition(sym, p.Side, p.MarginUSDT, tr.Time, px)
+	st.openBurstPosition(sym, p.Side, p.MarginUSDT, tr.Time, px, &Signal{MovePct: p.SignalAbsMovePct})
 }
 
-func (st *burstReplayState) openBurstPosition(sym string, side Side, margin float64, at time.Time, entry float64) {
+func absPct(v float64) float64 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+func (st *burstReplayState) openBurstPosition(sym string, side Side, margin float64, at time.Time, entry float64, sig *Signal) {
 	if entry <= 0 {
 		return
+	}
+	move := 0.0
+	if sig != nil {
+		move = absPct(sig.MovePct)
 	}
 	st.open[sym] = &simPosition{
 		Symbol: sym, Side: side, EntryPrice: entry, MarginUSDT: margin,
 		Leverage: st.simLeverage(), OpenedAt: at, MegaExit: true, PeakPrice: entry,
+		SignalAbsMovePct: move,
 	}
 	st.openCount++
 	st.lastTrade[sym] = at

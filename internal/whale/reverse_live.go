@@ -32,6 +32,9 @@ func (e *Executor) reverseLeverage(sym string) int {
 		cap = 50
 	}
 	lev := e.client.MaxLeverage(sym)
+	if e.cfg.Leverage > 0 {
+		lev = e.cfg.Leverage // WHALE_LEVERAGE — match dry sim notional
+	}
 	if lev <= 0 {
 		lev = cap
 	}

@@ -169,10 +169,30 @@ func priceAt(ticks []tradeTick, at time.Time) float64 {
 }
 
 // ExplainPumpReject sets lastPumpReject when pump filters fail (for diagnostics).
+// fastSecMomentumRatio is |fast%|/|1s%| when both legs share sign; 0 if misaligned.
+func fastSecMomentumRatio(fastMove, secMove float64) float64 {
+	absFast := math.Abs(fastMove)
+	absSec := math.Abs(secMove)
+	if absFast <= 0 || absSec <= 0 {
+		return 0
+	}
+	if (fastMove > 0) != (secMove > 0) {
+		return 0
+	}
+	return absFast / absSec
+}
+
 func (d *BurstDetector) explainPumpReject(now time.Time, side Side, fastMove, secMove, fastN, secN float64, secStart, fastStart time.Time) string {
 	absFast := math.Abs(fastMove)
 	absSec := math.Abs(secMove)
 	violent := d.isViolentCoordinatedBurst(absSec, secN)
+
+	if minR := d.cfg.MinFastSecRatio; minR > 0 && !violent {
+		r := fastSecMomentumRatio(fastMove, secMove)
+		if r < minR {
+			return fmt.Sprintf("fast_sec_ratio %.2f < min %.2f (fast=%.2f%% 1s=%.2f%%)", r, minR, fastMove, secMove)
+		}
+	}
 
 	if d.cfg.EarlyCaptureAll {
 		minN := d.cfg.MinSecNotionalUSDT
@@ -193,6 +213,9 @@ func (d *BurstDetector) explainPumpReject(now time.Time, side Side, fastMove, se
 	}
 
 	if violent {
+		if reason := d.explainViolentSellEntryReject(now, side, fastMove, secMove, secN); reason != "" {
+			return reason
+		}
 		if d.cfg.TrendWindowMs > 0 && d.cfg.MaxCounterTrendPct > 0 {
 			trendStart := now.Add(-time.Duration(d.cfg.TrendWindowMs) * time.Millisecond)
 			trendMove := priceMoveBetween(d.ticks, trendStart, now)

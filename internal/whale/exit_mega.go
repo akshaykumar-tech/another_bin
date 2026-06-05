@@ -11,10 +11,7 @@ func megaExitStep(r Risk, pos *simPosition, price float64, at time.Time) (closed
 	activate := r.MegaTrailActivatePct / 100
 	trailDist := r.MegaTrailDistancePct / 100
 	tpPct := r.MegaTakeProfitPct / 100
-	slPct := r.MegaStopLossPercent / 100
-	if slPct <= 0 {
-		slPct = r.StopLossPercent / 100
-	}
+	slPct := megaStopLossPct(r, pos)
 	partialFrac := r.PartialExitFraction
 	partialMin := r.MegaPartialMinPct / 100
 	if partialMin <= 0 {
@@ -37,7 +34,11 @@ func megaExitStep(r Risk, pos *simPosition, price float64, at time.Time) (closed
 		peakCh = (pos.EntryPrice - pos.PeakPrice) / pos.EntryPrice
 	}
 
-	if ch <= -slPct {
+	holdGrace := r.MegaTrailMinHoldMs
+	if holdGrace <= 0 {
+		holdGrace = 2000
+	}
+	if ch <= -slPct && at.Sub(pos.OpenedAt) >= time.Duration(holdGrace)*time.Millisecond {
 		return true, "sl", 0
 	}
 	if ch >= tpPct {
@@ -83,6 +84,27 @@ func megaExitStep(r Risk, pos *simPosition, price float64, at time.Time) (closed
 	}
 
 	return false, "", 0
+}
+
+func megaStopLossPct(r Risk, pos *simPosition) float64 {
+	sl := r.MegaStopLossPercent
+	if sl <= 0 {
+		sl = r.StopLossPercent
+	}
+	minMove := r.MegaSLSignalMinMovePct
+	if minMove <= 0 {
+		minMove = 2.0
+	}
+	ratio := r.MegaSLSignalRatio
+	if ratio <= 0 {
+		ratio = 0.75
+	}
+	if pos != nil && pos.SignalAbsMovePct >= minMove {
+		if scaled := pos.SignalAbsMovePct * ratio; scaled > sl {
+			sl = scaled
+		}
+	}
+	return sl / 100
 }
 
 func standardExitStep(r Risk, pos *simPosition, price float64) (closed bool, reason string, partialPnL float64) {

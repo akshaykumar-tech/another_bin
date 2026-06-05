@@ -34,9 +34,18 @@ Files: `internal/whale/focus.go`, `runner.go`, `ws.go`, `executor.go`.
 
 ## 6. Race fixes
 
-- `closing` map avoids duplicate EXIT logs.
+- `closing` map + `claimDryExit` — single EXIT path (tick + mark poll).
+- SL grace: `mega_trail_min_hold_ms` applies to stop-loss (no 0s tick SL).
 - `countOpenSlotsLocked()` includes dry + live reverse positions.
 - `dryOpenSyms` for fast `HasDryPosition`.
+
+## 7. Entry / exit tuning (loss on thin 0.5–1% bursts)
+
+- `early_capture_all: false` — restore pre-trade + momentum gates.
+- `min_sec_move_pct: 1.2`, `min_fast_sec_ratio: 0.50` — block late 1s chase (TAKE/ELSA).
+- `min_sec_notional_usdt: 15000`, `max_entry_sec_move_pct: 0.65`.
+- Smaller-move exits: `mega_confirm_min_favorable_pct: 0.25`, window 45s, trail activate 0.35%, SL 1%.
+- Live leverage: `WHALE_LEVERAGE` forces live size (capped by `max_leverage_cap: 10`).
 
 ## Deploy
 
