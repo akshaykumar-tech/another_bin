@@ -101,9 +101,6 @@ symbols_per_connection: 80
 dry_run: true
 reverse_trade: false  # true: signal BUY → trade SELL (opposite); same burst logic
 reverse_live: false   # true + WHALE_REVERSE_LIVE=1 → real Binance orders (opposite if reverse_trade)
-shadow_live: false    # WHALE_SHADOW_LIVE=1 → probe MARKET order (fails); log price at reject + virtual PnL
-shadow_margin_usdt: 100
-shadow_leverage: 10
 reverse_stop_loss_pct: 0   # 0 = use mega_stop_loss_percent; e.g. 1.5 for tighter reverse SL
 max_leverage_cap: 50  # min(symbol max leverage, this cap) for live orders
 dry_sim_mode: tick                  # tick = aggTrade entry/exit (realistic); mark = REST mark poll

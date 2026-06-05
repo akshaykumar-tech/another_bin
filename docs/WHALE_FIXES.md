@@ -1,10 +1,10 @@
 # Whale bot fixes (after `2ea49c2`)
 
-Testing commits (`0e5e0b3` … `5a79b68`) were squashed into one changeset. Summary for EC2/local deploy.
+Testing commits were squashed into one changeset. Summary for EC2/local deploy.
 
 ## 1. Exit deadlock (main “stuck after entry” bug)
 
-**Symptom:** `focus ON` → `PROBE OPEN` → no `EXIT` for minutes (only `timeout` at 10m).
+**Symptom:** `focus ON` → entry → no `EXIT` for minutes (only `timeout` at 10m).
 
 **Cause:** `OnPriceTick` / mark poll held `e.mu.Lock()` and called `dryExitStep()`, which tried `e.mu.Lock()` again on exit → deadlock.
 
@@ -28,26 +28,15 @@ Files: `internal/whale/focus.go`, `runner.go`, `ws.go`, `executor.go`.
 
 **Fix:** Enqueue only focused symbol during trade; larger queue for 200+ symbols; more workers; skip non-open symbols for `OnPriceTick`.
 
-## 5. Shadow probe mode (no real positions)
-
-`WHALE_SHADOW_LIVE=true`: real MARKET order sized to fail (`margin × leverage` notional), record mark price at reject, log `SHADOW_ENTRY` / `SHADOW_EXIT` with virtual PnL.
-
-`WHALE_REVERSE_LIVE=false` when shadow on.
-
-## 6. Reverse trade
+## 5. Reverse trade
 
 `WHALE_REVERSE_TRADE=true`: signal BUY → trade SELL. `WHALE_REVERSE_SL_PERCENT` for exit SL.
 
-## 7. Race fixes (ICNT-style)
+## 6. Race fixes
 
-- Sync shadow open under focus; skip live if sim already closed.
 - `closing` map avoids duplicate EXIT logs.
-- `countOpenSlotsLocked()` includes dry + shadow positions.
-
-## 8. Tooling
-
-- `cmd/whale-shadow-summary` — summarize `SHADOW_EXIT` lines in `whale-trades.log`.
-- `.gitignore`: `bin/`, `whale-trades.log`.
+- `countOpenSlotsLocked()` includes dry + live reverse positions.
+- `dryOpenSyms` for fast `HasDryPosition`.
 
 ## Deploy
 

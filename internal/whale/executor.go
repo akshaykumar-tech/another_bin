@@ -23,8 +23,7 @@ type Executor struct {
 	dryOpen    map[string]*simPosition
 	dryPartial map[string]float64
 	reverseLive map[string]*reversePosition
-	shadowPos   map[string]*reversePosition // shadow mode: prices only, no orders
-	closing     map[string]bool             // per-symbol exit in progress (avoids duplicate EXIT logs)
+	closing     map[string]bool // per-symbol exit in progress (avoids duplicate EXIT logs)
 	dryOpenSyms sync.Map                    // fast HasDryPosition without scanning all symbols
 }
 
@@ -38,9 +37,6 @@ func (e *Executor) countOpenSlotsLocked() int {
 		seen[s] = struct{}{}
 	}
 	for s := range e.reverseLive {
-		seen[s] = struct{}{}
-	}
-	for s := range e.shadowPos {
 		seen[s] = struct{}{}
 	}
 	return len(seen)
@@ -70,7 +66,6 @@ func NewExecutor(cfg Config, client *binance.FuturesClient, journal *TradeJourna
 		dryOpen:    make(map[string]*simPosition),
 		dryPartial: make(map[string]float64),
 		reverseLive: make(map[string]*reversePosition),
-		shadowPos:   make(map[string]*reversePosition),
 		closing:     make(map[string]bool),
 	}
 }
@@ -98,12 +93,7 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 			e.mu.Unlock()
 			return
 		}
-		if e.cfg.ShadowLive {
-			if _, sh := e.shadowPos[sym]; sh {
-				e.mu.Unlock()
-				return
-			}
-		} else if e.cfg.ReverseLive {
+		if e.cfg.ReverseLive {
 			if _, live := e.reverseLive[sym]; live {
 				e.mu.Unlock()
 				return
@@ -155,9 +145,7 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 		e.openCount++
 		e.lastTrade[sym] = time.Now()
 		e.mu.Unlock()
-		if e.cfg.ShadowLive {
-			e.openShadowLive(sig, entry) // sync under focus — probe then exit ticks for this symbol only
-		} else if e.cfg.ReverseLive {
+		if e.cfg.ReverseLive {
 			go e.openReverseLive(sig, entry)
 		}
 		// Tick mode: aggTrade exits + mark poll (thin coins may have no ticks for minutes).
@@ -364,9 +352,7 @@ func (e *Executor) closeDry(sym, reason string) {
 	if e.journal != nil {
 		e.journal.LogExit(e.cfg.RiskForExit(), pos, exit, at, reason, part)
 	}
-	if e.cfg.ShadowLive {
-		e.closeShadowLive(sym, exit, reason, at)
-	} else {
+	if e.cfg.ReverseLive {
 		e.closeReverseLive(sym, exit, reason, at)
 	}
 	e.notifyTradeClosed(sym)
@@ -447,9 +433,7 @@ func (e *Executor) dryExitStep(pos *simPosition, price float64, at time.Time) bo
 		e.mu.Lock()
 		e.dryPartial[pos.Symbol] += partial
 		e.mu.Unlock()
-		if e.cfg.ShadowLive {
-			e.reduceShadowLive(pos.Symbol, e.cfg.Risk.PartialExitFraction)
-		} else if e.cfg.ReverseLive {
+		if e.cfg.ReverseLive {
 			e.reduceReverseLive(pos.Symbol, e.cfg.Risk.PartialExitFraction)
 		}
 		if e.journal != nil {
@@ -465,9 +449,7 @@ func (e *Executor) dryExitStep(pos *simPosition, price float64, at time.Time) bo
 		if e.journal != nil {
 			e.journal.LogExit(e.cfg.RiskForExit(), pos, price, at, reason, part)
 		}
-		if e.cfg.ShadowLive {
-			e.closeShadowLive(pos.Symbol, price, reason, at)
-		} else {
+		if e.cfg.ReverseLive {
 			e.closeReverseLive(pos.Symbol, price, reason, at)
 		}
 		e.notifyTradeClosed(pos.Symbol)

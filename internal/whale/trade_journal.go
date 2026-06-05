@@ -18,8 +18,6 @@ type TradeJournal struct {
 	tradeCount    int
 	liveCumulativePnL float64
 	liveTradeCount    int
-	shadowCumulativePnL float64
-	shadowTradeCount    int
 }
 
 func NewTradeJournal(path string) (*TradeJournal, error) {
@@ -48,7 +46,7 @@ func (j *TradeJournal) ensureHeader() error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return j.appendLine("# whale trade journal — ENTRY/EXIT sim + SHADOW/LIVE (signal_side vs trade_side when reverse)")
+	return j.appendLine("# whale trade journal — ENTRY/EXIT sim + LIVE (signal_side vs trade_side when reverse)")
 }
 
 func (j *TradeJournal) LogEntry(sig *Signal, tradeSide Side, entryPrice, margin float64, leverage int, simMode string) {
@@ -179,49 +177,6 @@ func (j *TradeJournal) LogLiveExit(rp *reversePosition, signalExit, liveExit flo
 		rp.SignalSide, rp.Symbol, reason,
 		rp.SignalSide, rp.RealSide,
 		signalExit, liveExit, exitSlipBps, pnlPct, pnlUSDT, lev, hold, cum, n)
-	_ = j.appendLine(line)
-}
-
-func (j *TradeJournal) LogShadowEntry(sig *Signal, tradeSide Side, signalEntry, probeEntry, margin float64, leverage int, attemptNotional float64, orderErr string, execMs time.Duration, slipBps float64) {
-	if j == nil || sig == nil {
-		return
-	}
-	lev := leverage
-	if lev <= 0 {
-		lev = 1
-	}
-	kind := string(sig.Kind)
-	if sig.Kind == SignalBurst {
-		kind = "burst"
-	}
-	line := fmt.Sprintf("SHADOW_ENTRY\t%s\t%s\t%s\t%s\tsignal_side=%s\ttrade_side=%s\tfast=%.2f%%\t1s=%.2f%%\tvol=$%.0f\tsignal_entry=%.6f\tprobe_entry=%.6f\tentry_slip_bps=%+.1f\tattempt_notional=%.0f\tmargin=%.2f\tlev=%dx\texec_ms=%.1f\torder_err=%s",
-		time.Now().UTC().Format(time.RFC3339),
-		tradeSide, sig.Symbol, kind, sig.Side, tradeSide,
-		sig.FastMove, sig.MovePct, sig.SecVolume,
-		signalEntry, probeEntry, slipBps, attemptNotional, margin, lev, execMs.Seconds()*1000, orderErr)
-	_ = j.appendLine(line)
-}
-
-func (j *TradeJournal) LogShadowExit(rp *reversePosition, signalExit, probeExit float64, at time.Time, reason string, pnlUSDT, pnlPct float64, orderErr string, execMs time.Duration, slipBps float64) {
-	if j == nil || rp == nil {
-		return
-	}
-	hold := at.Sub(rp.OpenedAt).Round(time.Second)
-	j.mu.Lock()
-	j.shadowCumulativePnL += pnlUSDT
-	j.shadowTradeCount++
-	cum := j.shadowCumulativePnL
-	n := j.shadowTradeCount
-	j.mu.Unlock()
-	lev := rp.Leverage
-	if lev <= 0 {
-		lev = 1
-	}
-	line := fmt.Sprintf("SHADOW_EXIT\t%s\t%s\t%s\treason=%s\tsignal_side=%s\ttrade_side=%s\tsignal_exit=%.6f\tprobe_exit=%.6f\texit_slip_bps=%+.1f\tpnl_pct=%+.2f\tpnl_usdt=%+.2f\tmargin=%.2f\tlev=%dx\thold=%s\texec_ms=%.1f\torder_err=%s\tshadow_cumulative_usdt=%+.2f\tshadow_trades=%d",
-		at.UTC().Format(time.RFC3339),
-		rp.RealSide, rp.Symbol, reason,
-		rp.SignalSide, rp.RealSide,
-		signalExit, probeExit, slipBps, pnlPct, pnlUSDT, rp.MarginUSDT, lev, hold, execMs.Seconds()*1000, orderErr, cum, n)
 	_ = j.appendLine(line)
 }
 

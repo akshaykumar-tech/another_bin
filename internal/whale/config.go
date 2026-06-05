@@ -39,9 +39,6 @@ type Config struct {
 	// ReverseTrade: execute opposite of burst signal (signal BUY → trade SELL). Same detector, flipped PnL.
 	ReverseTrade     bool    `yaml:"reverse_trade"`
 	ReverseLive      bool    `yaml:"reverse_live"` // WHALE_REVERSE_LIVE: real Binance orders (opposite if reverse_trade)
-	ShadowLive       bool    `yaml:"shadow_live"`  // WHALE_SHADOW_LIVE: no orders; log mark entry/exit + virtual PnL
-	ShadowMarginUSDT float64 `yaml:"shadow_margin_usdt"`
-	ShadowLeverage   int     `yaml:"shadow_leverage"`
 	ReverseStopLossPct float64 `yaml:"reverse_stop_loss_pct"` // 0 = use risk.mega_stop_loss_percent
 	MaxLeverageCap   int     `yaml:"max_leverage_cap"` // min(symbol max, cap); default 50
 	TradeLogPath     string  `yaml:"trade_log_path"` // append-only ENTRY/EXIT log (default whale-trades.log)
@@ -345,19 +342,6 @@ func applyEnv(c *Config) {
 	if v := strings.TrimSpace(os.Getenv("WHALE_REVERSE_LIVE")); v != "" {
 		c.ReverseLive = strings.EqualFold(v, "true") || v == "1"
 	}
-	if v := strings.TrimSpace(os.Getenv("WHALE_SHADOW_LIVE")); v != "" {
-		c.ShadowLive = strings.EqualFold(v, "true") || v == "1"
-	}
-	if v := strings.TrimSpace(os.Getenv("WHALE_SHADOW_MARGIN_USDT")); v != "" {
-		if n, err := strconv.ParseFloat(v, 64); err == nil && n > 0 {
-			c.ShadowMarginUSDT = n
-		}
-	}
-	if v := strings.TrimSpace(os.Getenv("WHALE_SHADOW_LEVERAGE")); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			c.ShadowLeverage = n
-		}
-	}
 	if v := strings.TrimSpace(os.Getenv("WHALE_MARGIN_USDT")); v != "" {
 		if n, err := strconv.ParseFloat(v, 64); err == nil && n > 0 {
 			c.MarginUSDT = n
@@ -487,12 +471,6 @@ func (c *Config) normalize() {
 	}
 	if c.SymbolsPerConnection <= 0 {
 		c.SymbolsPerConnection = 80
-	}
-	if c.ShadowLive {
-		c.ReverseLive = false // shadow wins: no real orders
-	}
-	if c.ShadowMarginUSDT <= 0 {
-		c.ShadowMarginUSDT = 100
 	}
 	if c.ReverseLive {
 		if c.AllocationPercent <= 0 {
