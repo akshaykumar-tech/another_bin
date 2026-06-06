@@ -59,6 +59,13 @@ type Config struct {
 	AllocationPercent float64 `yaml:"-"`
 	Leverage            int     `yaml:"-"`
 	MarginUSDT          float64 `yaml:"-"` // fixed margin per trade when > 0 (overrides alloc %)
+	// Early dry paths (EARLY_SAME_* / EARLY_REVERSE_* env); fallback to MarginUSDT/Leverage.
+	EarlySameMarginUSDT        float64 `yaml:"-"`
+	EarlySameAllocationPercent float64 `yaml:"-"`
+	EarlySameLeverage          int     `yaml:"-"`
+	EarlyReverseMarginUSDT        float64 `yaml:"-"`
+	EarlyReverseAllocationPercent float64 `yaml:"-"`
+	EarlyReverseLeverage          int     `yaml:"-"`
 	CooldownSec        float64 `yaml:"cooldown_sec"`
 	FocusCooldownSec   float64 `yaml:"focus_cooldown_sec"` // pause all symbols after trade closes (default 120)
 	MaxOpenPositions   int     `yaml:"max_open_positions"`

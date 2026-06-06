@@ -51,8 +51,9 @@ func (r *EarlyRunner) Run(ctx context.Context) error {
 	ew := r.cfg.Early
 	log.Printf("[early] watch | rule=%s direction=%s lead=%dm hold=%dm scan=%dm | symbols=%d",
 		ew.Rule, ew.Direction, ew.LeadMinutes, ew.HoldMinutes, ew.ScanStepMinutes, len(r.cfg.Symbols))
-	log.Printf("[early] dry_run=%v live_trade=%v margin=%s lev=%d",
-		r.cfg.DryRun, r.cfg.EarlyLiveTrade, earlyMarginNote(r.cfg), r.cfg.Leverage)
+	log.Printf("[early] dry_run=%v dry_same=%v dry_rev_limit=%v live_trade=%v | same_margin=%s rev_margin=%s",
+		r.cfg.DryRun, ew.DrySameEnabled, ew.DryReverseLimitEnabled, r.cfg.EarlyLiveTrade,
+		earlyPathMarginNote(r.cfg, true), earlyPathMarginNote(r.cfg, false))
 
 	nSym := len(r.cfg.Symbols)
 	workers := nSym
@@ -66,6 +67,38 @@ func (r *EarlyRunner) Run(ctx context.Context) error {
 		go r.eventWorker(ctx)
 	}
 	return r.ws.Run(ctx)
+}
+
+func earlyPathMarginNote(c Config, same bool) string {
+	if same {
+		if c.EarlySameMarginUSDT > 0 {
+			return fmt.Sprintf("%.2f USDT fixed", c.EarlySameMarginUSDT)
+		}
+		if c.EarlySameAllocationPercent > 0 {
+			return fmt.Sprintf("%.0f%% balance lev=%d", c.EarlySameAllocationPercent, earlyPathLev(c, true))
+		}
+	} else {
+		if c.EarlyReverseMarginUSDT > 0 {
+			return fmt.Sprintf("%.2f USDT fixed", c.EarlyReverseMarginUSDT)
+		}
+		if c.EarlyReverseAllocationPercent > 0 {
+			return fmt.Sprintf("%.0f%% balance lev=%d", c.EarlyReverseAllocationPercent, earlyPathLev(c, false))
+		}
+	}
+	return fmt.Sprintf("%s lev=%d", earlyMarginNote(c), earlyPathLev(c, same))
+}
+
+func earlyPathLev(c Config, same bool) int {
+	if same && c.EarlySameLeverage > 0 {
+		return c.EarlySameLeverage
+	}
+	if !same && c.EarlyReverseLeverage > 0 {
+		return c.EarlyReverseLeverage
+	}
+	if c.Leverage > 0 {
+		return c.Leverage
+	}
+	return 1
 }
 
 func earlyMarginNote(c Config) string {
@@ -112,20 +145,38 @@ func (r *EarlyRunner) processEvent(ctx context.Context, ev StreamEvent) {
 	}
 	mon := raw.(*EarlyMonitor)
 
-	if r.cfg.DryRun && r.cfg.UsesTickDrySim() && r.exec.HasDryPosition(sym) {
-		r.exec.OnPriceTick(sym, price, at)
+	if r.cfg.DryRun && r.cfg.Early.DryReverseLimitEnabled {
+		r.exec.OnRevLimitTick(ctx, sym, price, at)
+	}
+	if r.cfg.DryRun && r.cfg.UsesTickDrySim() {
+		if r.exec.HasDryPosition(sym) {
+			r.exec.OnPriceTick(sym, price, at)
+		}
+		if r.exec.HasDryRevPosition(sym) {
+			r.exec.OnRevPriceTick(sym, price, at)
+		}
 	}
 
 	mon.OnTick(price, qty, buyerMaker, at)
 
-	last := r.exec.LastTradeTime(sym)
-	if sig := mon.TrySignal(sym, at, last); sig != nil {
+	if sig := mon.TrySignal(sym, at); sig != nil {
 		sig.RecvAt = ev.Recv
 		tape := BuildEarlyTape(r.cfg.Burst, mon.copyTicks(), at)
 		log.Printf("[early] SIGNAL %s %s rule=%s q60=$%.0f r60=%.2f%% t30=%d vol_accel=%.1fx px=%.6f",
 			sig.Side, sym, r.cfg.Early.Rule,
 			tape.Snap.Quiet60, tape.Snap.Range60, tape.Snap.Trades30, tape.VolAccel, sig.EntryPrice)
-		r.exec.HandleSignal(ctx, sig)
+
+		if r.cfg.DryRun && r.cfg.Early.DrySameEnabled {
+			if r.exec.CanEarlySameDry(sym, at) {
+				r.exec.HandleSignal(ctx, sig)
+			}
+		}
+		if r.cfg.DryRun && r.cfg.Early.DryReverseLimitEnabled {
+			r.exec.TryStartReverseLimit(ctx, sig, tape.VolAccel)
+		}
+		if !r.cfg.DryRun && r.cfg.EarlyLiveTrade {
+			r.exec.HandleSignal(ctx, sig)
+		}
 	}
 }
 

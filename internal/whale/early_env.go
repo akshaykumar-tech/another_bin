@@ -55,6 +55,52 @@ func ApplyEarlyEnv(c *Config) {
 	if v := strings.TrimSpace(os.Getenv("EARLY_DIRECTION")); v != "" {
 		c.Early.Direction = strings.ToLower(v)
 	}
+	if v := strings.TrimSpace(os.Getenv("EARLY_DRY_SAME")); v != "" {
+		c.Early.DrySameEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := strings.TrimSpace(os.Getenv("EARLY_DRY_REVERSE_LIMIT")); v != "" {
+		c.Early.DryReverseLimitEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := strings.TrimSpace(os.Getenv("EARLY_MIN_VOL_ACCEL")); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil && n > 0 {
+			c.Early.MinVolAccel = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EARLY_LIMIT_FILL_SEC")); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil && n > 0 {
+			c.Early.LiveLimitFillSec = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EARLY_SAME_MARGIN_USDT")); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil && n > 0 {
+			c.EarlySameMarginUSDT = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EARLY_SAME_ALLOCATION_PERCENT")); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil && n > 0 {
+			c.EarlySameAllocationPercent = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EARLY_SAME_LEVERAGE")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.EarlySameLeverage = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EARLY_REVERSE_MARGIN_USDT")); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil && n > 0 {
+			c.EarlyReverseMarginUSDT = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EARLY_REVERSE_ALLOCATION_PERCENT")); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil && n > 0 {
+			c.EarlyReverseAllocationPercent = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EARLY_REVERSE_LEVERAGE")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.EarlyReverseLeverage = n
+		}
+	}
 	if v := strings.TrimSpace(os.Getenv("EARLY_WATCHLIST_SIZE")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			c.Watchlist.Size = n
@@ -78,6 +124,9 @@ func LoadEarlyConfig(path string) (Config, error) {
 	ApplyEarlyEnv(&cfg)
 	cfg.Strategy = StrategyEarly
 	cfg.Early.ApplyDefaults()
+	if cfg.DryRun && os.Getenv("EARLY_DRY_SAME") == "" && !cfg.Early.DryReverseLimitEnabled {
+		cfg.Early.DrySameEnabled = true
+	}
 	if cfg.CooldownSec <= 0 {
 		cfg.CooldownSec = float64(cfg.Early.HoldMinutes * 60)
 	}

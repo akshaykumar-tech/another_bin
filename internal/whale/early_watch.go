@@ -22,6 +22,17 @@ type EarlyWatchConfig struct {
 	Direction    string  `yaml:"direction"`
 	FirstMovePct float64 `yaml:"first_move_pct"`
 	MinAmpPct    float64 `yaml:"min_amp_pct"` // events mode: label extreme 1s legs
+	MinVolAccel  float64 `yaml:"min_vol_accel"` // reverse dry path: recent 20m vol / prior 20m vol
+	// Live dry paths (cmd/whale-early, EARLY_DRY_* env):
+	DrySameEnabled         bool    `yaml:"dry_same"`
+	DryReverseLimitEnabled bool    `yaml:"dry_reverse_limit"`
+	LiveLimitFillSec       float64 `yaml:"limit_fill_sec"` // max wait for reverse limit fill (default 1800)
+	// Backtest-only (whale-early-sim flags):
+	ReverseTrade  bool    `yaml:"-"`
+	FeeBpsPerSide float64 `yaml:"-"` // Binance taker per side; round-trip deducted from each trade
+	LimitEntry    bool    `yaml:"-"` // post-only limit at signal price; skip if no fill within window
+	LimitExit     bool    `yaml:"-"` // post-only limit at scheduled exit price; market fallback after window
+	LimitFillSec  float64 `yaml:"-"` // max wait for limit fill (default 300s)
 }
 
 func (c EarlyWatchConfig) lead() time.Duration {
@@ -67,6 +78,9 @@ func (c *EarlyWatchConfig) ApplyDefaults() {
 	if c.Direction == "" {
 		c.Direction = "trend_1h"
 	}
+	if c.LiveLimitFillSec <= 0 {
+		c.LiveLimitFillSec = 1800
+	}
 }
 
 // EarlyTape is pre-entry tape state at scan time.
@@ -93,6 +107,17 @@ func (c EarlyWatchConfig) RuleFires(t EarlyTape) bool {
 	default:
 		return false
 	}
+}
+
+// PassesFilters applies rule + optional extra gates (vol surge, etc.).
+func (c EarlyWatchConfig) PassesFilters(t EarlyTape) bool {
+	if !c.RuleFires(t) {
+		return false
+	}
+	if c.MinVolAccel > 0 && t.VolAccel < c.MinVolAccel {
+		return false
+	}
+	return true
 }
 
 func earlyVolAccel(trades []binance.AggTrade, at time.Time) float64 {
@@ -170,6 +195,30 @@ func earlyPriceAt(trades []binance.AggTrade, at time.Time) float64 {
 	return trades[i].Price
 }
 
+// earlyTryLimitFill simulates post-only limit at limitPx after signal time.
+// Buy limit fills on trade <= limitPx; sell limit on trade >= limitPx.
+func earlyTryLimitFill(trades []binance.AggTrade, from time.Time, window time.Duration, limitPx float64, short bool) (fillAt time.Time, ok bool) {
+	if limitPx <= 0 || window <= 0 {
+		return time.Time{}, false
+	}
+	deadline := from.Add(window)
+	i := sort.Search(len(trades), func(j int) bool { return !trades[j].Time.Before(from) })
+	for ; i < len(trades); i++ {
+		tr := trades[i]
+		if tr.Time.After(deadline) {
+			break
+		}
+		if short {
+			if tr.Price >= limitPx {
+				return tr.Time, true
+			}
+		} else if tr.Price <= limitPx {
+			return tr.Time, true
+		}
+	}
+	return time.Time{}, false
+}
+
 type EarlyTrade struct {
 	Symbol    string
 	Date      string
@@ -188,11 +237,13 @@ type EarlyTrade struct {
 }
 
 type EarlyBacktestSummary struct {
-	Signals   int
-	Entries   int
-	Wins      int
-	PnLUSDT   float64
-	Trades    []EarlyTrade
+	Signals     int
+	Entries     int
+	LimitMissed     int // signal fired but limit entry did not fill in window
+	LimitExitMissed int // limit exit not filled; closed at market after window
+	Wins        int
+	PnLUSDT     float64
+	Trades      []EarlyTrade
 }
 
 // RunEarlyBacktestScan walks tape on a fixed grid (live-like).
@@ -242,7 +293,7 @@ func RunEarlyBacktestScan(cfg Config, symbol string, trades []binance.AggTrade, 
 			continue
 		}
 		tape := BuildEarlyTape(cfg.Burst, trades, at)
-		if !ew.RuleFires(tape) {
+		if !ew.PassesFilters(tape) {
 			continue
 		}
 		out.Signals++
@@ -266,22 +317,78 @@ func RunEarlyBacktestScan(cfg Config, symbol string, trades []binance.AggTrade, 
 			}
 			short = s
 		}
+		if ew.ReverseTrade {
+			short = !short
+		}
 
-		entAt = entAt.Add(entryDelay)
-		entPx := earlyPriceAt(trades, entAt)
-		if entPx <= 0 {
+		limitPx := earlyPriceAt(trades, at)
+		if limitPx <= 0 {
 			continue
 		}
-		entPx = applyEarlySlip(entPx, short, slipIn, true)
-		exitAt := entAt.Add(ew.hold())
-		exitPx := earlyPriceAt(trades, exitAt.Add(exitDelay))
-		if exitPx <= 0 {
-			exitPx = trades[len(trades)-1].Price
+
+		var entPx float64
+		if ew.LimitEntry {
+			fillWindow := time.Duration(ew.LimitFillSec * float64(time.Second))
+			if fillWindow <= 0 {
+				fillWindow = 5 * time.Minute
+			}
+			searchFrom := at.Add(entryDelay)
+			fillAt, filled := earlyTryLimitFill(trades, searchFrom, fillWindow, limitPx, short)
+			if !filled {
+				out.LimitMissed++
+				continue
+			}
+			entAt = fillAt
+			entPx = limitPx // maker fill at limit, no entry slip
+		} else {
+			entAt = entAt.Add(entryDelay)
+			entPx = earlyPriceAt(trades, entAt)
+			if entPx <= 0 {
+				continue
+			}
+			entPx = applyEarlySlip(entPx, short, slipIn, true)
 		}
-		exitPx = applyEarlySlip(exitPx, short, slipOut, false)
+		exitAt := entAt.Add(ew.hold())
+		fillWindow := time.Duration(ew.LimitFillSec * float64(time.Second))
+		if fillWindow <= 0 {
+			fillWindow = 5 * time.Minute
+		}
+
+		var exitPx float64
+		if ew.LimitExit {
+			exitLimitPx := earlyPriceAt(trades, exitAt)
+			if exitLimitPx <= 0 {
+				continue
+			}
+			// Close long = sell limit; close short = buy limit.
+			exitCloseSell := !short
+			fillAt, filled := earlyTryLimitFill(trades, exitAt, fillWindow, exitLimitPx, exitCloseSell)
+			if filled {
+				exitAt = fillAt
+				exitPx = exitLimitPx
+			} else {
+				out.LimitExitMissed++
+				fallback := exitAt.Add(fillWindow)
+				exitPx = earlyPriceAt(trades, fallback.Add(exitDelay))
+				if exitPx <= 0 {
+					exitPx = trades[len(trades)-1].Price
+				}
+				exitPx = applyEarlySlip(exitPx, short, slipOut, false)
+				exitAt = fallback
+			}
+		} else {
+			exitPx = earlyPriceAt(trades, exitAt.Add(exitDelay))
+			if exitPx <= 0 {
+				exitPx = trades[len(trades)-1].Price
+			}
+			exitPx = applyEarlySlip(exitPx, short, slipOut, false)
+		}
 
 		ch := earlyPnLCh(entPx, exitPx, short)
 		pnl := margin * float64(lev) * ch / 100
+		if ew.FeeBpsPerSide > 0 {
+			pnl -= margin * float64(lev) * ew.FeeBpsPerSide * 2 / 10000
+		}
 		out.Entries++
 		out.PnLUSDT += pnl
 		if pnl > 0 {
@@ -332,7 +439,7 @@ func RunEarlyBacktestEvents(cfg Config, symbol string, trades []binance.AggTrade
 	for _, ev := range events {
 		at := ev.at.Add(-ew.lead())
 		tape := BuildEarlyTape(cfg.Burst, trades, at)
-		if !ew.RuleFires(tape) {
+		if !ew.PassesFilters(tape) {
 			continue
 		}
 		out.Signals++
@@ -456,6 +563,8 @@ func findEarlyExtreme1s(sym, date string, trades []binance.AggTrade, minAmp floa
 func MergeEarlySummary(dst *EarlyBacktestSummary, src EarlyBacktestSummary) {
 	dst.Signals += src.Signals
 	dst.Entries += src.Entries
+	dst.LimitMissed += src.LimitMissed
+	dst.LimitExitMissed += src.LimitExitMissed
 	dst.Wins += src.Wins
 	dst.PnLUSDT += src.PnLUSDT
 	dst.Trades = append(dst.Trades, src.Trades...)

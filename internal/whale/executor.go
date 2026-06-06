@@ -26,6 +26,12 @@ type Executor struct {
 	earlyLive   map[string]*earlyLivePosition
 	closing     map[string]bool // per-symbol exit in progress (avoids duplicate EXIT logs)
 	dryOpenSyms sync.Map                    // fast HasDryPosition without scanning all symbols
+	// Early reverse limit dry (independent of same-dir dryOpen):
+	revPending   map[string]*reverseLimitPending
+	dryRevOpen   map[string]*simPosition
+	revClosing   map[string]bool
+	lastRevTrade map[string]time.Time
+	dryRevSyms   sync.Map
 }
 
 // countOpenSlotsLocked returns unique symbols with dry, live, or reverse-live (caller must hold e.mu).
@@ -41,6 +47,9 @@ func (e *Executor) countOpenSlotsLocked() int {
 		seen[s] = struct{}{}
 	}
 	for s := range e.earlyLive {
+		seen[s] = struct{}{}
+	}
+	for s := range e.dryRevOpen {
 		seen[s] = struct{}{}
 	}
 	return len(seen)
@@ -71,6 +80,10 @@ func NewExecutor(cfg Config, client *binance.FuturesClient, journal *TradeJourna
 		dryPartial: make(map[string]float64),
 		reverseLive: make(map[string]*reversePosition),
 		closing:     make(map[string]bool),
+		revPending:   make(map[string]*reverseLimitPending),
+		dryRevOpen:   make(map[string]*simPosition),
+		revClosing:   make(map[string]bool),
+		lastRevTrade: make(map[string]time.Time),
 	}
 }
 
@@ -126,6 +139,9 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 	}()
 
 	margin, lev := e.marginAndLeverage(sig)
+	if sig.Kind == SignalEarly && e.cfg.Early.DrySameEnabled {
+		margin, lev = e.marginForEarlyPath(sig, earlyDrySame)
+	}
 	tradeSide := e.cfg.TradeSide(sig.Side)
 	side := string(tradeSide)
 	simMode := e.cfg.DrySimMode

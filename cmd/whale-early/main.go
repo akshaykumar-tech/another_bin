@@ -34,6 +34,9 @@ func main() {
 	if !cfg.DryRun && !cfg.EarlyLiveTrade {
 		log.Fatal("[early] set EARLY_DRY_RUN=true and/or EARLY_LIVE_TRADE=true")
 	}
+	if cfg.DryRun && !cfg.Early.DrySameEnabled && !cfg.Early.DryReverseLimitEnabled {
+		log.Fatal("[early] dry run requires EARLY_DRY_SAME=true and/or EARLY_DRY_REVERSE_LIMIT=true")
+	}
 
 	client := binance.NewFuturesClient("https://fapi.binance.com", os.Getenv("BINANCE_API_KEY"), os.Getenv("BINANCE_API_SECRET"))
 	if err := client.WarmSymbolCache(); err != nil {
@@ -59,6 +62,8 @@ func main() {
 
 	log.Printf("[early] starting | dry_run=%v live_trade=%v rule=%s direction=%s | symbols=%d",
 		cfg.DryRun, cfg.EarlyLiveTrade, cfg.Early.Rule, cfg.Early.Direction, len(cfg.Symbols))
+	log.Printf("[early] dry_same=%v dry_rev_limit=%v min_vol=%.1fx limit_fill=%ds",
+		cfg.Early.DrySameEnabled, cfg.Early.DryReverseLimitEnabled, cfg.Early.MinVolAccel, int(cfg.Early.LiveLimitFillSec))
 	log.Printf("[early] margin=%s leverage=%d hold=%dm scan=%dm log=%s",
 		marginDesc(cfg), cfg.Leverage, cfg.Early.HoldMinutes, cfg.Early.ScanStepMinutes, cfg.TradeLogPath)
 

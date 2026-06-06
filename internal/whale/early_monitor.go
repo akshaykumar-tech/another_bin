@@ -39,7 +39,7 @@ func (m *EarlyMonitor) OnTick(price, qty float64, buyerMaker bool, at time.Time)
 	m.mu.Unlock()
 }
 
-func (m *EarlyMonitor) TrySignal(sym string, at time.Time, lastTrade time.Time) *Signal {
+func (m *EarlyMonitor) TrySignal(sym string, at time.Time) *Signal {
 	ew := m.cfg.Early
 	step := ew.scanStep()
 	if step <= 0 {
@@ -56,9 +56,6 @@ func (m *EarlyMonitor) TrySignal(sym string, at time.Time, lastTrade time.Time) 
 	m.mu.Unlock()
 
 	if len(ticks) < 50 {
-		return nil
-	}
-	if !lastTrade.IsZero() && at.Sub(lastTrade) < m.cfg.Cooldown() {
 		return nil
 	}
 
