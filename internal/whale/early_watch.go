@@ -26,7 +26,9 @@ type EarlyWatchConfig struct {
 	// Live dry paths (cmd/whale-early, EARLY_DRY_* env):
 	DrySameEnabled         bool    `yaml:"dry_same"`
 	DryReverseLimitEnabled bool    `yaml:"dry_reverse_limit"`
+	LiveReverseLimitEnabled bool   `yaml:"live_reverse_limit"` // Binance GTX limit → hold → market exit
 	LiveLimitFillSec       float64 `yaml:"limit_fill_sec"` // max wait for reverse limit fill (default 1800)
+	TakeProfitPct          float64 `yaml:"take_profit_pct"` // early same-dir: exit when favorable move >= this (0=off)
 	// Backtest-only (whale-early-sim flags):
 	ReverseTrade  bool    `yaml:"-"`
 	FeeBpsPerSide float64 `yaml:"-"` // Binance taker per side; round-trip deducted from each trade
@@ -219,6 +221,42 @@ func earlyTryLimitFill(trades []binance.AggTrade, from time.Time, window time.Du
 	return time.Time{}, false
 }
 
+// EarlyEntryDelay is the backtest/live offset from signal time to entry reference (fillcheck entryAt).
+func EarlyEntryDelay(cfg Config) time.Duration {
+	d := time.Duration(cfg.BacktestEntryDelayMs) * time.Millisecond
+	if d <= 0 {
+		d = 30 * time.Millisecond
+	}
+	return d
+}
+
+func earlyEntrySlippageBps(cfg Config) float64 {
+	s := cfg.BacktestEntrySlippageBps
+	if s <= 0 {
+		s = 30
+	}
+	return s
+}
+
+// EarlySameDirEntryLimitPx is the fixed reverse limit price (fillcheck entry_px on same-dir tick entry).
+func EarlySameDirEntryLimitPx(cfg Config, trades []binance.AggTrade, signalAt time.Time, sameDirShort bool) float64 {
+	entryRefAt := signalAt.Add(EarlyEntryDelay(cfg))
+	px := earlyPriceAt(trades, entryRefAt)
+	if px <= 0 {
+		return 0
+	}
+	return applyEarlySlip(px, sameDirShort, earlyEntrySlippageBps(cfg), true)
+}
+
+// EarlySameDirLimitPxFromSignal applies same-dir entry slip to the live signal price.
+func EarlySameDirLimitPxFromSignal(cfg Config, sig *Signal) float64 {
+	if sig == nil || sig.EntryPrice <= 0 {
+		return 0
+	}
+	sameDirShort := sig.Side == SideSell
+	return applyEarlySlip(sig.EntryPrice, sameDirShort, earlyEntrySlippageBps(cfg), true)
+}
+
 type EarlyTrade struct {
 	Symbol    string
 	Date      string
@@ -317,11 +355,20 @@ func RunEarlyBacktestScan(cfg Config, symbol string, trades []binance.AggTrade, 
 			}
 			short = s
 		}
+		sameDirShort := short
 		if ew.ReverseTrade {
 			short = !short
 		}
 
-		limitPx := earlyPriceAt(trades, at)
+		signalAt := at
+		entryRefAt := at.Add(entryDelay)
+
+		var limitPx float64
+		if ew.LimitEntry && ew.ReverseTrade {
+			limitPx = EarlySameDirEntryLimitPx(cfg, trades, signalAt, sameDirShort)
+		} else {
+			limitPx = earlyPriceAt(trades, at)
+		}
 		if limitPx <= 0 {
 			continue
 		}
@@ -332,8 +379,11 @@ func RunEarlyBacktestScan(cfg Config, symbol string, trades []binance.AggTrade, 
 			if fillWindow <= 0 {
 				fillWindow = 5 * time.Minute
 			}
-			searchFrom := at.Add(entryDelay)
-			fillAt, filled := earlyTryLimitFill(trades, searchFrom, fillWindow, limitPx, short)
+			if ew.ReverseTrade {
+				// Block next signal like same-dir tick entry (entryRef + hold + cooldown).
+				busyUntil = entryRefAt.Add(ew.hold()).Add(cooldown)
+			}
+			fillAt, filled := earlyTryLimitFill(trades, entryRefAt, fillWindow, limitPx, short)
 			if !filled {
 				out.LimitMissed++
 				continue
@@ -348,7 +398,10 @@ func RunEarlyBacktestScan(cfg Config, symbol string, trades []binance.AggTrade, 
 			}
 			entPx = applyEarlySlip(entPx, short, slipIn, true)
 		}
-		exitAt := entAt.Add(ew.hold())
+		exitAt := signalAt.Add(ew.hold())
+		if !ew.LimitEntry {
+			exitAt = entAt.Add(ew.hold())
+		}
 		fillWindow := time.Duration(ew.LimitFillSec * float64(time.Second))
 		if fillWindow <= 0 {
 			fillWindow = 5 * time.Minute
@@ -376,6 +429,13 @@ func RunEarlyBacktestScan(cfg Config, symbol string, trades []binance.AggTrade, 
 				exitPx = applyEarlySlip(exitPx, short, slipOut, false)
 				exitAt = fallback
 			}
+		} else if ew.ReverseTrade && ew.LimitEntry {
+			// fillcheck variant A: market exit @ same-dir scheduled exit tick price
+			exitPx = earlyPriceAt(trades, exitAt.Add(exitDelay))
+			if exitPx <= 0 {
+				exitPx = trades[len(trades)-1].Price
+			}
+			exitPx = applyEarlySlip(exitPx, sameDirShort, slipOut, false)
 		} else {
 			exitPx = earlyPriceAt(trades, exitAt.Add(exitDelay))
 			if exitPx <= 0 {
@@ -394,7 +454,9 @@ func RunEarlyBacktestScan(cfg Config, symbol string, trades []binance.AggTrade, 
 		if pnl > 0 {
 			out.Wins++
 		}
-		busyUntil = exitAt.Add(cooldown)
+		if !(ew.ReverseTrade && ew.LimitEntry) {
+			busyUntil = exitAt.Add(cooldown)
+		}
 		out.Trades = append(out.Trades, EarlyTrade{
 			Symbol: symbol, Date: date, SignalAt: at, EntryAt: entAt, ExitAt: exitAt,
 			EntryPx: entPx, ExitPx: exitPx, PctCh: ch, Short: short, PnLUSDT: pnl,

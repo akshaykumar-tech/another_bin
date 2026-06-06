@@ -528,3 +528,176 @@ func (c *FuturesClient) MarketOrder(symbol, side string, notionalUSDT float64) (
 	qty := notionalUSDT / price
 	return c.marketOrderOpenQty(symbol, side, qty)
 }
+
+// LimitOrderGTX posts a LIMIT order with timeInForce=GTX (post-only maker).
+func (c *FuturesClient) LimitOrderGTX(symbol, side string, price, notionalUSDT float64) (map[string]any, error) {
+	if !c.Configured() {
+		return nil, fmt.Errorf("binance futures client not configured")
+	}
+	rules, err := c.LotRules(symbol)
+	if err != nil {
+		return nil, err
+	}
+	minN := rules.MinNotional
+	if minN <= 0 {
+		minN = 5
+	}
+	if notionalUSDT < minN {
+		return nil, fmt.Errorf("notional %.2f below min %.2f USDT", notionalUSDT, minN)
+	}
+	if price <= 0 {
+		return nil, fmt.Errorf("invalid limit price")
+	}
+	up := strings.EqualFold(side, "SELL")
+	pxStr, px, err := formatLimitPrice(price, rules, up)
+	if err != nil {
+		return nil, err
+	}
+	qty := notionalUSDT / px
+	q, err := c.formatQty(symbol, qty)
+	if err != nil {
+		return nil, err
+	}
+	if q*px < minN {
+		q, err = c.formatQty(symbol, minN/px)
+		if err != nil {
+			return nil, err
+		}
+	}
+	form := url.Values{}
+	form.Set("symbol", strings.ToUpper(symbol))
+	form.Set("side", strings.ToUpper(side))
+	form.Set("type", "LIMIT")
+	form.Set("timeInForce", "GTX")
+	form.Set("price", pxStr)
+	form.Set("quantity", fmt.Sprintf("%.8f", q))
+	form.Set("newOrderRespType", "RESULT")
+	return c.signedPostOrder(form)
+}
+
+func formatLimitPrice(price float64, rules model.FuturesLotRules, up bool) (string, float64, error) {
+	tick, err := strconv.ParseFloat(strings.TrimSpace(rules.PriceTickSize), 64)
+	if err != nil || tick <= 0 {
+		tick = 0.01
+	}
+	snapped := snapPriceToTick(price, tick, up)
+	if snapped <= 0 {
+		return "", 0, fmt.Errorf("price rounds to zero")
+	}
+	dec := decimalsFromTick(rules.PriceTickSize)
+	if rules.PricePrecision >= 0 && rules.PricePrecision < dec {
+		dec = rules.PricePrecision
+	}
+	pxStr := strconv.FormatFloat(snapped, 'f', dec, 64)
+	pxStr = strings.TrimRight(strings.TrimRight(pxStr, "0"), ".")
+	return pxStr, snapped, nil
+}
+
+func snapPriceToTick(price, tick float64, up bool) float64 {
+	if tick <= 0 {
+		return price
+	}
+	n := price / tick
+	if up {
+		return math.Ceil(n-1e-12) * tick
+	}
+	return math.Floor(n+1e-12) * tick
+}
+
+func decimalsFromTick(tickSizeStr string) int {
+	tickSizeStr = strings.TrimSpace(tickSizeStr)
+	i := strings.IndexByte(tickSizeStr, '.')
+	if i < 0 {
+		return 0
+	}
+	return len(strings.TrimRight(tickSizeStr[i+1:], "0"))
+}
+
+// CancelOrder cancels an open futures order by id.
+func (c *FuturesClient) CancelOrder(symbol string, orderID int64) error {
+	if !c.Configured() || orderID <= 0 {
+		return nil
+	}
+	form := url.Values{}
+	form.Set("symbol", strings.ToUpper(symbol))
+	form.Set("orderId", fmt.Sprintf("%d", orderID))
+	_, status, err := c.signedDelete("/fapi/v1/order", form)
+	if err != nil {
+		return err
+	}
+	if status >= 300 {
+		return fmt.Errorf("cancel order status=%d", status)
+	}
+	return nil
+}
+
+// OrderStatus is a simplified open-order snapshot.
+type OrderStatus struct {
+	Status      string
+	AvgPrice    float64
+	ExecutedQty float64
+}
+
+// QueryOrder fetches order status from Binance.
+func (c *FuturesClient) QueryOrder(symbol string, orderID int64) (OrderStatus, error) {
+	var out OrderStatus
+	if !c.Configured() || orderID <= 0 {
+		return out, fmt.Errorf("not configured or invalid order id")
+	}
+	form := url.Values{}
+	form.Set("symbol", strings.ToUpper(symbol))
+	form.Set("orderId", fmt.Sprintf("%d", orderID))
+	body, status, err := c.signedGet("/fapi/v1/order", form)
+	if err != nil {
+		return out, err
+	}
+	if status >= 300 {
+		return out, fmt.Errorf("query order status=%d: %s", status, string(body))
+	}
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		return out, err
+	}
+	if st, ok := m["status"].(string); ok {
+		out.Status = st
+	}
+	if ap, ok := m["avgPrice"].(string); ok {
+		fmt.Sscanf(ap, "%f", &out.AvgPrice)
+	}
+	if q, ok := m["executedQty"].(string); ok {
+		fmt.Sscanf(q, "%f", &out.ExecutedQty)
+	}
+	return out, nil
+}
+
+func (c *FuturesClient) signedDelete(path string, form url.Values) ([]byte, int, error) {
+	if !c.Configured() {
+		return nil, 0, fmt.Errorf("missing API credentials")
+	}
+	ts := fmt.Sprintf("%d", time.Now().UnixMilli())
+	form.Set("timestamp", ts)
+	form.Set("recvWindow", "5000")
+	keys := make([]string, 0, len(form))
+	for k := range form {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+form.Get(k))
+	}
+	query := strings.Join(parts, "&")
+	mac := hmac.New(sha256.New, []byte(c.secret))
+	_, _ = mac.Write([]byte(query))
+	sig := hex.EncodeToString(mac.Sum(nil))
+	payload := query + "&signature=" + sig
+	resp, err := c.http.R().
+		SetHeader("X-MBX-APIKEY", c.apiKey).
+		SetHeader("Content-Type", "application/x-www-form-urlencoded").
+		SetBody(payload).
+		Delete(c.base + path)
+	if err != nil {
+		return nil, 0, err
+	}
+	return resp.Body(), resp.StatusCode(), nil
+}

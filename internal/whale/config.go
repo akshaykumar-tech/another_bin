@@ -66,6 +66,8 @@ type Config struct {
 	EarlyReverseMarginUSDT        float64 `yaml:"-"`
 	EarlyReverseAllocationPercent float64 `yaml:"-"`
 	EarlyReverseLeverage          int     `yaml:"-"`
+	EarlyNotionalUSDT             float64 `yaml:"-"` // EARLY_NOTIONAL_USDT: fixed live order notional
+	EarlyMaxOpenLive              int     `yaml:"-"` // EARLY_MAX_OPEN_LIVE: max concurrent Binance positions (default 3)
 	CooldownSec        float64 `yaml:"cooldown_sec"`
 	FocusCooldownSec   float64 `yaml:"focus_cooldown_sec"` // pause all symbols after trade closes (default 120)
 	MaxOpenPositions   int     `yaml:"max_open_positions"`

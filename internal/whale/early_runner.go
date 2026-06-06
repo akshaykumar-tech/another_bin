@@ -51,9 +51,22 @@ func (r *EarlyRunner) Run(ctx context.Context) error {
 	ew := r.cfg.Early
 	log.Printf("[early] watch | rule=%s direction=%s lead=%dm hold=%dm scan=%dm | symbols=%d",
 		ew.Rule, ew.Direction, ew.LeadMinutes, ew.HoldMinutes, ew.ScanStepMinutes, len(r.cfg.Symbols))
-	log.Printf("[early] dry_run=%v dry_same=%v dry_rev_limit=%v live_trade=%v | same_margin=%s rev_margin=%s",
-		r.cfg.DryRun, ew.DrySameEnabled, ew.DryReverseLimitEnabled, r.cfg.EarlyLiveTrade,
+	log.Printf("[early] dry_run=%v dry_same=%v dry_rev_limit=%v live_trade=%v live_rev_limit=%v | same_margin=%s rev_margin=%s",
+		r.cfg.DryRun, ew.DrySameEnabled, ew.DryReverseLimitEnabled, r.cfg.EarlyLiveTrade, ew.LiveReverseLimitEnabled,
 		earlyPathMarginNote(r.cfg, true), earlyPathMarginNote(r.cfg, false))
+	if r.cfg.EarlyVol3SameMode() {
+		tp := ew.TakeProfitPct
+		if tp > 0 {
+			log.Printf("[early] mode=vol3_same | quiet_flat vol>=%.1fx limit_entry tp=%.2f%% else hold=%dm",
+				ew.MinVolAccel, tp, ew.HoldMinutes)
+		} else {
+			log.Printf("[early] mode=vol3_same | quiet_flat vol>=%.1fx limit_entry hold=%dm",
+				ew.MinVolAccel, ew.HoldMinutes)
+		}
+	} else if r.cfg.EarlyVol3ReverseMode() {
+		log.Printf("[early] mode=vol3_reverse | quiet_flat vol>=%.1fx limit_entry signal+30m market_exit",
+			ew.MinVolAccel)
+	}
 
 	nSym := len(r.cfg.Symbols)
 	workers := nSym
@@ -148,6 +161,9 @@ func (r *EarlyRunner) processEvent(ctx context.Context, ev StreamEvent) {
 	if r.cfg.DryRun && r.cfg.Early.DryReverseLimitEnabled {
 		r.exec.OnRevLimitTick(ctx, sym, price, at)
 	}
+	if r.cfg.DryRun && (r.cfg.Early.DrySameEnabled || r.cfg.EarlyVol3SameMode()) {
+		r.exec.OnSameLimitTick(ctx, sym, price, at)
+	}
 	if r.cfg.DryRun && r.cfg.UsesTickDrySim() {
 		if r.exec.HasDryPosition(sym) {
 			r.exec.OnPriceTick(sym, price, at)
@@ -162,20 +178,56 @@ func (r *EarlyRunner) processEvent(ctx context.Context, ev StreamEvent) {
 	if sig := mon.TrySignal(sym, at); sig != nil {
 		sig.RecvAt = ev.Recv
 		tape := BuildEarlyTape(r.cfg.Burst, mon.copyTicks(), at)
+
+		if r.cfg.EarlyVol3SameMode() {
+			if !r.cfg.Early.PassesFilters(tape) {
+				return
+			}
+			limitPx := EarlySameDirLimitPxFromSignal(r.cfg, sig)
+			log.Printf("[early] VOL3 %s %s q60=$%.0f vol=%.1fx limit=%.6f",
+				sig.Side, sym, tape.Snap.Quiet60, tape.VolAccel, limitPx)
+			if r.cfg.DryRun && r.exec.CanEarlySameDry(sym, at) {
+				r.exec.TryStartSameLimit(ctx, sig, tape.VolAccel)
+			}
+			if r.cfg.EarlyLiveTrade && r.exec.CanEarlyLive(sym, at) {
+				r.exec.TryStartSameLimitLive(ctx, sig, tape.VolAccel)
+			}
+			return
+		}
+		if r.cfg.EarlyVol3ReverseMode() {
+			if !r.cfg.Early.PassesFilters(tape) {
+				return
+			}
+			log.Printf("[early] VOL3 REV %s %s q60=$%.0f vol=%.1fx limit=%.6f",
+				sig.Side, sym, tape.Snap.Quiet60, tape.VolAccel, EarlySameDirLimitPxFromSignal(r.cfg, sig))
+			if r.cfg.DryRun && r.cfg.Early.DryReverseLimitEnabled {
+				r.exec.TryStartReverseLimit(ctx, sig, tape.VolAccel)
+			}
+			if r.cfg.Early.LiveReverseLimitEnabled {
+				r.exec.TryStartReverseLimitLive(ctx, sig, tape.VolAccel)
+			}
+			return
+		}
+
 		log.Printf("[early] SIGNAL %s %s rule=%s q60=$%.0f r60=%.2f%% t30=%d vol_accel=%.1fx px=%.6f",
 			sig.Side, sym, r.cfg.Early.Rule,
 			tape.Snap.Quiet60, tape.Snap.Range60, tape.Snap.Trades30, tape.VolAccel, sig.EntryPrice)
 
 		if r.cfg.DryRun && r.cfg.Early.DrySameEnabled {
 			if r.exec.CanEarlySameDry(sym, at) {
-				r.exec.HandleSignal(ctx, sig)
+				r.exec.TryStartSameLimit(ctx, sig, tape.VolAccel)
 			}
 		}
 		if r.cfg.DryRun && r.cfg.Early.DryReverseLimitEnabled {
 			r.exec.TryStartReverseLimit(ctx, sig, tape.VolAccel)
 		}
-		if !r.cfg.DryRun && r.cfg.EarlyLiveTrade {
-			r.exec.HandleSignal(ctx, sig)
+		if r.cfg.Early.LiveReverseLimitEnabled {
+			r.exec.TryStartReverseLimitLive(ctx, sig, tape.VolAccel)
+		}
+		if r.cfg.EarlyLiveTrade {
+			if r.exec.CanEarlyLive(sym, at) {
+				r.exec.TryStartSameLimitLive(ctx, sig, tape.VolAccel)
+			}
 		}
 	}
 }
@@ -195,4 +247,19 @@ func (e *Executor) LastTradeTime(sym string) time.Time {
 
 func formatEarlyStreams(cfg Config) string {
 	return fmt.Sprintf("early aggTrade (%d symbols)", len(cfg.Symbols))
+}
+
+// EarlyReverseEnabled is true when any reverse limit path (dry or live) is on.
+func (c Config) EarlyReverseEnabled() bool {
+	return c.Early.DryReverseLimitEnabled || c.Early.LiveReverseLimitEnabled
+}
+
+// EarlyVol3SameMode: vol surge gate + same-direction limit entry (dry/live).
+func (c Config) EarlyVol3SameMode() bool {
+	return c.Early.MinVolAccel > 0 && !c.EarlyReverseEnabled()
+}
+
+// EarlyVol3ReverseMode: reverse limit entry when reverse paths enabled + vol surge.
+func (c Config) EarlyVol3ReverseMode() bool {
+	return c.EarlyReverseEnabled() && c.Early.MinVolAccel > 0
 }

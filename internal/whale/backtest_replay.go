@@ -22,6 +22,7 @@ type simPosition struct {
 	PeakPrice       float64
 	LastPrice       float64 // last mark/tick for dry timeout exit
 	SignalKind      SignalKind
+	ScheduledExitAt time.Time // reverse limit: exit at signal+hold (fillcheck); zero = OpenedAt+hold
 }
 
 func (p *simPosition) NotionalUSDT() float64 {

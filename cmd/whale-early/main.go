@@ -31,8 +31,8 @@ func main() {
 		log.Fatalf("[early] config: %v", err)
 	}
 
-	if !cfg.DryRun && !cfg.EarlyLiveTrade {
-		log.Fatal("[early] set EARLY_DRY_RUN=true and/or EARLY_LIVE_TRADE=true")
+	if !cfg.DryRun && !cfg.EarlyLiveTrade && !cfg.Early.LiveReverseLimitEnabled {
+		log.Fatal("[early] set EARLY_DRY_RUN=true and/or EARLY_LIVE_TRADE=true and/or EARLY_LIVE_REVERSE_LIMIT=true")
 	}
 	if cfg.DryRun && !cfg.Early.DrySameEnabled && !cfg.Early.DryReverseLimitEnabled {
 		log.Fatal("[early] dry run requires EARLY_DRY_SAME=true and/or EARLY_DRY_REVERSE_LIMIT=true")
@@ -42,12 +42,20 @@ func main() {
 	if err := client.WarmSymbolCache(); err != nil {
 		log.Fatalf("[early] exchangeInfo: %v", err)
 	}
-	if cfg.EarlyLiveTrade {
+	if cfg.EarlyLiveTrade || cfg.Early.LiveReverseLimitEnabled {
 		if !client.Configured() {
-			log.Fatal("[early] EARLY_LIVE_TRADE requires BINANCE_API_KEY and BINANCE_API_SECRET")
+			log.Fatal("[early] live trade requires BINANCE_API_KEY and BINANCE_API_SECRET")
 		}
-		if cfg.MarginUSDT <= 0 && cfg.AllocationPercent <= 0 {
-			log.Fatal("[early] live trade requires EARLY_MARGIN_USDT or EARLY_ALLOCATION_PERCENT")
+	}
+	if cfg.EarlyLiveTrade {
+		if cfg.EarlyNotionalUSDT <= 0 && cfg.MarginUSDT <= 0 && cfg.AllocationPercent <= 0 {
+			log.Fatal("[early] EARLY_LIVE_TRADE requires EARLY_NOTIONAL_USDT and/or EARLY_MARGIN_USDT or EARLY_ALLOCATION_PERCENT")
+		}
+	}
+	if cfg.Early.LiveReverseLimitEnabled {
+		if cfg.EarlyReverseMarginUSDT <= 0 && cfg.EarlyReverseAllocationPercent <= 0 &&
+			cfg.MarginUSDT <= 0 && cfg.AllocationPercent <= 0 {
+			log.Fatal("[early] EARLY_LIVE_REVERSE_LIMIT requires EARLY_REVERSE_MARGIN_USDT, EARLY_REVERSE_ALLOCATION_PERCENT, or EARLY_MARGIN_USDT")
 		}
 	}
 
@@ -62,9 +70,19 @@ func main() {
 
 	log.Printf("[early] starting | dry_run=%v live_trade=%v rule=%s direction=%s | symbols=%d",
 		cfg.DryRun, cfg.EarlyLiveTrade, cfg.Early.Rule, cfg.Early.Direction, len(cfg.Symbols))
-	log.Printf("[early] dry_same=%v dry_rev_limit=%v min_vol=%.1fx limit_fill=%ds",
-		cfg.Early.DrySameEnabled, cfg.Early.DryReverseLimitEnabled, cfg.Early.MinVolAccel, int(cfg.Early.LiveLimitFillSec))
-	log.Printf("[early] margin=%s leverage=%d hold=%dm scan=%dm log=%s",
+	log.Printf("[early] dry_same=%v dry_rev_limit=%v live_rev_limit=%v min_vol=%.1fx tp=%.2f%% limit_fill=%ds",
+		cfg.Early.DrySameEnabled, cfg.Early.DryReverseLimitEnabled, cfg.Early.LiveReverseLimitEnabled,
+		cfg.Early.MinVolAccel, cfg.Early.TakeProfitPct, int(cfg.Early.LiveLimitFillSec))
+	if cfg.EarlyLiveTrade {
+		if cfg.EarlyNotionalUSDT > 0 {
+			log.Printf("[early] live | max_open=%d notional=%.2f USDT (max token lev, margin from balance)",
+				cfg.EarlyMaxOpenLivePositions(), cfg.EarlyNotionalUSDT)
+		} else {
+			log.Printf("[early] live | max_open=%d margin=%s",
+				cfg.EarlyMaxOpenLivePositions(), marginDesc(cfg))
+		}
+	}
+	log.Printf("[early] dry margin=%s leverage=%d hold=%dm scan=%dm log=%s",
 		marginDesc(cfg), cfg.Leverage, cfg.Early.HoldMinutes, cfg.Early.ScanStepMinutes, cfg.TradeLogPath)
 
 	runner, err := whale.NewEarlyRunner(cfg, client)

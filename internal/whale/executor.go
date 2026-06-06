@@ -32,6 +32,16 @@ type Executor struct {
 	revClosing   map[string]bool
 	lastRevTrade map[string]time.Time
 	dryRevSyms   sync.Map
+	// Same-direction limit dry (fills into dryOpen):
+	samePending map[string]*reverseLimitPending
+	lastDrySameTrade map[string]time.Time
+	// Reverse limit live (Binance GTX limit → hold → market exit):
+	revLimitLivePending map[string]*reverseLimitLivePending
+	revLimitLiveOpen    map[string]*earlyLivePosition
+	lastRevLiveTrade    map[string]time.Time
+	// Same-direction limit live (GTX limit → TP or signal+hold market exit):
+	sameLimitLivePending map[string]*reverseLimitLivePending
+	lastSameLimitLiveTrade map[string]time.Time
 }
 
 // countOpenSlotsLocked returns unique symbols with dry, live, or reverse-live (caller must hold e.mu).
@@ -50,6 +60,9 @@ func (e *Executor) countOpenSlotsLocked() int {
 		seen[s] = struct{}{}
 	}
 	for s := range e.dryRevOpen {
+		seen[s] = struct{}{}
+	}
+	for s := range e.revLimitLiveOpen {
 		seen[s] = struct{}{}
 	}
 	return len(seen)
@@ -84,6 +97,13 @@ func NewExecutor(cfg Config, client *binance.FuturesClient, journal *TradeJourna
 		dryRevOpen:   make(map[string]*simPosition),
 		revClosing:   make(map[string]bool),
 		lastRevTrade: make(map[string]time.Time),
+		revLimitLivePending: make(map[string]*reverseLimitLivePending),
+		revLimitLiveOpen:    make(map[string]*earlyLivePosition),
+		lastRevLiveTrade:    make(map[string]time.Time),
+		samePending:          make(map[string]*reverseLimitPending),
+		lastDrySameTrade:     make(map[string]time.Time),
+		sameLimitLivePending: make(map[string]*reverseLimitLivePending),
+		lastSameLimitLiveTrade: make(map[string]time.Time),
 	}
 }
 
@@ -139,7 +159,7 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 	}()
 
 	margin, lev := e.marginAndLeverage(sig)
-	if sig.Kind == SignalEarly && e.cfg.Early.DrySameEnabled {
+	if sig.Kind == SignalEarly && (e.cfg.Early.DrySameEnabled || e.cfg.EarlyVol3SameMode()) {
 		margin, lev = e.marginForEarlyPath(sig, earlyDrySame)
 	}
 	tradeSide := e.cfg.TradeSide(sig.Side)
@@ -174,6 +194,9 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 			PeakPrice: entry, LastPrice: entry, SignalAbsMovePct: absMove,
 			SignalKind: sig.Kind,
 		}
+		if sig.Kind == SignalEarly && !sig.RecvAt.IsZero() {
+			sim.ScheduledExitAt = e.earlyScheduledExitAt(sig.RecvAt)
+		}
 		e.mu.Lock()
 		e.dryOpen[sym] = sim
 		e.trackDryOpen(sym)
@@ -207,9 +230,14 @@ func (e *Executor) HandleSignal(ctx context.Context, sig *Signal) {
 	e.logSignalEntry(sig, tradeSide, entry, margin, effLev)
 
 	if sig.Kind == SignalEarly {
+		scheduled := time.Time{}
+		if !sig.RecvAt.IsZero() {
+			scheduled = e.earlyScheduledExitAt(sig.RecvAt)
+		}
 		ep := &earlyLivePosition{
 			Symbol: sym, Side: tradeSide, EntryPrice: entry, Qty: qty,
 			MarginUSDT: margin, Leverage: effLev, OpenedAt: time.Now(),
+			ScheduledExitAt: scheduled,
 		}
 		e.mu.Lock()
 		e.earlyLive = e.ensureEarlyLiveMap()
@@ -377,11 +405,26 @@ func (e *Executor) dryHoldDuration(kind SignalKind) time.Duration {
 }
 
 func (e *Executor) dryRunTimeout(ctx context.Context, sym string, kind SignalKind) {
-	hold := e.dryHoldDuration(kind)
+	var wait time.Duration
+	if kind == SignalEarly {
+		e.mu.Lock()
+		pos, ok := e.dryOpen[sym]
+		if ok {
+			wait = time.Until(e.earlyExitDeadline(pos))
+		} else {
+			wait = e.dryHoldDuration(kind)
+		}
+		e.mu.Unlock()
+	} else {
+		wait = e.dryHoldDuration(kind)
+	}
+	if wait < 0 {
+		wait = 0
+	}
 	select {
 	case <-ctx.Done():
 		e.closeDry(sym, "ctx")
-	case <-time.After(hold):
+	case <-time.After(wait):
 		reason := "timeout"
 		if kind == SignalEarly {
 			reason = "early_hold"
@@ -453,7 +496,20 @@ func (e *Executor) closeDry(sym, reason string) {
 }
 
 func (e *Executor) manageDryRunMarkPoll(ctx context.Context, sym string, kind SignalKind) {
-	deadline := time.After(e.dryHoldDuration(kind))
+	hold := e.dryHoldDuration(kind)
+	wait := hold
+	if kind == SignalEarly {
+		e.mu.Lock()
+		if pos, ok := e.dryOpen[sym]; ok {
+			wait = time.Until(e.earlyExitDeadline(pos))
+		}
+		e.mu.Unlock()
+	}
+	if wait < 0 {
+		wait = 0
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
 	tick := time.NewTicker(500 * time.Millisecond)
 	defer tick.Stop()
 
@@ -462,7 +518,7 @@ func (e *Executor) manageDryRunMarkPoll(ctx context.Context, sym string, kind Si
 		case <-ctx.Done():
 			e.closeDry(sym, "ctx")
 			return
-		case <-deadline:
+		case <-timer.C:
 			reason := "timeout"
 			if kind == SignalEarly {
 				reason = "early_hold"
@@ -509,7 +565,22 @@ func (e *Executor) manageDryRunMarkPoll(ctx context.Context, sym string, kind Si
 
 func (e *Executor) dryExitStep(pos *simPosition, price float64, at time.Time) bool {
 	if pos.SignalKind == SignalEarly {
-		if at.Sub(pos.OpenedAt) >= e.dryHoldDuration(SignalEarly) {
+		if e.earlyTakeProfitHit(pos.Side, pos.EntryPrice, price) {
+			if !e.claimDryExit(pos.Symbol) {
+				return true
+			}
+			e.logExit(pos, price, at, "early_tp", 0)
+			if e.journal != nil {
+				e.journal.LogExit(e.cfg.RiskForExit(), pos, price, at, "early_tp", 0)
+			}
+			if e.cfg.EarlyLiveTrade {
+				e.closeEarlyLive(pos.Symbol, "early_tp", at)
+			}
+			e.notifyTradeClosed(pos.Symbol)
+			e.finishDryClose(pos.Symbol)
+			return true
+		}
+		if !at.Before(e.earlyExitDeadline(pos)) {
 			if !e.claimDryExit(pos.Symbol) {
 				return true
 			}
