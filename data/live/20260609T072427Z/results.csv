@@ -1,0 +1,4 @@
+symbol,signal_ts_ms,signal_utc,direction,entry_price,event_found,event_ts_ms,event_utc,event_peak,move_pct
+HAEDALUSDT,1780990551000,2026-06-09T07:35:51+00:00,high,0.01788000,0,,,,
+STARUSDT,1780992392000,2026-06-09T08:06:32+00:00,low,0.17419000,0,,,,
+HAEDALUSDT,1780994715000,2026-06-09T08:45:15+00:00,low,0.01956000,0,,,,

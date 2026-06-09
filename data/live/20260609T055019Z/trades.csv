@@ -1,0 +1,2 @@
+symbol,signal_ts_ms,signal_utc,direction,signal_price,entry_ts_ms,entry_utc,entry_price,entry_delay_ms,exit_ts_ms,exit_utc,exit_price,max_fav_pct,max_adv_pct,pnl_pct,hit_6pct
+TSTUSDT,1780986187000,2026-06-09T06:23:07+00:00,high,0.01525400,1780986192000,2026-06-09T06:23:12+00:00,0.01536900,5000,1780986252000,2026-06-09T06:24:12+00:00,0.01529800,0.000000,0.514022,-0.461969,0
