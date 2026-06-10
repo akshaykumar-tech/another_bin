@@ -1,0 +1,811 @@
+strategy: sig_open_break
+margin_usdt: 1
+leverage: 10
+cooldown_sec: 300
+dry_run: true
+live_trade: false
+event_thresh_pct: 6.0
+min_event_vol: 100
+hold_sec: 300
+# watchlist: FOCUSED_WATCHLIST_MODE=all_perps FOCUSED_WATCHLIST_SIZE=500 (default in focused_paper.py)
+symbols:
+  SAHARAUSDT:
+    profile: cascade_pump
+    enabled: true
+    gate:
+      type: vol_ramp
+      vol10_min: 20000000
+      ret60_min_pct: 0.5
+      rearm_sec: 300
+  EVAAUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 3.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+  PORTALUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 85223
+      rearm_sec: 600
+  PUMPBTCUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 8929
+      rearm_sec: 600
+  JCTUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.5
+      notional_min_usdt: 5000
+      rearm_sec: 180
+  KOMAUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 10801
+      rearm_sec: 600
+  NOMUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+  TACUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+  TAKEUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 0.7
+      notional_min_usdt: 10000
+      rearm_sec: 180
+  HAEDALUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 50000
+      rearm_sec: 600
+  STARUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.0
+      notional_min_usdt: 5000
+      rearm_sec: 180
+  JELLYJELLYUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 0.7
+      notional_min_usdt: 25000
+      rearm_sec: 300
+  ICNTUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 35817
+      rearm_sec: 600
+  SYNUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 22634
+      rearm_sec: 600
+  XPINUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 0.7
+      notional_min_usdt: 10000
+      rearm_sec: 180
+  RIFUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+  SOLVUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+  C98USDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 96988
+      rearm_sec: 600
+  AGTUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 0.7
+      notional_min_usdt: 10000
+      rearm_sec: 180
+  TSTUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+  COLLECTUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 17544
+      rearm_sec: 600
+  BANUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 65119
+      rearm_sec: 600
+  SANTOSUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 55197
+      rearm_sec: 600
+  PTBUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 30846
+      rearm_sec: 600
+  HANAUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 24334
+      rearm_sec: 600
+  ZEREBROUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 74043
+      rearm_sec: 600
+  COOKIEUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+  ETHWUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 33058
+      rearm_sec: 600
+  CTKUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+  SLPUSDT:
+    profile: burst_drift
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+  MAVIAUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 21833
+      rearm_sec: 600
+    profile: burst_drift
+  AVAUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  BNTUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  1000000BOBUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 0.7
+      notional_min_usdt: 5000
+      rearm_sec: 180
+    profile: burst_drift
+  CETUSUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  CELRUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  DOLOUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  CVCUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  TAIKOUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  LUMIAUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  RPLUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 24306
+      rearm_sec: 600
+    profile: burst_drift
+  FRAXUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  CARVUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  JOEUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  RLCUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  SAFEUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 0.7
+      notional_min_usdt: 5000
+      rearm_sec: 180
+    profile: burst_drift
+  ORDERUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  SONICUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  FLUIDUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  FLUXUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  SCRUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  CLANKERUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  TOSHIUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  HOTUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  SCRTUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  CELOUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  COWUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  GLMUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  CHRUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  MAVUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  RECALLUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  GRIFFAINUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  FLOWUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  METISUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  ALPINEUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  LQTYUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  SFPUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 48322
+      rearm_sec: 600
+    profile: burst_drift
+  DIAUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  XVSUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  KMNOUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  BIRBUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  ICXUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  POWRUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  ONGUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  BTRUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  COTIUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  ILVUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  FIGHTUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  SPELLUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  MTLUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  BANANAUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  ZKPUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  GMXUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  RAREUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 31292
+      rearm_sec: 600
+    profile: burst_drift
+  STEEMUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  IOTXUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  BROCCOLIF3BUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 0.7
+      notional_min_usdt: 25000
+      rearm_sec: 180
+    profile: burst_drift
+  BMTUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  CVXUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  SQDUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 26931
+      rearm_sec: 600
+    profile: burst_drift
+  MEWUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  REZUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  TURTLEUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  CHILLGUYUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 21757
+      rearm_sec: 600
+    profile: burst_drift
+  AKEUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 16724
+      rearm_sec: 600
+    profile: burst_drift
+  BELUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 2.0
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  EULUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  TRUSTUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  LISTAUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
+  QUSDT:
+    enabled: true
+    gate:
+      type: pct_burst
+      amp_min_pct: 1.5
+      notional_min_usdt: 5000
+      rearm_sec: 600
+    profile: burst_drift
