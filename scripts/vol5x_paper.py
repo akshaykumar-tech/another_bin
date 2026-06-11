@@ -4,6 +4,7 @@ Live paper: vol5x volume spike + sig_open_break (separate from focused_paper 6%)
 
   python3 scripts/vol5x_paper.py
 
+  VOL5X_LIVE_TRADE=false          # true = real Binance market orders
   VOL5X_WATCHLIST_MODE=all_perps
   VOL5X_WATCHLIST_SIZE=500
   VOL5X_CONFIG=config/whale-vol5x.yaml
@@ -27,6 +28,12 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from binance_futures import (
+    BinanceFuturesClient,
+    close_side_for_dir,
+    order_side_for_dir,
+    parse_fill,
+)
 from focused_lib import (
     Bar,
     SigOpenBreakTrade,
@@ -69,6 +76,13 @@ def _env_float(name: str, default: float) -> float:
     return float(v) if v else default
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    v = os.environ.get(name, "").strip().lower()
+    if not v:
+        return default
+    return v in ("1", "true", "yes", "on")
+
+
 load_dotenv()
 
 CONFIG_PATH = Path(os.environ.get("VOL5X_CONFIG", ROOT / "config" / "whale-vol5x.yaml"))
@@ -78,17 +92,30 @@ WS_CHUNK = _env_int("VOL5X_WS_CHUNK", 80)
 STATS_INTERVAL_SEC = _env_int("VOL5X_STATS_INTERVAL_SEC", 1800)
 WATCHLIST_MODE = os.environ.get("VOL5X_WATCHLIST_MODE", "all_perps").strip().lower()
 WATCHLIST_SIZE = _env_int("VOL5X_WATCHLIST_SIZE", 500)
-LATE_MS = _env_int("VOL5X_LATE_MS", 30)
 
 cfg = yaml.safe_load(CONFIG_PATH.read_text())
-NOTIONAL = float(cfg.get("notional_usdt", 10))
+NOTIONAL = _env_float("VOL5X_NOTIONAL_USDT", float(cfg.get("notional_usdt", 10)))
 FEE_PER_SIDE = float(cfg.get("fee_per_side", 0.0004))
 VOL_MULT = float(cfg.get("vol_mult", 5.0))
 VOL_LOOKBACK = int(cfg.get("vol_lookback", 30))
 MIN_VOL = float(cfg.get("min_vol", 1000))
-HOLD_SEC = int(cfg.get("hold_sec", 60))
+HOLD_SEC = _env_int("VOL5X_HOLD_SEC", int(cfg.get("hold_sec", 300)))
 REARM_SEC = int(cfg.get("cooldown_sec", 3600))
-DRY_RUN = bool(cfg.get("dry_run", True))
+
+# Live Binance — env overrides yaml; default off
+LIVE_TRADE = _env_bool("VOL5X_LIVE_TRADE", bool(cfg.get("live_trade", False)))
+MAX_OPEN_ORDERS = _env_int("VOL5X_MAX_OPEN_ORDERS", 2)
+
+binance: BinanceFuturesClient | None = None
+if LIVE_TRADE:
+    binance = BinanceFuturesClient(
+        os.environ.get("BINANCE_API_KEY", ""),
+        os.environ.get("BINANCE_API_SECRET", ""),
+        FAPI,
+    )
+    if not binance.configured():
+        raise SystemExit("VOL5X_LIVE_TRADE requires BINANCE_API_KEY and BINANCE_API_SECRET")
+    binance.warm_cache()
 
 RUN_TS = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 OUT_DIR = Path(os.environ.get("VOL5X_OUT_DIR", ROOT / f"data/vol5x/{RUN_TS}"))
@@ -128,7 +155,6 @@ for path, header in [
             "entry_price", "exit_ts_ms", "exit_utc", "exit_price",
             "hold_sec", "flipped", "flip_sec", "max_fav_pct", "max_adv_pct", "pnl_pct",
             "gross_usdt", "fees_usdt", "net_usdt",
-            "late_entry_price", "late_exit_price", "late_pnl_pct", "late_net_usdt",
         ],
     ),
 ]:
@@ -190,7 +216,6 @@ buckets: dict[str, dict] = {s: {} for s in SYMBOLS}
 sym_state: dict[str, SymbolState] = {s: SymbolState() for s in SYMBOLS}
 last_signal_ms: dict[str, int] = {}
 active: dict[str, SigOpenBreakTrade] = {}
-# store vol_ratio on trade object via sig_amp_pct field
 stats = {
     "trades": 0,
     "signals": 0,
@@ -198,10 +223,15 @@ stats = {
     "exits": 0,
     "flips": 0,
     "cooldown_skips": 0,
+    "live_entries": 0,
+    "live_exits": 0,
+    "live_flips": 0,
+    "live_skips": 0,
     "net_usdt": 0.0,
-    "late_net_usdt": 0.0,
     "fees_usdt": 0.0,
 }
+
+live_slots: dict[str, dict] = {}
 
 
 def in_cooldown(symbol: str, sec_ms: int) -> bool:
@@ -211,6 +241,114 @@ def in_cooldown(symbol: str, sec_ms: int) -> bool:
 
 def fee_usd() -> float:
     return NOTIONAL * FEE_PER_SIDE * 2
+
+
+def live_open_count() -> int:
+    return len(live_slots)
+
+
+def can_open_live() -> bool:
+    return LIVE_TRADE and live_open_count() < MAX_OPEN_ORDERS
+
+
+async def live_entry(symbol: str, trade: SigOpenBreakTrade, entry_open: float) -> None:
+    if not LIVE_TRADE or binance is None:
+        return
+    if not can_open_live():
+        stats["live_skips"] += 1
+        log(f"[LIVE_SKIP] {symbol} max_open={MAX_OPEN_ORDERS}")
+        return
+    sym = symbol.upper()
+    if not binance.symbol_tradable(sym):
+        stats["live_skips"] += 1
+        log(f"[LIVE_SKIP] {symbol} not tradable")
+        return
+
+    def _place():
+        lev = binance.set_max_leverage(sym)
+        side = order_side_for_dir(trade.trade_dir)
+        resp = binance.market_order_notional(sym, side, NOTIONAL)
+        entry, qty = parse_fill(resp)
+        return lev, entry, qty, side
+
+    try:
+        lev, entry, qty, side = await asyncio.get_running_loop().run_in_executor(None, _place)
+        if entry <= 0:
+            entry = entry_open
+        live_slots[sym] = {
+            "trade_dir": trade.trade_dir,
+            "qty": qty,
+            "entry_price": entry,
+            "leverage": lev,
+        }
+        stats["live_entries"] += 1
+        log(
+            f"[LIVE_ENTRY] {symbol} {side_label(trade.trade_dir)} side={side} "
+            f"fill={entry:.8f} qty={qty:.8f} notional=${NOTIONAL:.2f} lev={lev}x"
+        )
+    except Exception as e:
+        log(f"[LIVE_ENTRY_FAIL] {symbol} {e}")
+
+
+async def live_flip(symbol: str, new_dir: str, ref_price: float) -> None:
+    if not LIVE_TRADE or binance is None:
+        return
+    sym = symbol.upper()
+    slot = live_slots.get(sym)
+    if not slot:
+        return
+
+    def _flip():
+        close_side = close_side_for_dir(slot["trade_dir"])
+        binance.market_close_qty(sym, close_side, slot["qty"])
+        lev = binance.set_max_leverage(sym)
+        open_side = order_side_for_dir(new_dir)
+        resp = binance.market_order_notional(sym, open_side, NOTIONAL)
+        entry, qty = parse_fill(resp)
+        return lev, entry, qty, open_side
+
+    try:
+        lev, entry, qty, side = await asyncio.get_running_loop().run_in_executor(None, _flip)
+        if entry <= 0:
+            entry = ref_price
+        live_slots[sym] = {
+            "trade_dir": new_dir,
+            "qty": qty,
+            "entry_price": entry,
+            "leverage": lev,
+        }
+        stats["live_flips"] += 1
+        log(
+            f"[LIVE_FLIP] {symbol} -> {side_label(new_dir)} side={side} "
+            f"fill={entry:.8f} qty={qty:.8f} lev={lev}x"
+        )
+    except Exception as e:
+        log(f"[LIVE_FLIP_FAIL] {symbol} {e}")
+        live_slots.pop(sym, None)
+
+
+async def live_exit(symbol: str) -> None:
+    if not LIVE_TRADE or binance is None:
+        return
+    sym = symbol.upper()
+    slot = live_slots.pop(sym, None)
+    if not slot:
+        return
+
+    def _close():
+        close_side = close_side_for_dir(slot["trade_dir"])
+        return binance.market_close_qty(sym, close_side, slot["qty"])
+
+    try:
+        resp = await asyncio.get_running_loop().run_in_executor(None, _close)
+        exit_px, _ = parse_fill(resp)
+        stats["live_exits"] += 1
+        log(
+            f"[LIVE_EXIT] {symbol} {side_label(slot['trade_dir'])} "
+            f"exit={exit_px:.8f} entry={slot['entry_price']:.8f}"
+        )
+    except Exception as e:
+        log(f"[LIVE_EXIT_FAIL] {symbol} {e}")
 
 
 def write_trade_entry(t: SigOpenBreakTrade) -> None:
@@ -240,10 +378,6 @@ def write_trade_result(
     gross: float,
     fees: float,
     net: float,
-    late_pnl: float,
-    late_net: float,
-    late_entry: float,
-    late_exit: float,
 ) -> None:
     with RESULTS_CSV.open("a", newline="") as f:
         csv.writer(f).writerow(
@@ -267,45 +401,28 @@ def write_trade_result(
                 f"{gross:.6f}",
                 f"{fees:.6f}",
                 f"{net:.6f}",
-                f"{late_entry:.8f}",
-                f"{late_exit:.8f}",
-                f"{late_pnl:.6f}",
-                f"{late_net:.6f}",
             ]
         )
 
 
-def close_trade(symbol: str, exit_price: float) -> None:
+async def close_trade(symbol: str, exit_price: float) -> None:
+    await live_exit(symbol)
     t = active.pop(symbol, None)
     if not t or t.status != "active":
         return
     pnl = t.close_pnl_pct(exit_price)
-    late_pnl, late_entry, late_exit = t.late_pnl_pct(exit_price)
     fees = fee_usd()
     gross = NOTIONAL * pnl / 100.0
     net = gross - fees
-    late_gross = NOTIONAL * late_pnl / 100.0
-    late_net = late_gross - fees
     stats["exits"] += 1
     stats["fees_usdt"] += fees
     stats["net_usdt"] += net
-    stats["late_net_usdt"] += late_net
     log(
         f"[EXIT] {symbol} {side_label(t.trade_dir)} "
         f"entry={t.entry_price:.8f} exit={exit_price:.8f} "
-        f"pnl={pnl:+.2f}% fav={t.max_fav_pct:+.2f}% adv={t.max_adv_pct:+.2f}% "
-        f"flip={t.flipped} @ {utc_iso(t.exit_ts_ms)}"
+        f"pnl={pnl:+.2f}% net=${net:+.4f} flip={t.flipped} @ {utc_iso(t.exit_ts_ms)}"
     )
-    if DRY_RUN:
-        log(
-            f"[EXIT_NET] {symbol} notional=${NOTIONAL:.0f} gross=${gross:+.4f} "
-            f"fees=${fees:.4f} net=${net:+.4f} cumulative_net=${stats['net_usdt']:+.4f}"
-        )
-    log(
-        f"[EXIT_LATE{LATE_MS}ms] {symbol} entry={late_entry:.8f} exit={late_exit:.8f} "
-        f"pnl={late_pnl:+.2f}% net=${late_net:+.4f} cumulative=${stats['late_net_usdt']:+.4f}"
-    )
-    write_trade_result(t, exit_price, pnl, gross, fees, net, late_pnl, late_net, late_entry, late_exit)
+    write_trade_result(t, exit_price, pnl, gross, fees, net)
 
 
 def start_signal(symbol: str, bar: Bar, vol_ratio: float) -> None:
@@ -359,11 +476,9 @@ async def process_bar(symbol: str, b: dict) -> None:
             write_trade_entry(trade)
             log(
                 f"[ENTRY] {symbol} {side_label(trade.trade_dir)} @ {utc_iso(sec)} "
-                f"price={o:.8f} burst={trade.burst_dir} sig_open={trade.sig_open:.8f} "
-                f"(T+1 after signal)"
+                f"price={o:.8f} burst={trade.burst_dir} sig_open={trade.sig_open:.8f}"
             )
-            if DRY_RUN:
-                log(f"[ENTRY_DRY] {symbol} notional=${NOTIONAL:.0f} fee_rt={FEE_PER_SIDE*200:.2f}%")
+            await live_entry(symbol, trade, o)
         elif trade.status == "active":
             prev_flipped = trade.flipped
             trade.on_bar(bar)
@@ -373,9 +488,10 @@ async def process_bar(symbol: str, b: dict) -> None:
                     f"[FLIP] {symbol} -> {side_label(trade.trade_dir)} @ T+{trade.flip_sec}s "
                     f"close={c:.8f} sig_open={trade.sig_open:.8f}"
                 )
+                await live_flip(symbol, trade.trade_dir, c)
             if sec >= trade.exit_ts_ms:
                 trade.exit_ts_ms = sec
-                close_trade(symbol, c)
+                await close_trade(symbol, c)
                 st.push(bar)
                 return
 
@@ -399,9 +515,6 @@ async def finalize_bucket(symbol: str, b: dict) -> None:
 
 async def on_trade(symbol: str, price: float, qty: float, t_ms: int) -> None:
     stats["trades"] += 1
-    trade = active.get(symbol)
-    if trade and trade.status in ("pending_entry", "active"):
-        trade.on_tick(t_ms, price, LATE_MS)
     sec = (t_ms // 1000) * 1000
     state = buckets.get(symbol)
     if state is None:
@@ -459,12 +572,13 @@ async def stats_loop() -> None:
         await asyncio.sleep(STATS_INTERVAL_SEC)
         open_trades = sum(1 for t in active.values() if t.status == "active")
         pending = sum(1 for t in active.values() if t.status == "pending_entry")
+        live_open = live_open_count()
         log(
-            f"[stats] agg_trades={stats['trades']} signals={stats['signals']} "
-            f"entries={stats['entries']} exits={stats['exits']} flips={stats['flips']} "
-            f"open={open_trades} pending={pending} cooldown_skips={stats['cooldown_skips']} "
-            f"net_usdt={stats['net_usdt']:+.4f} fees_paid={stats['fees_usdt']:.4f} "
-            f"late{LATE_MS}ms_net={stats['late_net_usdt']:+.4f}"
+            f"[stats] signals={stats['signals']} entries={stats['entries']} exits={stats['exits']} "
+            f"flips={stats['flips']} open={open_trades} pending={pending} "
+            f"paper_net=${stats['net_usdt']:+.4f} live_open={live_open}/{MAX_OPEN_ORDERS} "
+            f"live_entries={stats['live_entries']} live_flips={stats['live_flips']} "
+            f"live_skips={stats['live_skips']}"
         )
 
 
@@ -474,7 +588,11 @@ async def main() -> None:
     log(
         f"  symbols={len(SYMBOLS)} mode={WATCHLIST_MODE} connections={len(chunks)} "
         f"vol>={VOL_MULT}x/{VOL_LOOKBACK}s min_vol={MIN_VOL} hold={HOLD_SEC}s "
-        f"cooldown={REARM_SEC}s notional=${NOTIONAL} fee_side={FEE_PER_SIDE*100:.2f}% late_ms={LATE_MS}"
+        f"cooldown={REARM_SEC}s notional=${NOTIONAL}"
+    )
+    log(
+        f"  LIVE_TRADE={LIVE_TRADE} max_open={MAX_OPEN_ORDERS} "
+        f"(live mirrors paper entry T+1 / flip / exit hold)"
     )
     log(f"  out={OUT_DIR}")
     await asyncio.gather(

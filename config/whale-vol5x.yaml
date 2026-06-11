@@ -12,7 +12,9 @@ vol_lookback: 30
 min_vol: 1000
 
 # Trade management — entry T+1, exit signal_sec + hold_sec
-hold_sec: 60
+hold_sec: 300
 cooldown_sec: 3600
 
 # watchlist via env: VOL5X_WATCHLIST_MODE=all_perps VOL5X_WATCHLIST_SIZE=500
+# live: VOL5X_LIVE_TRADE=true|false — mirrors paper entry/flip/exit (no extra gates)
+#   VOL5X_MAX_OPEN_ORDERS=2 VOL5X_NOTIONAL_USDT=6 VOL5X_HOLD_SEC=300
