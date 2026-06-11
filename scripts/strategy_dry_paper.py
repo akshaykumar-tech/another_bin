@@ -142,6 +142,11 @@ def utc_iso(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).isoformat()
 
 
+def planned_exit_ms(signal_ms: int, entry_offset: int, hold_sec: int) -> int:
+    entry_ms = signal_ms + entry_offset * 1000
+    return entry_ms + (hold_sec - 1) * 1000
+
+
 def _http_json(url: str):
     with urllib.request.urlopen(url, timeout=60) as resp:
         return json.load(resp)
@@ -231,7 +236,7 @@ def close_trade(st: StrategyState, symbol: str, exit_price: float, reason: str) 
     if net > 0:
         st.stats["wins"] += 1
     log(
-        f"[EXIT] {symbol} {side_label(t.trade_dir)} reason={reason} "
+        f"[EXIT] {symbol} {side_label(t.trade_dir)} @ {utc_iso(t.exit_ms)} reason={reason} "
         f"entry={t.entry_price:.8f} exit={exit_price:.8f} "
         f"gross={gross:+.2f}% net={net:+.2f}% ${usd:+.4f} "
         f"lock={t.lock_pct:.1f}% fav={t.best_mfe_pct:+.2f}% adv={t.max_adv_pct:+.2f}%"
@@ -278,9 +283,10 @@ def start_immediate_signal(st: StrategyState, symbol: str, bar: Bar, burst: str,
     st.stats["signals"] += 1
     st.last_event_ms[symbol] = bar.sec
     trade_dir = inv_direction(burst) if st.fade else burst  # type: ignore[arg-type]
+    exit_ms = planned_exit_ms(bar.sec, st.entry_offset, st.hold_sec)
     log(
         f"[SIGNAL] {symbol} {burst} {amp:.2f}% -> {side_label(trade_dir)} "
-        f"T+{st.entry_offset} @ {utc_iso(bar.sec)}"
+        f"T+{st.entry_offset} @ {utc_iso(bar.sec)} exit@{utc_iso(exit_ms)}"
     )
     schedule_trade(st, symbol, bar.sec, burst, amp, bar.o, trade_dir)
 
@@ -310,9 +316,10 @@ def start_delayed_signal(st: StrategyState, symbol: str, bar: Bar, burst: str, a
         entry_ms=entry_ms,
         strategy=st.name,
     )
+    exit_ms = planned_exit_ms(bar.sec, 31, st.hold_sec)
     log(
         f"[SIGNAL] {symbol} {burst} {amp:.2f}% pending {st.confirm_kind} "
-        f"confirm@T+30 entry@T+31 @ {utc_iso(bar.sec)}"
+        f"confirm@T+30 entry@T+31 @ {utc_iso(bar.sec)} exit@{utc_iso(exit_ms)}"
     )
 
 
@@ -343,9 +350,10 @@ def try_confirm(st: StrategyState, symbol: str, bar: Bar) -> None:
 
     st.stats["confirm_pass"] += 1
     trade_dir = "low" if st.confirm_kind == "ll_cont" else "high"
+    exit_ms = planned_exit_ms(p.signal_ms, 31, st.hold_sec)
     log(
         f"[CONFIRM_OK] {symbol} {st.confirm_kind} -> {side_label(trade_dir)} "
-        f"entry@T+31 @ {utc_iso(bar.sec)}"
+        f"entry@T+31 @ {utc_iso(bar.sec)} exit@{utc_iso(exit_ms)}"
     )
     st.pending.pop(symbol, None)
     schedule_trade(st, symbol, p.signal_ms, p.burst, p.amp_pct, p.sig_open, trade_dir)
@@ -362,7 +370,8 @@ def process_strategy_bar(st: StrategyState, symbol: str, bar: Bar) -> None:
             st.stats["entries"] += 1
             log(
                 f"[ENTRY] {symbol} {side_label(trade.trade_dir)} @ {utc_iso(bar.sec)} "
-                f"price={bar.o:.8f} burst={trade.burst} amp={trade.amp_pct:.2f}%"
+                f"exit@{utc_iso(trade.exit_ms)} price={bar.o:.8f} "
+                f"burst={trade.burst} amp={trade.amp_pct:.2f}%"
             )
         elif trade.status == "active":
             stop_px = trade.on_bar(bar)
