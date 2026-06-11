@@ -1,10 +1,9 @@
 """Shared helpers: 6% event detection and sig_open_break adaptive direction."""
 from __future__ import annotations
 
-import statistics as st
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Deque, Literal, Optional, Sequence
+from typing import Deque, Literal, Optional
 
 Direction = Literal["high", "low"]
 
@@ -168,6 +167,7 @@ class SigOpenBreakTrade:
     entry_ts_ms: int
     exit_ts_ms: int
     hold_sec: int
+    sig_range_pct: float = 0.0
     status: str = "pending_entry"  # pending_entry | active | closed
     trade_dir: Direction = "high"
     entry_price: float = 0.0
@@ -223,21 +223,3 @@ def net_pnl_usdt(notional_usdt: float, pnl_pct: float, fee_per_side: float = 0.0
     gross = notional_usdt * (pnl_pct / 100.0)
     fees = notional_usdt * fee_per_side * 2
     return gross - fees
-
-
-def is_vol5x_signal(
-    bar: Bar,
-    prior: Sequence[Bar],
-    mult: float = 5.0,
-    lookback: int = 30,
-    min_vol: float = 1000.0,
-) -> tuple[bool, float]:
-    """Volume spike: bar.vol >= mult × median(prior lookback bars). Returns (ok, ratio)."""
-    if bar.vol < min_vol or len(prior) < lookback:
-        return False, 0.0
-    window = list(prior)[-lookback:]
-    med = st.median([b.vol for b in window])
-    if med <= 0:
-        return False, 0.0
-    ratio = bar.vol / med
-    return ratio >= mult, ratio

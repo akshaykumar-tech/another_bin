@@ -109,7 +109,7 @@ NOTIONAL = _env_float(
     float(cfg.get("notional_usdt", MARGIN_USDT * LEVERAGE)),
 )
 
-# Live Binance — separate keys from vol5x; env overrides yaml; default off
+# Live Binance — env overrides yaml; default off
 LIVE_TRADE = _env_bool("FOCUSED_LIVE_TRADE", bool(cfg.get("live_trade", False)))
 MAX_OPEN_ORDERS = _env_int("FOCUSED_MAX_OPEN_ORDERS", 2)
 

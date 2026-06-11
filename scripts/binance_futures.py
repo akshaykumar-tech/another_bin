@@ -1,4 +1,4 @@
-"""Minimal Binance USDT-M futures client for vol5x / focused live orders."""
+"""Minimal Binance USDT-M futures client for focused live orders."""
 from __future__ import annotations
 
 import hashlib
