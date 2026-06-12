@@ -1,0 +1,42 @@
+# Early watch: flat/dead tape → enter ~20m before likely burst, hold 30m.
+# Backtest: go run ./cmd/whale-early-sim/ -config config/whale-early.yaml
+
+strategy: early
+
+watchlist:
+  mode: lowest_volume   # 100 thinnest USDT perps (early strategy target universe)
+  size: 100
+  extra_symbols: []
+
+symbols: []   # filled by watchlist resolver at startup
+
+early:
+  rule: quiet_flat          # quiet_flat | dead_tape
+  lead_minutes: 20
+  hold_minutes: 30
+  scan_step_minutes: 5
+  max_quiet60_usdt: 2000
+  max_range60_pct: 0.5
+  dead_max_quiet60_usdt: 1000
+  dead_max_trades30: 5
+  direction: trend_1h       # oracle | trend_1h | short_only | long_only | first_move
+  first_move_pct: 0.3
+  min_amp_pct: 4.0
+
+margin_usdt: 1
+leverage: 10
+cooldown_sec: 1800
+
+backtest_entry_delay_ms: 30
+backtest_exit_delay_ms: 10
+backtest_entry_slippage_bps: 30
+backtest_exit_slippage_bps: 30
+
+dry_run: true
+early_live_trade: false
+
+burst:
+  signal_sides: both
+  pre_trade_window_ms: 60000
+  pre_trade_short_window_ms: 30000
+  pre_trade_long_window_ms: 7200000

@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,12 +19,13 @@ import (
 )
 
 type FuturesClient struct {
-	base     string
-	apiKey   string
-	secret   string
-	http     *resty.Client
-	ruleMap  map[string]bool
-	lotRules map[string]model.FuturesLotRules
+	base        string
+	apiKey      string
+	secret      string
+	http        *resty.Client
+	ruleMap     map[string]bool
+	lotRules    map[string]model.FuturesLotRules
+	maxLeverage map[string]int
 }
 
 func NewFuturesClient(base, apiKey, secret string) *FuturesClient {
@@ -31,8 +34,9 @@ func NewFuturesClient(base, apiKey, secret string) *FuturesClient {
 		apiKey:   apiKey,
 		secret:   secret,
 		http:     resty.New().SetTimeout(12 * time.Second).SetRetryCount(1),
-		ruleMap:  make(map[string]bool),
-		lotRules: make(map[string]model.FuturesLotRules),
+		ruleMap:     make(map[string]bool),
+		lotRules:    make(map[string]model.FuturesLotRules),
+		maxLeverage: make(map[string]int),
 	}
 }
 
@@ -49,8 +53,12 @@ func (c *FuturesClient) WarmSymbolCache() error {
 			PricePrecision   int    `json:"pricePrecision"`
 			QuantityPrecision int   `json:"quantityPrecision"`
 			Filters          []struct {
-				FilterType string `json:"filterType"`
-				TickSize   string `json:"tickSize"`
+				FilterType  string `json:"filterType"`
+				TickSize    string `json:"tickSize"`
+				StepSize    string `json:"stepSize"`
+				MinQty      string `json:"minQty"`
+				Notional    string `json:"notional"`
+				MinNotional string `json:"minNotional"`
 			} `json:"filters"`
 		} `json:"symbols"`
 	}
@@ -65,16 +73,119 @@ func (c *FuturesClient) WarmSymbolCache() error {
 		sym := strings.ToUpper(s.Symbol)
 		c.ruleMap[sym] = s.Status == "TRADING"
 		tick := "0.01"
+		stepSize := 0.0
+		minQty := 0.0
+		minNotional := 5.0
 		for _, f := range s.Filters {
-			if f.FilterType == "PRICE_FILTER" && strings.TrimSpace(f.TickSize) != "" {
-				tick = strings.TrimSpace(f.TickSize)
-				break
+			switch f.FilterType {
+			case "PRICE_FILTER":
+				if strings.TrimSpace(f.TickSize) != "" {
+					tick = strings.TrimSpace(f.TickSize)
+				}
+			case "LOT_SIZE":
+				stepSize = parseFilterFloat(f.StepSize)
+				minQty = parseFilterFloat(f.MinQty)
+			case "MIN_NOTIONAL":
+				if v := parseFilterFloat(f.Notional); v > 0 {
+					minNotional = v
+				}
 			}
 		}
 		c.lotRules[sym] = model.FuturesLotRules{
 			PriceTickSize:  tick,
 			PricePrecision: s.PricePrecision,
+			StepSize:       stepSize,
+			MinQty:         minQty,
+			MinNotional:    minNotional,
 		}
+	}
+	if err := c.loadLeverageBrackets(); err != nil {
+		for sym := range c.ruleMap {
+			c.maxLeverage[sym] = 125
+		}
+	}
+	return nil
+}
+
+func (c *FuturesClient) loadLeverageBrackets() error {
+	if !c.Configured() {
+		for sym := range c.ruleMap {
+			c.maxLeverage[sym] = 125
+		}
+		return nil
+	}
+	body, status, err := c.signedGet("/fapi/v1/leverageBracket", url.Values{})
+	if err != nil {
+		return err
+	}
+	if status >= 300 {
+		return fmt.Errorf("leverageBracket status=%d: %s", status, string(body))
+	}
+	var rows []struct {
+		Symbol   string `json:"symbol"`
+		Brackets []struct {
+			InitialLeverage int `json:"initialLeverage"`
+		} `json:"brackets"`
+	}
+	if err := json.Unmarshal(body, &rows); err != nil {
+		return err
+	}
+	for _, row := range rows {
+		sym := strings.ToUpper(row.Symbol)
+		maxLev := 1
+		for _, b := range row.Brackets {
+			if b.InitialLeverage > maxLev {
+				maxLev = b.InitialLeverage
+			}
+		}
+		if maxLev > 0 {
+			c.maxLeverage[sym] = maxLev
+		}
+	}
+	return nil
+}
+
+// MaxLeverage returns exchange max initial leverage for symbol (0 if unknown).
+func (c *FuturesClient) MaxLeverage(symbol string) int {
+	sym := strings.ToUpper(symbol)
+	if m, ok := c.maxLeverage[sym]; ok && m > 0 {
+		return m
+	}
+	return 125
+}
+
+// EffectiveLeverage caps requested leverage by symbol max.
+func (c *FuturesClient) EffectiveLeverage(symbol string, requested int) int {
+	if requested <= 0 {
+		requested = 1
+	}
+	max := c.MaxLeverage(symbol)
+	if max <= 0 {
+		return requested
+	}
+	if requested > max {
+		return max
+	}
+	return requested
+}
+
+// SetLeverage sets account leverage for a symbol (signed).
+func (c *FuturesClient) SetLeverage(symbol string, leverage int) error {
+	if !c.Configured() {
+		return nil
+	}
+	if leverage <= 0 {
+		leverage = 1
+	}
+	form := url.Values{}
+	form.Set("symbol", strings.ToUpper(symbol))
+	form.Set("leverage", fmt.Sprintf("%d", leverage))
+	_, status, err := c.signedPost("/fapi/v1/leverage", form)
+	if err != nil {
+		return err
+	}
+	if status >= 300 {
+		return fmt.Errorf("set leverage status=%d", status)
 	}
 	return nil
 }
@@ -272,15 +383,148 @@ func (c *FuturesClient) MaxMoveInWindow(symbol string, lookbackSec int) (maxUp, 
 // MarketOrder places a MARKET order on Binance USD-M Futures.
 // Uses quoteOrderQty to specify size in USDT directly — no MarkPrice HTTP call needed.
 // Single HTTP round trip: POST /fapi/v1/order.
-func (c *FuturesClient) MarketOrder(symbol, side string, marginUSDT float64) (map[string]any, error) {
+func (c *FuturesClient) AvailableUSDTBalance() (float64, error) {
 	if !c.Configured() {
-		return nil, fmt.Errorf("binance futures client not configured (missing API key/secret)")
+		return 0, fmt.Errorf("binance futures client not configured")
+	}
+	form := url.Values{}
+	body, status, err := c.signedGet("/fapi/v2/balance", form)
+	if err != nil {
+		return 0, err
+	}
+	if status >= 300 {
+		return 0, fmt.Errorf("balance status=%d: %s", status, string(body))
+	}
+	var rows []struct {
+		Asset            string `json:"asset"`
+		AvailableBalance string `json:"availableBalance"`
+	}
+	if err := json.Unmarshal(body, &rows); err != nil {
+		return 0, err
+	}
+	for _, r := range rows {
+		if strings.ToUpper(r.Asset) == "USDT" {
+			var bal float64
+			fmt.Sscanf(strings.TrimSpace(r.AvailableBalance), "%f", &bal)
+			return bal, nil
+		}
+	}
+	return 0, fmt.Errorf("USDT balance not found")
+}
+
+func (c *FuturesClient) signedGet(path string, form url.Values) ([]byte, int, error) {
+	if !c.Configured() {
+		return nil, 0, fmt.Errorf("missing API credentials")
+	}
+	ts := fmt.Sprintf("%d", time.Now().UnixMilli())
+	form.Set("timestamp", ts)
+	form.Set("recvWindow", "5000")
+	keys := make([]string, 0, len(form))
+	for k := range form {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+form.Get(k))
+	}
+	query := strings.Join(parts, "&")
+	mac := hmac.New(sha256.New, []byte(c.secret))
+	_, _ = mac.Write([]byte(query))
+	sig := hex.EncodeToString(mac.Sum(nil))
+	resp, err := c.http.R().SetHeader("X-MBX-APIKEY", c.apiKey).Get(c.base + path + "?" + query + "&signature=" + sig)
+	if err != nil {
+		return nil, 0, err
+	}
+	return resp.Body(), resp.StatusCode(), nil
+}
+
+func parseFilterFloat(s string) float64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	v, _ := strconv.ParseFloat(s, 64)
+	return v
+}
+
+func floorToStep(qty, step float64) float64 {
+	if step <= 0 {
+		return qty
+	}
+	return math.Floor(qty/step) * step
+}
+
+func (c *FuturesClient) formatQty(symbol string, qty float64) (float64, error) {
+	rules, err := c.LotRules(symbol)
+	if err != nil {
+		return qty, err
+	}
+	q := floorToStep(qty, rules.StepSize)
+	if rules.MinQty > 0 && q < rules.MinQty {
+		q = rules.MinQty
+	}
+	if q <= 0 {
+		return 0, fmt.Errorf("quantity rounds to zero")
+	}
+	return q, nil
+}
+
+func (c *FuturesClient) marketOrderOpenQty(symbol, side string, qty float64) (map[string]any, error) {
+	q, err := c.formatQty(symbol, qty)
+	if err != nil {
+		return nil, err
 	}
 	form := url.Values{}
 	form.Set("symbol", strings.ToUpper(symbol))
 	form.Set("side", strings.ToUpper(side))
 	form.Set("type", "MARKET")
-	form.Set("quoteOrderQty", fmt.Sprintf("%.2f", marginUSDT))
+	form.Set("quantity", fmt.Sprintf("%.8f", q))
 	form.Set("newOrderRespType", "RESULT")
 	return c.signedPostOrder(form)
+}
+
+func (c *FuturesClient) MarketOrderQty(symbol, side string, qty float64) (map[string]any, error) {
+	if !c.Configured() {
+		return nil, fmt.Errorf("binance futures client not configured")
+	}
+	q, err := c.formatQty(symbol, qty)
+	if err != nil {
+		return nil, err
+	}
+	form := url.Values{}
+	form.Set("symbol", strings.ToUpper(symbol))
+	form.Set("side", strings.ToUpper(side))
+	form.Set("type", "MARKET")
+	form.Set("quantity", fmt.Sprintf("%.8f", q))
+	form.Set("reduceOnly", "true")
+	form.Set("newOrderRespType", "RESULT")
+	return c.signedPostOrder(form)
+}
+
+// MarketOrder opens a MARKET position using quantity derived from USDT notional (works on all USDT-M symbols).
+func (c *FuturesClient) MarketOrder(symbol, side string, notionalUSDT float64) (map[string]any, error) {
+	if !c.Configured() {
+		return nil, fmt.Errorf("binance futures client not configured (missing API key/secret)")
+	}
+	rules, err := c.LotRules(symbol)
+	if err != nil {
+		return nil, err
+	}
+	minN := rules.MinNotional
+	if minN <= 0 {
+		minN = 5
+	}
+	if notionalUSDT < minN {
+		return nil, fmt.Errorf("notional %.2f below min %.2f USDT", notionalUSDT, minN)
+	}
+	price, err := c.MarkPrice(symbol)
+	if err != nil {
+		return nil, err
+	}
+	if price <= 0 {
+		return nil, fmt.Errorf("invalid mark price")
+	}
+	qty := notionalUSDT / price
+	return c.marketOrderOpenQty(symbol, side, qty)
 }

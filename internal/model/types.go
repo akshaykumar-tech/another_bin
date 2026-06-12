@@ -31,10 +31,13 @@ type TradingSetting struct {
 	AnnouncementActionsRaw map[string]string
 }
 
-// FuturesLotRules holds PRICE_FILTER fields used to format stop prices (Binance USDT-M).
+// FuturesLotRules holds exchange filters for order formatting (Binance USDT-M).
 type FuturesLotRules struct {
 	PriceTickSize  string
 	PricePrecision int
+	StepSize       float64 // LOT_SIZE step
+	MinQty         float64
+	MinNotional    float64 // MIN_NOTIONAL / notional floor
 }
 
 func (t TradingSetting) ActionFor(typ string) string {

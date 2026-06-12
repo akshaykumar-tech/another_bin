@@ -1,0 +1,116 @@
+{
+  "date_utc": "2026-06-02",
+  "thresholds": {
+    "min_move_pct": 6.0,
+    "max_move_pct": 20.0
+  },
+  "symbols_requested": 295,
+  "symbols_with_zip": 295,
+  "symbols_missing_zip": 0,
+  "overall_counts": {
+    "bars": 424800,
+    "extreme_amp_1m": 30,
+    "extreme_net_1m": 12,
+    "extreme_net_up_1m": 6,
+    "extreme_net_down_1m": 6
+  },
+  "events": [
+    {
+      "symbol": "EPICUSDT",
+      "open_time_ms": 1780391880000,
+      "net_pct": -11.1841,
+      "amp_pct": 12.7487,
+      "open": 0.4873,
+      "close": 0.4328
+    },
+    {
+      "symbol": "TAKEUSDT",
+      "open_time_ms": 1780428900000,
+      "net_pct": -9.9413,
+      "amp_pct": 13.662,
+      "open": 0.02213,
+      "close": 0.01993
+    },
+    {
+      "symbol": "PORTALUSDT",
+      "open_time_ms": 1780420980000,
+      "net_pct": 9.6278,
+      "amp_pct": 10.9628,
+      "open": 0.02472,
+      "close": 0.0271
+    },
+    {
+      "symbol": "KOMAUSDT",
+      "open_time_ms": 1780422540000,
+      "net_pct": 9.3209,
+      "amp_pct": 11.4671,
+      "open": 0.006523,
+      "close": 0.007131
+    },
+    {
+      "symbol": "PORTALUSDT",
+      "open_time_ms": 1780422180000,
+      "net_pct": -7.8361,
+      "amp_pct": 11.3691,
+      "open": 0.02782,
+      "close": 0.02564
+    },
+    {
+      "symbol": "APRUSDT",
+      "open_time_ms": 1780423740000,
+      "net_pct": -7.4928,
+      "amp_pct": 9.9047,
+      "open": 0.22248,
+      "close": 0.20581
+    },
+    {
+      "symbol": "EPICUSDT",
+      "open_time_ms": 1780417620000,
+      "net_pct": 7.4253,
+      "amp_pct": 9.6045,
+      "open": 0.3717,
+      "close": 0.3993
+    },
+    {
+      "symbol": "TAKEUSDT",
+      "open_time_ms": 1780429200000,
+      "net_pct": -7.0535,
+      "amp_pct": 9.1753,
+      "open": 0.01999,
+      "close": 0.01858
+    },
+    {
+      "symbol": "MELANIAUSDT",
+      "open_time_ms": 1780394460000,
+      "net_pct": -6.9923,
+      "amp_pct": 8.2988,
+      "open": 0.1044,
+      "close": 0.0971
+    },
+    {
+      "symbol": "EVAAUSDT",
+      "open_time_ms": 1780386540000,
+      "net_pct": 6.8742,
+      "amp_pct": 7.0984,
+      "open": 0.4015,
+      "close": 0.4291
+    },
+    {
+      "symbol": "PORTALUSDT",
+      "open_time_ms": 1780423200000,
+      "net_pct": 6.2898,
+      "amp_pct": 6.8514,
+      "open": 0.02671,
+      "close": 0.02839
+    },
+    {
+      "symbol": "AVAAIUSDT",
+      "open_time_ms": 1780400640000,
+      "net_pct": 6.1839,
+      "amp_pct": 8.0928,
+      "open": 0.006339,
+      "close": 0.006731
+    }
+  ],
+  "sync_minutes_net_ge_min": []
+}

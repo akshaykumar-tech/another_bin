@@ -1,0 +1,143 @@
+# Burst bot — pump-only mode: target violent 1s legs like 14 May 15:30 (+12%).
+
+strategy: burst
+
+watchlist:
+  mode: lowest_volume   # 300 thinnest USDT perps; focus mode pauses others during active trade
+  size: 300
+  extra_symbols:
+    - AIGENSYNUSDT
+
+burst:
+  # Dump-only: backtest 6h showed violent SELL (-2%) shorts win; BUY pumps lose.
+  signal_sides: sell
+  early_capture_all: false
+  pump_only: true
+  fast_window_ms: 100
+  sec_window_ms: 1000
+  min_fast_move_pct: 0.55
+  min_sec_move_pct: 2.0
+  min_fast_sec_ratio: 0.70   # |fast|/|1s| — blocks late 1s chase (KOMA 0.58→SL)
+  max_sec_move_pct: 0
+  min_fast_notional_usdt: 4000
+  min_sec_notional_usdt: 22000
+  max_sec_notional_usdt: 45000
+  side_dominance_pct: 56
+  signal_cooldown_ms: 400
+  # Pump filters — only early violent starts (mega trail profile)
+  quiet_before_ms: 5000
+  max_quiet_before_usdt: 3000           # fallback
+  max_quiet_before_ultra_usdt: 800        # MLN: ~silent 5s; chop posing as ultra fails here
+  max_quiet_before_flat_usdt: 1200        # SYS mega; normal 5s liq → reject
+  min_sec_quiet60_ratio_ultra: 12.0       # MLN low q60 → very high sec/q60
+  min_sec_quiet60_ratio_flat: 5.5         # SYS q60 ~$1808
+  min_burst_impulse_flat: 8.0             # standard flat: sec/quiet5 when 5s not dead
+  min_volume_accel: 3.5
+  min_fast_vol_share_pct: 30
+  min_burst_impulse: 4.0
+  max_entry_sec_move_pct: 0.65
+  max_fast_move_pct: 0.58
+  min_momentum_align: 0.80
+  trend_window_ms: 60000
+  max_counter_trend_pct: 1.5
+  cascade_window_ms: 3000
+  min_cascade_move_pct: 2.5
+  min_cascade_notional_usdt: 12000
+  max_cascade_move_pct: 6.0
+  # Coordinated dump @ 13:30 (8–15% in one 1s) — not caught by 0.5% early mega / max_entry 0.7%
+  violent_burst_enabled: true
+  min_violent_sec_move_pct: 2.0
+  min_violent_fast_sec_ratio: 0.88   # coordinated leg: fast≈1s (TAKE 1.0 ok, late chase no)
+  max_pre_dump_range_60s_pct: 1.0   # skip wild 60s tape (NOM pump-day chop)
+  min_violent_sec_quiet60_ratio: 4.0 # sec blast vs q60 (thin fake dumps out)
+  max_entry_bounce_pct: 0.30         # cancel entry if already bouncing
+  min_entry_continuation_pct: 0.12   # sell: fill ≥0.12% below signal tick (dump still falling)
+  block_symbols:                     # 5d backtest chronic losers; keep TAKE/TAC/PUMP/EVAA
+    - NOMUSDT
+    - JCTUSDT
+    - KOMAUSDT
+  max_violent_sec_move_pct: 16.0
+  min_violent_sec_notional_usdt: 22000
+  max_range_long_violent_pct: 9.0
+  max_prior_1s_violent_pct: 0.45       # 60s pre-dump (not 3h); 11am warmup won't block 13:30 dump
+  max_prior_1s_long_violent_pct: 0      # off — was 1.2 on 3h tape and blocked all dumps
+  min_notional_long_violent_usdt: 0       # off: 3h vol needs live warmup; use q60 cap instead
+  max_quiet_60_violent_usdt: 8000         # DODOX ~$5.1k q60; blocks normal-day elevated chop >>8k
+  # Pre-trade mega-only: only SYS/MLN-style flat mega OR AIGEN-style elevated mega tape
+  pre_trade_enabled: false   # blocks most thin symbols; dump shorts use signal_sides+min_sec instead
+  pre_trade_mega_only: true
+  pre_trade_window_ms: 60000
+  pre_trade_short_window_ms: 30000
+  pre_trade_long_window_ms: 10800000  # 3h tape (10:30→13:30); blocks 20 May chop
+  max_range_long_pct: 5.5             # MLN 2.0% SYS 5.3%; blocks PHB 7.8%
+  max_prior_1s_long_pct: 0.68         # flat/ultra long max 1s spike
+  min_notional_long_usdt: 150000      # MLN ~$176k; blocks TURTLE/2Z ~$66–94k
+  max_quiet_30_ultra_usdt: 120        # MLN q30 ~$36
+  max_quiet_60_ultra_usdt: 400        # MLN q60 ~$225; blocks STG chop ultra ~$519
+  min_quiet_60_flat_usdt: 800         # SYS ~$1808; blocks PARTI flat ~$359
+  max_quiet_30_flat_usdt: 260         # SYS q30 ~$250; blocks KMNO ~$266, TURTLE ~$306
+  max_quiet_60_flat_usdt: 2000        # SYS q60 ~$1808; blocks busier 60s before fake spikes
+  max_trades_30_flat: 8               # mega 30s prints ≤8; busier tape → reject
+  max_prior_1s_long_elevated_pct: 0.55 # AIGEN; blocks 2Z ELEV 0.76%
+  # Legacy caps (used when pre_trade_mega_only: false)
+  max_quiet_60s_usdt: 40000
+  max_quiet_30s_usdt: 14000
+  max_range_60s_pct: 0.75
+  max_range_30s_pct: 0.42
+  max_prior_1s_move_60s_pct: 0.28
+  max_trades_60s: 280
+  min_quiet_60_elevated_usdt: 35000   # AIGEN ~39k; 15 May chop <25k
+  min_quiet_30_elevated_usdt: 12000   # AIGEN ~18k; 15 May chop <10.3k
+
+risk:
+  normal_risk_percent: 2.0
+  mega_risk_percent: 5.0
+  max_position_percent: 5.0   # dry-run sim cap only; live uses WHALE_ALLOCATION_PERCENT as-is
+  stop_loss_percent: 1.5
+  take_profit_percent_1: 3.0
+  take_profit_percent_2: 6.0
+  partial_exit_fraction: 0.5
+  mega_trail_activate_pct: 0.35       # arm trail on smaller sub-2% bursts
+  mega_trail_distance_pct: 2.0
+  mega_take_profit_pct: 12.0
+  mega_stop_loss_percent: 1.0         # base SL; violent 2%+ legs scale to |move|×0.75 (QUSDT bounce)
+  mega_sl_signal_ratio: 0.75
+  mega_sl_signal_min_move_pct: 2.0
+  mega_partial_min_pct: 5.0
+  mega_trail_widen_peak_pct: 8.0
+  mega_trail_widen_dist_pct: 3.5
+  mega_trail_min_hold_ms: 3000        # SL/trail grace — avoids 0s tick SL (SANTOS-style)
+  mega_confirm_window_ms: 0
+  mega_confirm_min_favorable_pct: 0
+  violent_scalp_enabled: true
+  violent_scalp_min_move_pct: 1.8
+  violent_scalp_max_move_pct: 8.0
+  violent_scalp_stall_ms: 20000       # 20s no follow-through → scratch
+  violent_scalp_stall_min_pct: 0.18
+  violent_scalp_trail_activate_pct: 0.25
+  violent_scalp_trail_dist_pct: 0.18
+  violent_scalp_max_hold_ms: 90000    # 90s max (not 10min bleed)
+  violent_scalp_tp_pct: 3.0
+
+symbols_per_connection: 80
+dry_run: true
+reverse_trade: false  # true: signal BUY → trade SELL (opposite); same burst logic
+reverse_live: false   # true + WHALE_REVERSE_LIVE=1 → real Binance orders (opposite if reverse_trade)
+reverse_stop_loss_pct: 0   # 0 = use mega_stop_loss_percent; e.g. 1.5 for tighter reverse SL
+max_leverage_cap: 10  # live uses WHALE_LEVERAGE when set, capped here
+dry_sim_mode: tick                  # tick = aggTrade entry/exit (realistic); mark = REST mark poll
+dry_entry_slippage_bps: 5           # optional paper slippage on entry (0 = off)
+dry_exit_slippage_bps: 5
+backtest_entry_delay_ms: 200        # confirm dump still falling (200ms best on 5d data)
+backtest_exit_delay_ms: 10          # exit signal → fill (live max ~10ms)
+backtest_entry_slippage_bps: 40     # adverse vs signal tick (live logs)
+backtest_exit_slippage_bps: 40
+trade_log_path: "whale-trades.log"   # cat whale-trades.log — ENTRY/EXIT/PnL per signal
+capital_usdt: 1000                   # dry-run sim only; live uses Binance balance × WHALE_ALLOCATION_PERCENT
+cooldown_sec: 1800          # 30 min per symbol — one pump episode
+focus_cooldown_sec: 120     # after trade exit: pause ALL symbols (no WS processing)
+max_open_positions: 1
+
+websocket:
+  # Root only — code routes aggTrade → /market, depth → /public (Binance WS migration).
+  url: "wss://fstream.binance.com"

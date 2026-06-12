@@ -1,0 +1,3739 @@
+{
+  "totals": {
+    "07|FIX_50ms": {
+      "n": 11,
+      "usdt": -0.7479705479877494,
+      "wins": 4
+    },
+    "07|FIX_100ms": {
+      "n": 11,
+      "usdt": -0.6304444610032746,
+      "wins": 4
+    },
+    "07|FIX_150ms": {
+      "n": 11,
+      "usdt": -0.6286383438924056,
+      "wins": 1
+    },
+    "07|FIX_200ms": {
+      "n": 11,
+      "usdt": -0.5745867903065851,
+      "wins": 2
+    },
+    "07|FIX_300ms": {
+      "n": 11,
+      "usdt": -0.7565804281609203,
+      "wins": 5
+    },
+    "07|FIX_500ms": {
+      "n": 11,
+      "usdt": -0.41113256407582266,
+      "wins": 5
+    },
+    "07|FIX_750ms": {
+      "n": 11,
+      "usdt": -0.6323432819007032,
+      "wins": 6
+    },
+    "07|FIX_1000ms": {
+      "n": 11,
+      "usdt": -0.6060482341291614,
+      "wins": 4
+    },
+    "07|FIX_1500ms": {
+      "n": 11,
+      "usdt": -0.5183008863362178,
+      "wins": 5
+    },
+    "07|FIX_2000ms": {
+      "n": 11,
+      "usdt": -0.7555797636835375,
+      "wins": 3
+    },
+    "07|FIX_3000ms": {
+      "n": 11,
+      "usdt": -0.6516044320838363,
+      "wins": 5
+    },
+    "07|FIX_5000ms": {
+      "n": 11,
+      "usdt": -0.7437842638011531,
+      "wins": 4
+    },
+    "07|TP0.15_SL0.25_MAX500ms": {
+      "n": 11,
+      "usdt": -0.46669489891576776,
+      "wins": 6
+    },
+    "07|TP0.20_SL0.30_MAX500ms": {
+      "n": 11,
+      "usdt": -0.32339513302082806,
+      "wins": 7
+    },
+    "07|TP0.25_SL0.35_MAX800ms": {
+      "n": 11,
+      "usdt": -0.33847015602459174,
+      "wins": 8
+    },
+    "07|TP0.30_SL0.40_MAX1000ms": {
+      "n": 11,
+      "usdt": -0.4822571905183007,
+      "wins": 5
+    },
+    "07|TP0.35_SL0.50_MAX1500ms": {
+      "n": 11,
+      "usdt": -0.384426622732294,
+      "wins": 6
+    },
+    "07|TP0.50_SL0.60_MAX2000ms": {
+      "n": 11,
+      "usdt": -0.48846171070124333,
+      "wins": 4
+    },
+    "07|REVpk0.10_gb0.08_MAX800ms": {
+      "n": 11,
+      "usdt": -0.5820424123928353,
+      "wins": 6
+    },
+    "07|REVpk0.15_gb0.10_MAX1000ms": {
+      "n": 11,
+      "usdt": -0.578119725872629,
+      "wins": 6
+    },
+    "07|REVpk0.20_gb0.12_MAX1200ms": {
+      "n": 11,
+      "usdt": -0.5787346864403948,
+      "wins": 8
+    },
+    "07|REVpk0.25_gb0.15_MAX1500ms": {
+      "n": 11,
+      "usdt": -0.5991152258981935,
+      "wins": 7
+    },
+    "07|REVpk0.35_gb0.18_MAX2000ms": {
+      "n": 11,
+      "usdt": -0.7188493316302726,
+      "wins": 3
+    },
+    "07|FAV0.10_ADV0.15_MAX600ms": {
+      "n": 11,
+      "usdt": -0.7737485017005697,
+      "wins": 2
+    },
+    "07|FAV0.15_ADV0.20_MAX800ms": {
+      "n": 11,
+      "usdt": -0.7876072677182753,
+      "wins": 3
+    },
+    "07|FAV0.20_ADV0.25_MAX1000ms": {
+      "n": 11,
+      "usdt": -0.7802949376557596,
+      "wins": 3
+    },
+    "2pct|FIX_50ms": {
+      "n": 14,
+      "usdt": -1.0211649350807608,
+      "wins": 4
+    },
+    "2pct|FIX_100ms": {
+      "n": 14,
+      "usdt": -0.8119600381582035,
+      "wins": 3
+    },
+    "2pct|FIX_150ms": {
+      "n": 14,
+      "usdt": -1.0699762830511856,
+      "wins": 1
+    },
+    "2pct|FIX_200ms": {
+      "n": 14,
+      "usdt": -0.8725059509168424,
+      "wins": 3
+    },
+    "2pct|FIX_300ms": {
+      "n": 14,
+      "usdt": -0.6932842564565296,
+      "wins": 4
+    },
+    "2pct|FIX_500ms": {
+      "n": 14,
+      "usdt": -0.9935589183513039,
+      "wins": 4
+    },
+    "2pct|FIX_750ms": {
+      "n": 14,
+      "usdt": -1.3266221644327105,
+      "wins": 4
+    },
+    "2pct|FIX_1000ms": {
+      "n": 14,
+      "usdt": -1.2164906901643928,
+      "wins": 3
+    },
+    "2pct|FIX_1500ms": {
+      "n": 14,
+      "usdt": -1.1186775521034806,
+      "wins": 3
+    },
+    "2pct|FIX_2000ms": {
+      "n": 14,
+      "usdt": -1.311173916439053,
+      "wins": 2
+    },
+    "2pct|FIX_3000ms": {
+      "n": 14,
+      "usdt": -1.3145854308113825,
+      "wins": 4
+    },
+    "2pct|FIX_5000ms": {
+      "n": 14,
+      "usdt": -1.4804310098670337,
+      "wins": 3
+    },
+    "2pct|TP0.15_SL0.25_MAX500ms": {
+      "n": 14,
+      "usdt": -0.9986387037994189,
+      "wins": 4
+    },
+    "2pct|TP0.20_SL0.30_MAX500ms": {
+      "n": 14,
+      "usdt": -0.7718995436555836,
+      "wins": 6
+    },
+    "2pct|TP0.25_SL0.35_MAX800ms": {
+      "n": 14,
+      "usdt": -0.8053159822071381,
+      "wins": 6
+    },
+    "2pct|TP0.30_SL0.40_MAX1000ms": {
+      "n": 14,
+      "usdt": -0.9485214116360688,
+      "wins": 4
+    },
+    "2pct|TP0.35_SL0.50_MAX1500ms": {
+      "n": 14,
+      "usdt": -0.9073196958864173,
+      "wins": 4
+    },
+    "2pct|TP0.50_SL0.60_MAX2000ms": {
+      "n": 14,
+      "usdt": -1.0049374095900003,
+      "wins": 3
+    },
+    "2pct|REVpk0.10_gb0.08_MAX800ms": {
+      "n": 14,
+      "usdt": -1.161809597687681,
+      "wins": 3
+    },
+    "2pct|REVpk0.15_gb0.10_MAX1000ms": {
+      "n": 14,
+      "usdt": -1.071582006435584,
+      "wins": 3
+    },
+    "2pct|REVpk0.20_gb0.12_MAX1200ms": {
+      "n": 14,
+      "usdt": -0.9999568035153948,
+      "wins": 5
+    },
+    "2pct|REVpk0.25_gb0.15_MAX1500ms": {
+      "n": 14,
+      "usdt": -1.0576612548471238,
+      "wins": 4
+    },
+    "2pct|REVpk0.35_gb0.18_MAX2000ms": {
+      "n": 14,
+      "usdt": -1.1561516461228312,
+      "wins": 2
+    },
+    "2pct|FAV0.10_ADV0.15_MAX600ms": {
+      "n": 14,
+      "usdt": -1.1734868603475366,
+      "wins": 1
+    },
+    "2pct|FAV0.15_ADV0.20_MAX800ms": {
+      "n": 14,
+      "usdt": -1.1965974112068207,
+      "wins": 2
+    },
+    "2pct|FAV0.20_ADV0.25_MAX1000ms": {
+      "n": 14,
+      "usdt": -1.166265823704316,
+      "wins": 2
+    }
+  },
+  "trades": [
+    {
+      "symbol": "PTBUSDT",
+      "side": "SELL",
+      "log_live_pnl": 0.1,
+      "entry_07": {
+        "sec": -0.795,
+        "ms_before_log": -246
+      },
+      "policies_07": {
+        "07|FIX_50ms": {
+          "pnl_usdt": 0.0031,
+          "pnl_pct": 0.016,
+          "detail": "fix_50ms"
+        },
+        "07|FIX_100ms": {
+          "pnl_usdt": -0.0031,
+          "pnl_pct": -0.016,
+          "detail": "fix_100ms"
+        },
+        "07|FIX_150ms": {
+          "pnl_usdt": -0.0063,
+          "pnl_pct": -0.031,
+          "detail": "fix_150ms"
+        },
+        "07|FIX_200ms": {
+          "pnl_usdt": -0.0031,
+          "pnl_pct": -0.016,
+          "detail": "fix_200ms"
+        },
+        "07|FIX_300ms": {
+          "pnl_usdt": 0.0283,
+          "pnl_pct": 0.141,
+          "detail": "fix_300ms"
+        },
+        "07|FIX_500ms": {
+          "pnl_usdt": 0.0283,
+          "pnl_pct": 0.141,
+          "detail": "fix_500ms"
+        },
+        "07|FIX_750ms": {
+          "pnl_usdt": 0.0094,
+          "pnl_pct": 0.047,
+          "detail": "fix_750ms"
+        },
+        "07|FIX_1000ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "fix_1000ms"
+        },
+        "07|FIX_1500ms": {
+          "pnl_usdt": 0.0314,
+          "pnl_pct": 0.157,
+          "detail": "fix_1500ms"
+        },
+        "07|FIX_2000ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "fix_2000ms"
+        },
+        "07|FIX_3000ms": {
+          "pnl_usdt": 0.0094,
+          "pnl_pct": 0.047,
+          "detail": "fix_3000ms"
+        },
+        "07|FIX_5000ms": {
+          "pnl_usdt": -0.0251,
+          "pnl_pct": -0.126,
+          "detail": "fix_5000ms"
+        },
+        "07|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": 0.0534,
+          "pnl_pct": 0.267,
+          "detail": "tp_0.15%@53ms"
+        },
+        "07|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": 0.0534,
+          "pnl_pct": 0.267,
+          "detail": "tp_0.20%@53ms"
+        },
+        "07|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": 0.0534,
+          "pnl_pct": 0.267,
+          "detail": "tp_0.25%@53ms"
+        },
+        "07|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "tout_1000ms"
+        },
+        "07|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": 0.0314,
+          "pnl_pct": 0.157,
+          "detail": "tout_1500ms"
+        },
+        "07|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "tout_2000ms"
+        },
+        "07|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": 0.0126,
+          "pnl_pct": 0.063,
+          "detail": "rev_pk0.10_gb0.08@56ms"
+        },
+        "07|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": 0.0126,
+          "pnl_pct": 0.063,
+          "detail": "rev_pk0.15_gb0.10@56ms"
+        },
+        "07|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": 0.0126,
+          "pnl_pct": 0.063,
+          "detail": "rev_pk0.20_gb0.12@56ms"
+        },
+        "07|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": 0.0126,
+          "pnl_pct": 0.063,
+          "detail": "rev_pk0.25_gb0.15@56ms"
+        },
+        "07|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "rev_tout_2000ms"
+        },
+        "07|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": 0.0283,
+          "pnl_pct": 0.141,
+          "detail": "ff_tout_600ms"
+        },
+        "07|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": 0.0094,
+          "pnl_pct": 0.047,
+          "detail": "ff_tout_800ms"
+        },
+        "07|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "ff_tout_1000ms"
+        }
+      },
+      "entry_2pct": {
+        "sec": -2.041,
+        "ms_before_log": -246
+      },
+      "policies_2pct": {
+        "2pct|FIX_50ms": {
+          "pnl_usdt": 0.0031,
+          "pnl_pct": 0.016,
+          "detail": "fix_50ms"
+        },
+        "2pct|FIX_100ms": {
+          "pnl_usdt": -0.0031,
+          "pnl_pct": -0.016,
+          "detail": "fix_100ms"
+        },
+        "2pct|FIX_150ms": {
+          "pnl_usdt": -0.0063,
+          "pnl_pct": -0.031,
+          "detail": "fix_150ms"
+        },
+        "2pct|FIX_200ms": {
+          "pnl_usdt": -0.0031,
+          "pnl_pct": -0.016,
+          "detail": "fix_200ms"
+        },
+        "2pct|FIX_300ms": {
+          "pnl_usdt": 0.0283,
+          "pnl_pct": 0.141,
+          "detail": "fix_300ms"
+        },
+        "2pct|FIX_500ms": {
+          "pnl_usdt": 0.0283,
+          "pnl_pct": 0.141,
+          "detail": "fix_500ms"
+        },
+        "2pct|FIX_750ms": {
+          "pnl_usdt": 0.0094,
+          "pnl_pct": 0.047,
+          "detail": "fix_750ms"
+        },
+        "2pct|FIX_1000ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "fix_1000ms"
+        },
+        "2pct|FIX_1500ms": {
+          "pnl_usdt": 0.0314,
+          "pnl_pct": 0.157,
+          "detail": "fix_1500ms"
+        },
+        "2pct|FIX_2000ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "fix_2000ms"
+        },
+        "2pct|FIX_3000ms": {
+          "pnl_usdt": 0.0094,
+          "pnl_pct": 0.047,
+          "detail": "fix_3000ms"
+        },
+        "2pct|FIX_5000ms": {
+          "pnl_usdt": -0.0251,
+          "pnl_pct": -0.126,
+          "detail": "fix_5000ms"
+        },
+        "2pct|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": 0.0534,
+          "pnl_pct": 0.267,
+          "detail": "tp_0.15%@53ms"
+        },
+        "2pct|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": 0.0534,
+          "pnl_pct": 0.267,
+          "detail": "tp_0.20%@53ms"
+        },
+        "2pct|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": 0.0534,
+          "pnl_pct": 0.267,
+          "detail": "tp_0.25%@53ms"
+        },
+        "2pct|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "tout_1000ms"
+        },
+        "2pct|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": 0.0314,
+          "pnl_pct": 0.157,
+          "detail": "tout_1500ms"
+        },
+        "2pct|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "tout_2000ms"
+        },
+        "2pct|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": 0.0126,
+          "pnl_pct": 0.063,
+          "detail": "rev_pk0.10_gb0.08@56ms"
+        },
+        "2pct|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": 0.0126,
+          "pnl_pct": 0.063,
+          "detail": "rev_pk0.15_gb0.10@56ms"
+        },
+        "2pct|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": 0.0126,
+          "pnl_pct": 0.063,
+          "detail": "rev_pk0.20_gb0.12@56ms"
+        },
+        "2pct|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": 0.0126,
+          "pnl_pct": 0.063,
+          "detail": "rev_pk0.25_gb0.15@56ms"
+        },
+        "2pct|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "rev_tout_2000ms"
+        },
+        "2pct|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": 0.0283,
+          "pnl_pct": 0.141,
+          "detail": "ff_tout_600ms"
+        },
+        "2pct|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": 0.0094,
+          "pnl_pct": 0.047,
+          "detail": "ff_tout_800ms"
+        },
+        "2pct|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "ff_tout_1000ms"
+        }
+      }
+    },
+    {
+      "symbol": "GTCUSDT",
+      "side": "SELL",
+      "log_live_pnl": -0.26,
+      "entry_07": null,
+      "entry_2pct": {
+        "sec": -2.338,
+        "ms_before_log": -708
+      },
+      "policies_2pct": {
+        "2pct|FIX_50ms": {
+          "pnl_usdt": -0.243,
+          "pnl_pct": -1.215,
+          "detail": "fix_50ms"
+        },
+        "2pct|FIX_100ms": {
+          "pnl_usdt": -0.3052,
+          "pnl_pct": -1.526,
+          "detail": "fix_100ms"
+        },
+        "2pct|FIX_150ms": {
+          "pnl_usdt": -0.2604,
+          "pnl_pct": -1.302,
+          "detail": "fix_150ms"
+        },
+        "2pct|FIX_200ms": {
+          "pnl_usdt": -0.2604,
+          "pnl_pct": -1.302,
+          "detail": "fix_200ms"
+        },
+        "2pct|FIX_300ms": {
+          "pnl_usdt": -0.2579,
+          "pnl_pct": -1.29,
+          "detail": "fix_300ms"
+        },
+        "2pct|FIX_500ms": {
+          "pnl_usdt": -0.2604,
+          "pnl_pct": -1.302,
+          "detail": "fix_500ms"
+        },
+        "2pct|FIX_750ms": {
+          "pnl_usdt": -0.3127,
+          "pnl_pct": -1.563,
+          "detail": "fix_750ms"
+        },
+        "2pct|FIX_1000ms": {
+          "pnl_usdt": -0.3027,
+          "pnl_pct": -1.514,
+          "detail": "fix_1000ms"
+        },
+        "2pct|FIX_1500ms": {
+          "pnl_usdt": -0.3002,
+          "pnl_pct": -1.501,
+          "detail": "fix_1500ms"
+        },
+        "2pct|FIX_2000ms": {
+          "pnl_usdt": -0.2977,
+          "pnl_pct": -1.489,
+          "detail": "fix_2000ms"
+        },
+        "2pct|FIX_3000ms": {
+          "pnl_usdt": -0.3052,
+          "pnl_pct": -1.526,
+          "detail": "fix_3000ms"
+        },
+        "2pct|FIX_5000ms": {
+          "pnl_usdt": -0.2704,
+          "pnl_pct": -1.352,
+          "detail": "fix_5000ms"
+        },
+        "2pct|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": -0.1235,
+          "pnl_pct": -0.618,
+          "detail": "sl_0.25%@1ms"
+        },
+        "2pct|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": -0.1235,
+          "pnl_pct": -0.618,
+          "detail": "sl_0.30%@1ms"
+        },
+        "2pct|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": -0.1235,
+          "pnl_pct": -0.618,
+          "detail": "sl_0.35%@1ms"
+        },
+        "2pct|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": -0.1235,
+          "pnl_pct": -0.618,
+          "detail": "sl_0.40%@1ms"
+        },
+        "2pct|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": -0.1235,
+          "pnl_pct": -0.618,
+          "detail": "sl_0.50%@1ms"
+        },
+        "2pct|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": -0.1235,
+          "pnl_pct": -0.618,
+          "detail": "sl_0.60%@1ms"
+        },
+        "2pct|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": -0.3624,
+          "pnl_pct": -1.812,
+          "detail": "rev_tout_800ms"
+        },
+        "2pct|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": -0.3027,
+          "pnl_pct": -1.514,
+          "detail": "rev_tout_1000ms"
+        },
+        "2pct|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": -0.3226,
+          "pnl_pct": -1.613,
+          "detail": "rev_tout_1200ms"
+        },
+        "2pct|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": -0.3002,
+          "pnl_pct": -1.501,
+          "detail": "rev_tout_1500ms"
+        },
+        "2pct|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": -0.2977,
+          "pnl_pct": -1.489,
+          "detail": "rev_tout_2000ms"
+        },
+        "2pct|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.1235,
+          "pnl_pct": -0.618,
+          "detail": "no_fav_sl0.15@1ms"
+        },
+        "2pct|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": -0.1235,
+          "pnl_pct": -0.618,
+          "detail": "no_fav_sl0.20@1ms"
+        },
+        "2pct|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": -0.1235,
+          "pnl_pct": -0.618,
+          "detail": "no_fav_sl0.25@1ms"
+        }
+      }
+    },
+    {
+      "symbol": "STARUSDT",
+      "side": "BUY",
+      "log_live_pnl": null,
+      "entry_07": null,
+      "entry_2pct": {
+        "sec": 2.372,
+        "ms_before_log": -453
+      },
+      "policies_2pct": {
+        "2pct|FIX_50ms": {
+          "pnl_usdt": 0.0066,
+          "pnl_pct": 0.033,
+          "detail": "fix_50ms"
+        },
+        "2pct|FIX_100ms": {
+          "pnl_usdt": 0.0504,
+          "pnl_pct": 0.252,
+          "detail": "fix_100ms"
+        },
+        "2pct|FIX_150ms": {
+          "pnl_usdt": 0.0354,
+          "pnl_pct": 0.177,
+          "detail": "fix_150ms"
+        },
+        "2pct|FIX_200ms": {
+          "pnl_usdt": 0.0665,
+          "pnl_pct": 0.332,
+          "detail": "fix_200ms"
+        },
+        "2pct|FIX_300ms": {
+          "pnl_usdt": -0.0751,
+          "pnl_pct": -0.375,
+          "detail": "fix_300ms"
+        },
+        "2pct|FIX_500ms": {
+          "pnl_usdt": -0.1775,
+          "pnl_pct": -0.888,
+          "detail": "fix_500ms"
+        },
+        "2pct|FIX_750ms": {
+          "pnl_usdt": -0.1948,
+          "pnl_pct": -0.974,
+          "detail": "fix_750ms"
+        },
+        "2pct|FIX_1000ms": {
+          "pnl_usdt": -0.1902,
+          "pnl_pct": -0.951,
+          "detail": "fix_1000ms"
+        },
+        "2pct|FIX_1500ms": {
+          "pnl_usdt": -0.1614,
+          "pnl_pct": -0.807,
+          "detail": "fix_1500ms"
+        },
+        "2pct|FIX_2000ms": {
+          "pnl_usdt": -0.1476,
+          "pnl_pct": -0.738,
+          "detail": "fix_2000ms"
+        },
+        "2pct|FIX_3000ms": {
+          "pnl_usdt": -0.1798,
+          "pnl_pct": -0.899,
+          "detail": "fix_3000ms"
+        },
+        "2pct|FIX_5000ms": {
+          "pnl_usdt": -0.1798,
+          "pnl_pct": -0.899,
+          "detail": "fix_5000ms"
+        },
+        "2pct|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": -0.0797,
+          "pnl_pct": -0.398,
+          "detail": "sl_0.25%@6ms"
+        },
+        "2pct|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": -0.0797,
+          "pnl_pct": -0.398,
+          "detail": "sl_0.30%@6ms"
+        },
+        "2pct|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": -0.0797,
+          "pnl_pct": -0.398,
+          "detail": "sl_0.35%@6ms"
+        },
+        "2pct|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": -0.0831,
+          "pnl_pct": -0.416,
+          "detail": "sl_0.40%@6ms"
+        },
+        "2pct|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": -0.1131,
+          "pnl_pct": -0.565,
+          "detail": "sl_0.50%@6ms"
+        },
+        "2pct|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": -0.1211,
+          "pnl_pct": -0.606,
+          "detail": "sl_0.60%@9ms"
+        },
+        "2pct|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": -0.0083,
+          "pnl_pct": -0.042,
+          "detail": "rev_pk0.10_gb0.08@133ms"
+        },
+        "2pct|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": -0.0083,
+          "pnl_pct": -0.042,
+          "detail": "rev_pk0.15_gb0.10@133ms"
+        },
+        "2pct|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": -0.0083,
+          "pnl_pct": -0.042,
+          "detail": "rev_pk0.20_gb0.12@133ms"
+        },
+        "2pct|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": -0.0083,
+          "pnl_pct": -0.042,
+          "detail": "rev_pk0.25_gb0.15@133ms"
+        },
+        "2pct|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": -0.0083,
+          "pnl_pct": -0.042,
+          "detail": "rev_pk0.35_gb0.18@133ms"
+        },
+        "2pct|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.0797,
+          "pnl_pct": -0.398,
+          "detail": "no_fav_sl0.15@6ms"
+        },
+        "2pct|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": -0.0797,
+          "pnl_pct": -0.398,
+          "detail": "no_fav_sl0.20@6ms"
+        },
+        "2pct|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": -0.0797,
+          "pnl_pct": -0.398,
+          "detail": "no_fav_sl0.25@6ms"
+        }
+      }
+    },
+    {
+      "symbol": "QUSDT",
+      "side": "BUY",
+      "log_live_pnl": -0.09,
+      "entry_07": {
+        "sec": 0.705,
+        "ms_before_log": -414
+      },
+      "policies_07": {
+        "07|FIX_50ms": {
+          "pnl_usdt": -0.0205,
+          "pnl_pct": -0.102,
+          "detail": "fix_50ms"
+        },
+        "07|FIX_100ms": {
+          "pnl_usdt": 0.001,
+          "pnl_pct": 0.005,
+          "detail": "fix_100ms"
+        },
+        "07|FIX_150ms": {
+          "pnl_usdt": -0.0112,
+          "pnl_pct": -0.056,
+          "detail": "fix_150ms"
+        },
+        "07|FIX_200ms": {
+          "pnl_usdt": -0.0153,
+          "pnl_pct": -0.077,
+          "detail": "fix_200ms"
+        },
+        "07|FIX_300ms": {
+          "pnl_usdt": 0.0031,
+          "pnl_pct": 0.015,
+          "detail": "fix_300ms"
+        },
+        "07|FIX_500ms": {
+          "pnl_usdt": 0.0369,
+          "pnl_pct": 0.184,
+          "detail": "fix_500ms"
+        },
+        "07|FIX_750ms": {
+          "pnl_usdt": 0.0369,
+          "pnl_pct": 0.184,
+          "detail": "fix_750ms"
+        },
+        "07|FIX_1000ms": {
+          "pnl_usdt": 0.04,
+          "pnl_pct": 0.2,
+          "detail": "fix_1000ms"
+        },
+        "07|FIX_1500ms": {
+          "pnl_usdt": 0.0727,
+          "pnl_pct": 0.364,
+          "detail": "fix_1500ms"
+        },
+        "07|FIX_2000ms": {
+          "pnl_usdt": 0.0389,
+          "pnl_pct": 0.195,
+          "detail": "fix_2000ms"
+        },
+        "07|FIX_3000ms": {
+          "pnl_usdt": 0.1086,
+          "pnl_pct": 0.543,
+          "detail": "fix_3000ms"
+        },
+        "07|FIX_5000ms": {
+          "pnl_usdt": 0.1434,
+          "pnl_pct": 0.717,
+          "detail": "fix_5000ms"
+        },
+        "07|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": 0.0533,
+          "pnl_pct": 0.266,
+          "detail": "tp_0.15%@9ms"
+        },
+        "07|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": 0.0533,
+          "pnl_pct": 0.266,
+          "detail": "tp_0.20%@9ms"
+        },
+        "07|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": 0.0533,
+          "pnl_pct": 0.266,
+          "detail": "tp_0.25%@9ms"
+        },
+        "07|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": 0.0645,
+          "pnl_pct": 0.323,
+          "detail": "tp_0.30%@447ms"
+        },
+        "07|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": 0.0707,
+          "pnl_pct": 0.353,
+          "detail": "tp_0.35%@447ms"
+        },
+        "07|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": 0.0389,
+          "pnl_pct": 0.195,
+          "detail": "tout_2000ms"
+        },
+        "07|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": 0.0215,
+          "pnl_pct": 0.108,
+          "detail": "rev_pk0.10_gb0.08@11ms"
+        },
+        "07|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": 0.0215,
+          "pnl_pct": 0.108,
+          "detail": "rev_pk0.15_gb0.10@11ms"
+        },
+        "07|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": 0.0215,
+          "pnl_pct": 0.108,
+          "detail": "rev_pk0.20_gb0.12@11ms"
+        },
+        "07|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": 0.0215,
+          "pnl_pct": 0.108,
+          "detail": "rev_pk0.25_gb0.15@11ms"
+        },
+        "07|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": 0.042,
+          "pnl_pct": 0.21,
+          "detail": "rev_pk0.35_gb0.18@454ms"
+        },
+        "07|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.0348,
+          "pnl_pct": -0.174,
+          "detail": "fav0.10_then_adv0.15@43ms"
+        },
+        "07|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": 0.0369,
+          "pnl_pct": 0.184,
+          "detail": "ff_tout_800ms"
+        },
+        "07|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": 0.04,
+          "pnl_pct": 0.2,
+          "detail": "ff_tout_1000ms"
+        }
+      },
+      "entry_2pct": {
+        "sec": 2.01,
+        "ms_before_log": -450
+      },
+      "policies_2pct": {
+        "2pct|FIX_50ms": {
+          "pnl_usdt": 0.0062,
+          "pnl_pct": 0.031,
+          "detail": "fix_50ms"
+        },
+        "2pct|FIX_100ms": {
+          "pnl_usdt": 0.0512,
+          "pnl_pct": 0.256,
+          "detail": "fix_100ms"
+        },
+        "2pct|FIX_150ms": {
+          "pnl_usdt": -0.0082,
+          "pnl_pct": -0.041,
+          "detail": "fix_150ms"
+        },
+        "2pct|FIX_200ms": {
+          "pnl_usdt": 0.0031,
+          "pnl_pct": 0.015,
+          "detail": "fix_200ms"
+        },
+        "2pct|FIX_300ms": {
+          "pnl_usdt": 0.0072,
+          "pnl_pct": 0.036,
+          "detail": "fix_300ms"
+        },
+        "2pct|FIX_500ms": {
+          "pnl_usdt": 0.0389,
+          "pnl_pct": 0.195,
+          "detail": "fix_500ms"
+        },
+        "2pct|FIX_750ms": {
+          "pnl_usdt": 0.0389,
+          "pnl_pct": 0.195,
+          "detail": "fix_750ms"
+        },
+        "2pct|FIX_1000ms": {
+          "pnl_usdt": 0.0717,
+          "pnl_pct": 0.359,
+          "detail": "fix_1000ms"
+        },
+        "2pct|FIX_1500ms": {
+          "pnl_usdt": 0.0748,
+          "pnl_pct": 0.374,
+          "detail": "fix_1500ms"
+        },
+        "2pct|FIX_2000ms": {
+          "pnl_usdt": 0.0686,
+          "pnl_pct": 0.343,
+          "detail": "fix_2000ms"
+        },
+        "2pct|FIX_3000ms": {
+          "pnl_usdt": 0.1106,
+          "pnl_pct": 0.553,
+          "detail": "fix_3000ms"
+        },
+        "2pct|FIX_5000ms": {
+          "pnl_usdt": 0.0922,
+          "pnl_pct": 0.461,
+          "detail": "fix_5000ms"
+        },
+        "2pct|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": 0.0338,
+          "pnl_pct": 0.169,
+          "detail": "tp_0.15%@7ms"
+        },
+        "2pct|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": 0.0441,
+          "pnl_pct": 0.22,
+          "detail": "tp_0.20%@30ms"
+        },
+        "2pct|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": 0.0512,
+          "pnl_pct": 0.256,
+          "detail": "tp_0.25%@30ms"
+        },
+        "2pct|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": 0.0615,
+          "pnl_pct": 0.307,
+          "detail": "tp_0.30%@403ms"
+        },
+        "2pct|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": 0.0717,
+          "pnl_pct": 0.359,
+          "detail": "tp_0.35%@411ms"
+        },
+        "2pct|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": 0.0686,
+          "pnl_pct": 0.343,
+          "detail": "tout_2000ms"
+        },
+        "2pct|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": -0.0184,
+          "pnl_pct": -0.092,
+          "detail": "rev_pk0.10_gb0.08@10ms"
+        },
+        "2pct|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": -0.0184,
+          "pnl_pct": -0.092,
+          "detail": "rev_pk0.15_gb0.10@10ms"
+        },
+        "2pct|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": 0.0123,
+          "pnl_pct": 0.062,
+          "detail": "rev_pk0.20_gb0.12@35ms"
+        },
+        "2pct|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": 0.0123,
+          "pnl_pct": 0.062,
+          "detail": "rev_pk0.25_gb0.15@35ms"
+        },
+        "2pct|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": 0.0441,
+          "pnl_pct": 0.22,
+          "detail": "rev_pk0.35_gb0.18@418ms"
+        },
+        "2pct|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.0327,
+          "pnl_pct": -0.164,
+          "detail": "no_fav_sl0.15@7ms"
+        },
+        "2pct|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": 0.0389,
+          "pnl_pct": 0.195,
+          "detail": "ff_tout_800ms"
+        },
+        "2pct|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": 0.0717,
+          "pnl_pct": 0.359,
+          "detail": "ff_tout_1000ms"
+        }
+      }
+    },
+    {
+      "symbol": "STARUSDT",
+      "side": "SELL",
+      "log_live_pnl": 0.01,
+      "entry_07": {
+        "sec": -0.719,
+        "ms_before_log": -1071
+      },
+      "policies_07": {
+        "07|FIX_50ms": {
+          "pnl_usdt": -0.6439,
+          "pnl_pct": -3.22,
+          "detail": "fix_50ms"
+        },
+        "07|FIX_100ms": {
+          "pnl_usdt": -0.4866,
+          "pnl_pct": -2.433,
+          "detail": "fix_100ms"
+        },
+        "07|FIX_150ms": {
+          "pnl_usdt": -0.4318,
+          "pnl_pct": -2.159,
+          "detail": "fix_150ms"
+        },
+        "07|FIX_200ms": {
+          "pnl_usdt": -0.4318,
+          "pnl_pct": -2.159,
+          "detail": "fix_200ms"
+        },
+        "07|FIX_300ms": {
+          "pnl_usdt": -0.7074,
+          "pnl_pct": -3.537,
+          "detail": "fix_300ms"
+        },
+        "07|FIX_500ms": {
+          "pnl_usdt": -0.4866,
+          "pnl_pct": -2.433,
+          "detail": "fix_500ms"
+        },
+        "07|FIX_750ms": {
+          "pnl_usdt": -0.5513,
+          "pnl_pct": -2.756,
+          "detail": "fix_750ms"
+        },
+        "07|FIX_1000ms": {
+          "pnl_usdt": -0.6086,
+          "pnl_pct": -3.043,
+          "detail": "fix_1000ms"
+        },
+        "07|FIX_1500ms": {
+          "pnl_usdt": -0.633,
+          "pnl_pct": -3.165,
+          "detail": "fix_1500ms"
+        },
+        "07|FIX_2000ms": {
+          "pnl_usdt": -0.6635,
+          "pnl_pct": -3.317,
+          "detail": "fix_2000ms"
+        },
+        "07|FIX_3000ms": {
+          "pnl_usdt": -0.6757,
+          "pnl_pct": -3.378,
+          "detail": "fix_3000ms"
+        },
+        "07|FIX_5000ms": {
+          "pnl_usdt": -0.7854,
+          "pnl_pct": -3.927,
+          "detail": "fix_5000ms"
+        },
+        "07|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": -0.5488,
+          "pnl_pct": -2.744,
+          "detail": "sl_0.25%@15ms"
+        },
+        "07|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": -0.5488,
+          "pnl_pct": -2.744,
+          "detail": "sl_0.30%@15ms"
+        },
+        "07|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": -0.5488,
+          "pnl_pct": -2.744,
+          "detail": "sl_0.35%@15ms"
+        },
+        "07|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": -0.5488,
+          "pnl_pct": -2.744,
+          "detail": "sl_0.40%@15ms"
+        },
+        "07|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": -0.5488,
+          "pnl_pct": -2.744,
+          "detail": "sl_0.50%@15ms"
+        },
+        "07|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": -0.5488,
+          "pnl_pct": -2.744,
+          "detail": "sl_0.60%@15ms"
+        },
+        "07|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": -0.5513,
+          "pnl_pct": -2.756,
+          "detail": "rev_tout_800ms"
+        },
+        "07|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": -0.6086,
+          "pnl_pct": -3.043,
+          "detail": "rev_tout_1000ms"
+        },
+        "07|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": -0.6354,
+          "pnl_pct": -3.177,
+          "detail": "rev_tout_1200ms"
+        },
+        "07|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": -0.633,
+          "pnl_pct": -3.165,
+          "detail": "rev_tout_1500ms"
+        },
+        "07|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": -0.6635,
+          "pnl_pct": -3.317,
+          "detail": "rev_tout_2000ms"
+        },
+        "07|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.5488,
+          "pnl_pct": -2.744,
+          "detail": "no_fav_sl0.15@15ms"
+        },
+        "07|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": -0.5488,
+          "pnl_pct": -2.744,
+          "detail": "no_fav_sl0.20@15ms"
+        },
+        "07|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": -0.5488,
+          "pnl_pct": -2.744,
+          "detail": "no_fav_sl0.25@15ms"
+        }
+      },
+      "entry_2pct": {
+        "sec": -2.025,
+        "ms_before_log": 5
+      },
+      "policies_2pct": {
+        "2pct|FIX_50ms": {
+          "pnl_usdt": -0.4292,
+          "pnl_pct": -2.146,
+          "detail": "fix_50ms"
+        },
+        "2pct|FIX_100ms": {
+          "pnl_usdt": -0.2019,
+          "pnl_pct": -1.009,
+          "detail": "fix_100ms"
+        },
+        "2pct|FIX_150ms": {
+          "pnl_usdt": -0.2974,
+          "pnl_pct": -1.487,
+          "detail": "fix_150ms"
+        },
+        "2pct|FIX_200ms": {
+          "pnl_usdt": -0.1983,
+          "pnl_pct": -0.991,
+          "detail": "fix_200ms"
+        },
+        "2pct|FIX_300ms": {
+          "pnl_usdt": -0.0798,
+          "pnl_pct": -0.399,
+          "detail": "fix_300ms"
+        },
+        "2pct|FIX_500ms": {
+          "pnl_usdt": -0.249,
+          "pnl_pct": -1.245,
+          "detail": "fix_500ms"
+        },
+        "2pct|FIX_750ms": {
+          "pnl_usdt": -0.266,
+          "pnl_pct": -1.33,
+          "detail": "fix_750ms"
+        },
+        "2pct|FIX_1000ms": {
+          "pnl_usdt": -0.3373,
+          "pnl_pct": -1.686,
+          "detail": "fix_1000ms"
+        },
+        "2pct|FIX_1500ms": {
+          "pnl_usdt": -0.3083,
+          "pnl_pct": -1.541,
+          "detail": "fix_1500ms"
+        },
+        "2pct|FIX_2000ms": {
+          "pnl_usdt": -0.3893,
+          "pnl_pct": -1.946,
+          "detail": "fix_2000ms"
+        },
+        "2pct|FIX_3000ms": {
+          "pnl_usdt": -0.4836,
+          "pnl_pct": -2.418,
+          "detail": "fix_3000ms"
+        },
+        "2pct|FIX_5000ms": {
+          "pnl_usdt": -0.5621,
+          "pnl_pct": -2.811,
+          "detail": "fix_5000ms"
+        },
+        "2pct|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": -0.5488,
+          "pnl_pct": -2.744,
+          "detail": "sl_0.25%@5ms"
+        },
+        "2pct|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": -0.5488,
+          "pnl_pct": -2.744,
+          "detail": "sl_0.30%@5ms"
+        },
+        "2pct|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": -0.5488,
+          "pnl_pct": -2.744,
+          "detail": "sl_0.35%@5ms"
+        },
+        "2pct|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": -0.5488,
+          "pnl_pct": -2.744,
+          "detail": "sl_0.40%@5ms"
+        },
+        "2pct|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": -0.5488,
+          "pnl_pct": -2.744,
+          "detail": "sl_0.50%@5ms"
+        },
+        "2pct|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": -0.5488,
+          "pnl_pct": -2.744,
+          "detail": "sl_0.60%@5ms"
+        },
+        "2pct|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": -0.2261,
+          "pnl_pct": -1.13,
+          "detail": "rev_tout_800ms"
+        },
+        "2pct|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": -0.3373,
+          "pnl_pct": -1.686,
+          "detail": "rev_tout_1000ms"
+        },
+        "2pct|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": -0.2539,
+          "pnl_pct": -1.269,
+          "detail": "rev_tout_1200ms"
+        },
+        "2pct|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": -0.3083,
+          "pnl_pct": -1.541,
+          "detail": "rev_tout_1500ms"
+        },
+        "2pct|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": -0.3893,
+          "pnl_pct": -1.946,
+          "detail": "rev_tout_2000ms"
+        },
+        "2pct|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.5488,
+          "pnl_pct": -2.744,
+          "detail": "no_fav_sl0.15@5ms"
+        },
+        "2pct|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": -0.5488,
+          "pnl_pct": -2.744,
+          "detail": "no_fav_sl0.20@5ms"
+        },
+        "2pct|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": -0.5488,
+          "pnl_pct": -2.744,
+          "detail": "no_fav_sl0.25@5ms"
+        }
+      }
+    },
+    {
+      "symbol": "SHELLUSDT",
+      "side": "SELL",
+      "log_live_pnl": -0.03,
+      "entry_07": {
+        "sec": -0.759,
+        "ms_before_log": 7
+      },
+      "policies_07": {
+        "07|FIX_50ms": {
+          "pnl_usdt": 0.0133,
+          "pnl_pct": 0.067,
+          "detail": "fix_50ms"
+        },
+        "07|FIX_100ms": {
+          "pnl_usdt": 0.0067,
+          "pnl_pct": 0.033,
+          "detail": "fix_100ms"
+        },
+        "07|FIX_150ms": {
+          "pnl_usdt": -0.0467,
+          "pnl_pct": -0.233,
+          "detail": "fix_150ms"
+        },
+        "07|FIX_200ms": {
+          "pnl_usdt": -0.06,
+          "pnl_pct": -0.3,
+          "detail": "fix_200ms"
+        },
+        "07|FIX_300ms": {
+          "pnl_usdt": -0.0067,
+          "pnl_pct": -0.033,
+          "detail": "fix_300ms"
+        },
+        "07|FIX_500ms": {
+          "pnl_usdt": -0.0133,
+          "pnl_pct": -0.067,
+          "detail": "fix_500ms"
+        },
+        "07|FIX_750ms": {
+          "pnl_usdt": -0.02,
+          "pnl_pct": -0.1,
+          "detail": "fix_750ms"
+        },
+        "07|FIX_1000ms": {
+          "pnl_usdt": -0.06,
+          "pnl_pct": -0.3,
+          "detail": "fix_1000ms"
+        },
+        "07|FIX_1500ms": {
+          "pnl_usdt": -0.0467,
+          "pnl_pct": -0.233,
+          "detail": "fix_1500ms"
+        },
+        "07|FIX_2000ms": {
+          "pnl_usdt": -0.0333,
+          "pnl_pct": -0.167,
+          "detail": "fix_2000ms"
+        },
+        "07|FIX_3000ms": {
+          "pnl_usdt": -0.0267,
+          "pnl_pct": -0.133,
+          "detail": "fix_3000ms"
+        },
+        "07|FIX_5000ms": {
+          "pnl_usdt": -0.0534,
+          "pnl_pct": -0.267,
+          "detail": "fix_5000ms"
+        },
+        "07|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": 0.0333,
+          "pnl_pct": 0.167,
+          "detail": "tp_0.15%@19ms"
+        },
+        "07|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": 0.04,
+          "pnl_pct": 0.2,
+          "detail": "tp_0.20%@19ms"
+        },
+        "07|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": 0.0534,
+          "pnl_pct": 0.267,
+          "detail": "tp_0.25%@19ms"
+        },
+        "07|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": 0.06,
+          "pnl_pct": 0.3,
+          "detail": "tp_0.30%@19ms"
+        },
+        "07|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": 0.0734,
+          "pnl_pct": 0.367,
+          "detail": "tp_0.35%@21ms"
+        },
+        "07|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": 0.1,
+          "pnl_pct": 0.5,
+          "detail": "tp_0.50%@21ms"
+        },
+        "07|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": 0.0067,
+          "pnl_pct": 0.033,
+          "detail": "rev_pk0.10_gb0.08@21ms"
+        },
+        "07|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": 0.0067,
+          "pnl_pct": 0.033,
+          "detail": "rev_pk0.15_gb0.10@21ms"
+        },
+        "07|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": 0.0067,
+          "pnl_pct": 0.033,
+          "detail": "rev_pk0.20_gb0.12@21ms"
+        },
+        "07|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": 0.0067,
+          "pnl_pct": 0.033,
+          "detail": "rev_pk0.25_gb0.15@21ms"
+        },
+        "07|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": -0.0133,
+          "pnl_pct": -0.067,
+          "detail": "rev_pk0.35_gb0.18@22ms"
+        },
+        "07|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.0333,
+          "pnl_pct": -0.167,
+          "detail": "no_fav_sl0.15@3ms"
+        },
+        "07|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": -0.04,
+          "pnl_pct": -0.2,
+          "detail": "no_fav_sl0.20@9ms"
+        },
+        "07|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": -0.0534,
+          "pnl_pct": -0.267,
+          "detail": "fav0.20_then_adv0.25@167ms"
+        }
+      },
+      "entry_2pct": {
+        "sec": -2.012,
+        "ms_before_log": 17
+      },
+      "policies_2pct": {
+        "2pct|FIX_50ms": {
+          "pnl_usdt": -0.0267,
+          "pnl_pct": -0.133,
+          "detail": "fix_50ms"
+        },
+        "2pct|FIX_100ms": {
+          "pnl_usdt": -0.0067,
+          "pnl_pct": -0.033,
+          "detail": "fix_100ms"
+        },
+        "2pct|FIX_150ms": {
+          "pnl_usdt": -0.0601,
+          "pnl_pct": -0.3,
+          "detail": "fix_150ms"
+        },
+        "2pct|FIX_200ms": {
+          "pnl_usdt": -0.0734,
+          "pnl_pct": -0.367,
+          "detail": "fix_200ms"
+        },
+        "2pct|FIX_300ms": {
+          "pnl_usdt": 0.0467,
+          "pnl_pct": 0.234,
+          "detail": "fix_300ms"
+        },
+        "2pct|FIX_500ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "fix_500ms"
+        },
+        "2pct|FIX_750ms": {
+          "pnl_usdt": -0.0334,
+          "pnl_pct": -0.167,
+          "detail": "fix_750ms"
+        },
+        "2pct|FIX_1000ms": {
+          "pnl_usdt": -0.0667,
+          "pnl_pct": -0.334,
+          "detail": "fix_1000ms"
+        },
+        "2pct|FIX_1500ms": {
+          "pnl_usdt": -0.0601,
+          "pnl_pct": -0.3,
+          "detail": "fix_1500ms"
+        },
+        "2pct|FIX_2000ms": {
+          "pnl_usdt": -0.0534,
+          "pnl_pct": -0.267,
+          "detail": "fix_2000ms"
+        },
+        "2pct|FIX_3000ms": {
+          "pnl_usdt": -0.04,
+          "pnl_pct": -0.2,
+          "detail": "fix_3000ms"
+        },
+        "2pct|FIX_5000ms": {
+          "pnl_usdt": -0.0667,
+          "pnl_pct": -0.334,
+          "detail": "fix_5000ms"
+        },
+        "2pct|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": -0.0534,
+          "pnl_pct": -0.267,
+          "detail": "sl_0.25%@19ms"
+        },
+        "2pct|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": 0.04,
+          "pnl_pct": 0.2,
+          "detail": "tp_0.20%@29ms"
+        },
+        "2pct|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": 0.0534,
+          "pnl_pct": 0.267,
+          "detail": "tp_0.25%@29ms"
+        },
+        "2pct|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": 0.0601,
+          "pnl_pct": 0.3,
+          "detail": "tp_0.30%@31ms"
+        },
+        "2pct|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": 0.0734,
+          "pnl_pct": 0.367,
+          "detail": "tp_0.35%@31ms"
+        },
+        "2pct|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": 0.1001,
+          "pnl_pct": 0.501,
+          "detail": "tp_0.50%@31ms"
+        },
+        "2pct|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": -0.0067,
+          "pnl_pct": -0.033,
+          "detail": "rev_pk0.10_gb0.08@31ms"
+        },
+        "2pct|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": -0.0067,
+          "pnl_pct": -0.033,
+          "detail": "rev_pk0.15_gb0.10@31ms"
+        },
+        "2pct|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": -0.0067,
+          "pnl_pct": -0.033,
+          "detail": "rev_pk0.20_gb0.12@31ms"
+        },
+        "2pct|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": -0.0067,
+          "pnl_pct": -0.033,
+          "detail": "rev_pk0.25_gb0.15@31ms"
+        },
+        "2pct|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": -0.0267,
+          "pnl_pct": -0.133,
+          "detail": "rev_pk0.35_gb0.18@32ms"
+        },
+        "2pct|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.0334,
+          "pnl_pct": -0.167,
+          "detail": "no_fav_sl0.15@11ms"
+        },
+        "2pct|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": -0.0467,
+          "pnl_pct": -0.234,
+          "detail": "no_fav_sl0.20@13ms"
+        },
+        "2pct|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": -0.0534,
+          "pnl_pct": -0.267,
+          "detail": "no_fav_sl0.25@19ms"
+        }
+      }
+    },
+    {
+      "symbol": "CETUSUSDT",
+      "side": "SELL",
+      "log_live_pnl": -0.04,
+      "entry_07": {
+        "sec": -0.717,
+        "ms_before_log": 9
+      },
+      "policies_07": {
+        "07|FIX_50ms": {
+          "pnl_usdt": -0.0289,
+          "pnl_pct": -0.144,
+          "detail": "fix_50ms"
+        },
+        "07|FIX_100ms": {
+          "pnl_usdt": -0.0193,
+          "pnl_pct": -0.096,
+          "detail": "fix_100ms"
+        },
+        "07|FIX_150ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "fix_150ms"
+        },
+        "07|FIX_200ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "fix_200ms"
+        },
+        "07|FIX_300ms": {
+          "pnl_usdt": -0.0193,
+          "pnl_pct": -0.096,
+          "detail": "fix_300ms"
+        },
+        "07|FIX_500ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "fix_500ms"
+        },
+        "07|FIX_750ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "fix_750ms"
+        },
+        "07|FIX_1000ms": {
+          "pnl_usdt": -0.0481,
+          "pnl_pct": -0.241,
+          "detail": "fix_1000ms"
+        },
+        "07|FIX_1500ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "fix_1500ms"
+        },
+        "07|FIX_2000ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "fix_2000ms"
+        },
+        "07|FIX_3000ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "fix_3000ms"
+        },
+        "07|FIX_5000ms": {
+          "pnl_usdt": -0.0481,
+          "pnl_pct": -0.241,
+          "detail": "fix_5000ms"
+        },
+        "07|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "tout_500ms"
+        },
+        "07|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "tout_500ms"
+        },
+        "07|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "tout_800ms"
+        },
+        "07|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": -0.0481,
+          "pnl_pct": -0.241,
+          "detail": "tout_1000ms"
+        },
+        "07|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "tout_1500ms"
+        },
+        "07|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "tout_2000ms"
+        },
+        "07|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "rev_tout_800ms"
+        },
+        "07|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": -0.0481,
+          "pnl_pct": -0.241,
+          "detail": "rev_tout_1000ms"
+        },
+        "07|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": -0.0289,
+          "pnl_pct": -0.144,
+          "detail": "rev_tout_1200ms"
+        },
+        "07|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "rev_tout_1500ms"
+        },
+        "07|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "rev_tout_2000ms"
+        },
+        "07|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "no_fav_sl0.15@14ms"
+        },
+        "07|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": -0.0481,
+          "pnl_pct": -0.241,
+          "detail": "no_fav_sl0.20@14ms"
+        },
+        "07|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": -0.0481,
+          "pnl_pct": -0.241,
+          "detail": "ff_tout_1000ms"
+        }
+      },
+      "entry_2pct": {
+        "sec": -2.008,
+        "ms_before_log": 9
+      },
+      "policies_2pct": {
+        "2pct|FIX_50ms": {
+          "pnl_usdt": -0.0289,
+          "pnl_pct": -0.144,
+          "detail": "fix_50ms"
+        },
+        "2pct|FIX_100ms": {
+          "pnl_usdt": -0.0193,
+          "pnl_pct": -0.096,
+          "detail": "fix_100ms"
+        },
+        "2pct|FIX_150ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "fix_150ms"
+        },
+        "2pct|FIX_200ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "fix_200ms"
+        },
+        "2pct|FIX_300ms": {
+          "pnl_usdt": -0.0193,
+          "pnl_pct": -0.096,
+          "detail": "fix_300ms"
+        },
+        "2pct|FIX_500ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "fix_500ms"
+        },
+        "2pct|FIX_750ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "fix_750ms"
+        },
+        "2pct|FIX_1000ms": {
+          "pnl_usdt": -0.0481,
+          "pnl_pct": -0.241,
+          "detail": "fix_1000ms"
+        },
+        "2pct|FIX_1500ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "fix_1500ms"
+        },
+        "2pct|FIX_2000ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "fix_2000ms"
+        },
+        "2pct|FIX_3000ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "fix_3000ms"
+        },
+        "2pct|FIX_5000ms": {
+          "pnl_usdt": -0.0481,
+          "pnl_pct": -0.241,
+          "detail": "fix_5000ms"
+        },
+        "2pct|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "tout_500ms"
+        },
+        "2pct|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "tout_500ms"
+        },
+        "2pct|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "tout_800ms"
+        },
+        "2pct|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": -0.0481,
+          "pnl_pct": -0.241,
+          "detail": "tout_1000ms"
+        },
+        "2pct|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "tout_1500ms"
+        },
+        "2pct|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "tout_2000ms"
+        },
+        "2pct|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "rev_tout_800ms"
+        },
+        "2pct|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": -0.0481,
+          "pnl_pct": -0.241,
+          "detail": "rev_tout_1000ms"
+        },
+        "2pct|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": -0.0289,
+          "pnl_pct": -0.144,
+          "detail": "rev_tout_1200ms"
+        },
+        "2pct|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "rev_tout_1500ms"
+        },
+        "2pct|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "rev_tout_2000ms"
+        },
+        "2pct|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.0385,
+          "pnl_pct": -0.193,
+          "detail": "no_fav_sl0.15@14ms"
+        },
+        "2pct|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": -0.0481,
+          "pnl_pct": -0.241,
+          "detail": "no_fav_sl0.20@14ms"
+        },
+        "2pct|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": -0.0481,
+          "pnl_pct": -0.241,
+          "detail": "ff_tout_1000ms"
+        }
+      }
+    },
+    {
+      "symbol": "AKEUSDT",
+      "side": "SELL",
+      "log_live_pnl": -0.18,
+      "entry_07": null,
+      "entry_2pct": {
+        "sec": -2.067,
+        "ms_before_log": 9
+      },
+      "policies_2pct": {
+        "2pct|FIX_50ms": {
+          "pnl_usdt": -0.2127,
+          "pnl_pct": -1.064,
+          "detail": "fix_50ms"
+        },
+        "2pct|FIX_100ms": {
+          "pnl_usdt": -0.2472,
+          "pnl_pct": -1.236,
+          "detail": "fix_100ms"
+        },
+        "2pct|FIX_150ms": {
+          "pnl_usdt": -0.2403,
+          "pnl_pct": -1.201,
+          "detail": "fix_150ms"
+        },
+        "2pct|FIX_200ms": {
+          "pnl_usdt": -0.2541,
+          "pnl_pct": -1.27,
+          "detail": "fix_200ms"
+        },
+        "2pct|FIX_300ms": {
+          "pnl_usdt": -0.1921,
+          "pnl_pct": -0.96,
+          "detail": "fix_300ms"
+        },
+        "2pct|FIX_500ms": {
+          "pnl_usdt": -0.2472,
+          "pnl_pct": -1.236,
+          "detail": "fix_500ms"
+        },
+        "2pct|FIX_750ms": {
+          "pnl_usdt": -0.2059,
+          "pnl_pct": -1.029,
+          "detail": "fix_750ms"
+        },
+        "2pct|FIX_1000ms": {
+          "pnl_usdt": -0.1714,
+          "pnl_pct": -0.857,
+          "detail": "fix_1000ms"
+        },
+        "2pct|FIX_1500ms": {
+          "pnl_usdt": -0.2403,
+          "pnl_pct": -1.201,
+          "detail": "fix_1500ms"
+        },
+        "2pct|FIX_2000ms": {
+          "pnl_usdt": -0.1783,
+          "pnl_pct": -0.892,
+          "detail": "fix_2000ms"
+        },
+        "2pct|FIX_3000ms": {
+          "pnl_usdt": -0.1576,
+          "pnl_pct": -0.788,
+          "detail": "fix_3000ms"
+        },
+        "2pct|FIX_5000ms": {
+          "pnl_usdt": -0.2127,
+          "pnl_pct": -1.064,
+          "detail": "fix_5000ms"
+        },
+        "2pct|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": -0.137,
+          "pnl_pct": -0.685,
+          "detail": "sl_0.25%@3ms"
+        },
+        "2pct|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": -0.137,
+          "pnl_pct": -0.685,
+          "detail": "sl_0.30%@3ms"
+        },
+        "2pct|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": -0.137,
+          "pnl_pct": -0.685,
+          "detail": "sl_0.35%@3ms"
+        },
+        "2pct|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": -0.137,
+          "pnl_pct": -0.685,
+          "detail": "sl_0.40%@3ms"
+        },
+        "2pct|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": -0.137,
+          "pnl_pct": -0.685,
+          "detail": "sl_0.50%@3ms"
+        },
+        "2pct|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": -0.137,
+          "pnl_pct": -0.685,
+          "detail": "sl_0.60%@3ms"
+        },
+        "2pct|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": -0.2059,
+          "pnl_pct": -1.029,
+          "detail": "rev_tout_800ms"
+        },
+        "2pct|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": -0.1714,
+          "pnl_pct": -0.857,
+          "detail": "rev_tout_1000ms"
+        },
+        "2pct|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": -0.2196,
+          "pnl_pct": -1.098,
+          "detail": "rev_tout_1200ms"
+        },
+        "2pct|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": -0.2403,
+          "pnl_pct": -1.201,
+          "detail": "rev_tout_1500ms"
+        },
+        "2pct|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": -0.1783,
+          "pnl_pct": -0.892,
+          "detail": "rev_tout_2000ms"
+        },
+        "2pct|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.137,
+          "pnl_pct": -0.685,
+          "detail": "no_fav_sl0.15@3ms"
+        },
+        "2pct|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": -0.137,
+          "pnl_pct": -0.685,
+          "detail": "no_fav_sl0.20@3ms"
+        },
+        "2pct|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": -0.137,
+          "pnl_pct": -0.685,
+          "detail": "no_fav_sl0.25@3ms"
+        }
+      }
+    },
+    {
+      "symbol": "BANUSDT",
+      "side": "BUY",
+      "log_live_pnl": -0.01,
+      "entry_07": {
+        "sec": 0.799,
+        "ms_before_log": 24
+      },
+      "policies_07": {
+        "07|FIX_50ms": {
+          "pnl_usdt": -0.0546,
+          "pnl_pct": -0.273,
+          "detail": "fix_50ms"
+        },
+        "07|FIX_100ms": {
+          "pnl_usdt": -0.0055,
+          "pnl_pct": -0.027,
+          "detail": "fix_100ms"
+        },
+        "07|FIX_150ms": {
+          "pnl_usdt": -0.0546,
+          "pnl_pct": -0.273,
+          "detail": "fix_150ms"
+        },
+        "07|FIX_200ms": {
+          "pnl_usdt": -0.0273,
+          "pnl_pct": -0.137,
+          "detail": "fix_200ms"
+        },
+        "07|FIX_300ms": {
+          "pnl_usdt": 0.0027,
+          "pnl_pct": 0.014,
+          "detail": "fix_300ms"
+        },
+        "07|FIX_500ms": {
+          "pnl_usdt": 0.0683,
+          "pnl_pct": 0.341,
+          "detail": "fix_500ms"
+        },
+        "07|FIX_750ms": {
+          "pnl_usdt": 0.0218,
+          "pnl_pct": 0.109,
+          "detail": "fix_750ms"
+        },
+        "07|FIX_1000ms": {
+          "pnl_usdt": 0.0683,
+          "pnl_pct": 0.341,
+          "detail": "fix_1000ms"
+        },
+        "07|FIX_1500ms": {
+          "pnl_usdt": 0.1392,
+          "pnl_pct": 0.696,
+          "detail": "fix_1500ms"
+        },
+        "07|FIX_2000ms": {
+          "pnl_usdt": 0.0819,
+          "pnl_pct": 0.41,
+          "detail": "fix_2000ms"
+        },
+        "07|FIX_3000ms": {
+          "pnl_usdt": 0.0928,
+          "pnl_pct": 0.464,
+          "detail": "fix_3000ms"
+        },
+        "07|FIX_5000ms": {
+          "pnl_usdt": 0.1147,
+          "pnl_pct": 0.573,
+          "detail": "fix_5000ms"
+        },
+        "07|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": -0.0519,
+          "pnl_pct": -0.259,
+          "detail": "sl_0.25%@27ms"
+        },
+        "07|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": 0.0519,
+          "pnl_pct": 0.259,
+          "detail": "tp_0.20%@458ms"
+        },
+        "07|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": 0.0519,
+          "pnl_pct": 0.259,
+          "detail": "tp_0.25%@458ms"
+        },
+        "07|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": 0.0683,
+          "pnl_pct": 0.341,
+          "detail": "tp_0.30%@475ms"
+        },
+        "07|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": 0.071,
+          "pnl_pct": 0.355,
+          "detail": "tp_0.35%@1263ms"
+        },
+        "07|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": 0.101,
+          "pnl_pct": 0.505,
+          "detail": "tp_0.50%@1403ms"
+        },
+        "07|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "rev_pk0.10_gb0.08@27ms"
+        },
+        "07|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": 0.0218,
+          "pnl_pct": 0.109,
+          "detail": "rev_pk0.15_gb0.10@718ms"
+        },
+        "07|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": 0.0218,
+          "pnl_pct": 0.109,
+          "detail": "rev_pk0.20_gb0.12@718ms"
+        },
+        "07|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": 0.0218,
+          "pnl_pct": 0.109,
+          "detail": "rev_pk0.25_gb0.15@718ms"
+        },
+        "07|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": 0.0956,
+          "pnl_pct": 0.478,
+          "detail": "rev_pk0.35_gb0.18@1602ms"
+        },
+        "07|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.041,
+          "pnl_pct": -0.205,
+          "detail": "fav0.10_then_adv0.15@27ms"
+        },
+        "07|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": -0.041,
+          "pnl_pct": -0.205,
+          "detail": "no_fav_sl0.20@27ms"
+        },
+        "07|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": -0.0519,
+          "pnl_pct": -0.259,
+          "detail": "no_fav_sl0.25@27ms"
+        }
+      },
+      "entry_2pct": {
+        "sec": 2.024,
+        "ms_before_log": 33
+      },
+      "policies_2pct": {
+        "2pct|FIX_50ms": {
+          "pnl_usdt": -0.0546,
+          "pnl_pct": -0.273,
+          "detail": "fix_50ms"
+        },
+        "2pct|FIX_100ms": {
+          "pnl_usdt": -0.0055,
+          "pnl_pct": -0.027,
+          "detail": "fix_100ms"
+        },
+        "2pct|FIX_150ms": {
+          "pnl_usdt": -0.0546,
+          "pnl_pct": -0.273,
+          "detail": "fix_150ms"
+        },
+        "2pct|FIX_200ms": {
+          "pnl_usdt": -0.0546,
+          "pnl_pct": -0.273,
+          "detail": "fix_200ms"
+        },
+        "2pct|FIX_300ms": {
+          "pnl_usdt": -0.0328,
+          "pnl_pct": -0.164,
+          "detail": "fix_300ms"
+        },
+        "2pct|FIX_500ms": {
+          "pnl_usdt": 0.0683,
+          "pnl_pct": 0.341,
+          "detail": "fix_500ms"
+        },
+        "2pct|FIX_750ms": {
+          "pnl_usdt": 0.0218,
+          "pnl_pct": 0.109,
+          "detail": "fix_750ms"
+        },
+        "2pct|FIX_1000ms": {
+          "pnl_usdt": 0.0683,
+          "pnl_pct": 0.341,
+          "detail": "fix_1000ms"
+        },
+        "2pct|FIX_1500ms": {
+          "pnl_usdt": 0.1392,
+          "pnl_pct": 0.696,
+          "detail": "fix_1500ms"
+        },
+        "2pct|FIX_2000ms": {
+          "pnl_usdt": 0.0819,
+          "pnl_pct": 0.41,
+          "detail": "fix_2000ms"
+        },
+        "2pct|FIX_3000ms": {
+          "pnl_usdt": 0.0928,
+          "pnl_pct": 0.464,
+          "detail": "fix_3000ms"
+        },
+        "2pct|FIX_5000ms": {
+          "pnl_usdt": 0.1147,
+          "pnl_pct": 0.573,
+          "detail": "fix_5000ms"
+        },
+        "2pct|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": -0.0519,
+          "pnl_pct": -0.259,
+          "detail": "sl_0.25%@36ms"
+        },
+        "2pct|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": 0.0519,
+          "pnl_pct": 0.259,
+          "detail": "tp_0.20%@467ms"
+        },
+        "2pct|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": 0.0519,
+          "pnl_pct": 0.259,
+          "detail": "tp_0.25%@467ms"
+        },
+        "2pct|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": 0.0683,
+          "pnl_pct": 0.341,
+          "detail": "tp_0.30%@484ms"
+        },
+        "2pct|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": 0.071,
+          "pnl_pct": 0.355,
+          "detail": "tp_0.35%@1272ms"
+        },
+        "2pct|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": 0.101,
+          "pnl_pct": 0.505,
+          "detail": "tp_0.50%@1412ms"
+        },
+        "2pct|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "rev_pk0.10_gb0.08@36ms"
+        },
+        "2pct|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": 0.0218,
+          "pnl_pct": 0.109,
+          "detail": "rev_pk0.15_gb0.10@727ms"
+        },
+        "2pct|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": 0.0218,
+          "pnl_pct": 0.109,
+          "detail": "rev_pk0.20_gb0.12@727ms"
+        },
+        "2pct|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": 0.0218,
+          "pnl_pct": 0.109,
+          "detail": "rev_pk0.25_gb0.15@727ms"
+        },
+        "2pct|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": 0.0956,
+          "pnl_pct": 0.478,
+          "detail": "rev_pk0.35_gb0.18@1611ms"
+        },
+        "2pct|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.041,
+          "pnl_pct": -0.205,
+          "detail": "fav0.10_then_adv0.15@36ms"
+        },
+        "2pct|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": -0.041,
+          "pnl_pct": -0.205,
+          "detail": "no_fav_sl0.20@36ms"
+        },
+        "2pct|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": -0.0519,
+          "pnl_pct": -0.259,
+          "detail": "no_fav_sl0.25@36ms"
+        }
+      }
+    },
+    {
+      "symbol": "DUSDT",
+      "side": "SELL",
+      "log_live_pnl": -0.09,
+      "entry_07": {
+        "sec": -0.715,
+        "ms_before_log": 16
+      },
+      "policies_07": {
+        "07|FIX_50ms": {
+          "pnl_usdt": -0.0218,
+          "pnl_pct": -0.109,
+          "detail": "fix_50ms"
+        },
+        "07|FIX_100ms": {
+          "pnl_usdt": 0.0022,
+          "pnl_pct": 0.011,
+          "detail": "fix_100ms"
+        },
+        "07|FIX_150ms": {
+          "pnl_usdt": -0.0174,
+          "pnl_pct": -0.087,
+          "detail": "fix_150ms"
+        },
+        "07|FIX_200ms": {
+          "pnl_usdt": 0.0131,
+          "pnl_pct": 0.065,
+          "detail": "fix_200ms"
+        },
+        "07|FIX_300ms": {
+          "pnl_usdt": 0.0022,
+          "pnl_pct": 0.011,
+          "detail": "fix_300ms"
+        },
+        "07|FIX_500ms": {
+          "pnl_usdt": 0.0109,
+          "pnl_pct": 0.054,
+          "detail": "fix_500ms"
+        },
+        "07|FIX_750ms": {
+          "pnl_usdt": 0.0109,
+          "pnl_pct": 0.054,
+          "detail": "fix_750ms"
+        },
+        "07|FIX_1000ms": {
+          "pnl_usdt": 0.0109,
+          "pnl_pct": 0.054,
+          "detail": "fix_1000ms"
+        },
+        "07|FIX_1500ms": {
+          "pnl_usdt": -0.0131,
+          "pnl_pct": -0.065,
+          "detail": "fix_1500ms"
+        },
+        "07|FIX_2000ms": {
+          "pnl_usdt": -0.0131,
+          "pnl_pct": -0.065,
+          "detail": "fix_2000ms"
+        },
+        "07|FIX_3000ms": {
+          "pnl_usdt": 0.0152,
+          "pnl_pct": 0.076,
+          "detail": "fix_3000ms"
+        },
+        "07|FIX_5000ms": {
+          "pnl_usdt": 0.024,
+          "pnl_pct": 0.12,
+          "detail": "fix_5000ms"
+        },
+        "07|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": 0.0305,
+          "pnl_pct": 0.152,
+          "detail": "tp_0.15%@137ms"
+        },
+        "07|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": 0.0109,
+          "pnl_pct": 0.054,
+          "detail": "tout_500ms"
+        },
+        "07|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": 0.0109,
+          "pnl_pct": 0.054,
+          "detail": "tout_800ms"
+        },
+        "07|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": 0.0109,
+          "pnl_pct": 0.054,
+          "detail": "tout_1000ms"
+        },
+        "07|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": -0.0131,
+          "pnl_pct": -0.065,
+          "detail": "tout_1500ms"
+        },
+        "07|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": -0.0131,
+          "pnl_pct": -0.065,
+          "detail": "tout_2000ms"
+        },
+        "07|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": -0.0022,
+          "pnl_pct": -0.011,
+          "detail": "rev_pk0.10_gb0.08@4ms"
+        },
+        "07|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": -0.0065,
+          "pnl_pct": -0.033,
+          "detail": "rev_pk0.15_gb0.10@140ms"
+        },
+        "07|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": 0.0109,
+          "pnl_pct": 0.054,
+          "detail": "rev_tout_1200ms"
+        },
+        "07|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": -0.0131,
+          "pnl_pct": -0.065,
+          "detail": "rev_tout_1500ms"
+        },
+        "07|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": -0.0131,
+          "pnl_pct": -0.065,
+          "detail": "rev_tout_2000ms"
+        },
+        "07|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.0305,
+          "pnl_pct": -0.152,
+          "detail": "fav0.10_then_adv0.15@64ms"
+        },
+        "07|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": -0.0436,
+          "pnl_pct": -0.218,
+          "detail": "no_fav_sl0.20@117ms"
+        },
+        "07|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": 0.0109,
+          "pnl_pct": 0.054,
+          "detail": "ff_tout_1000ms"
+        }
+      },
+      "entry_2pct": {
+        "sec": -2.016,
+        "ms_before_log": 16
+      },
+      "policies_2pct": {
+        "2pct|FIX_50ms": {
+          "pnl_usdt": -0.0218,
+          "pnl_pct": -0.109,
+          "detail": "fix_50ms"
+        },
+        "2pct|FIX_100ms": {
+          "pnl_usdt": 0.0022,
+          "pnl_pct": 0.011,
+          "detail": "fix_100ms"
+        },
+        "2pct|FIX_150ms": {
+          "pnl_usdt": -0.0174,
+          "pnl_pct": -0.087,
+          "detail": "fix_150ms"
+        },
+        "2pct|FIX_200ms": {
+          "pnl_usdt": 0.0131,
+          "pnl_pct": 0.065,
+          "detail": "fix_200ms"
+        },
+        "2pct|FIX_300ms": {
+          "pnl_usdt": 0.0022,
+          "pnl_pct": 0.011,
+          "detail": "fix_300ms"
+        },
+        "2pct|FIX_500ms": {
+          "pnl_usdt": 0.0109,
+          "pnl_pct": 0.054,
+          "detail": "fix_500ms"
+        },
+        "2pct|FIX_750ms": {
+          "pnl_usdt": 0.0109,
+          "pnl_pct": 0.054,
+          "detail": "fix_750ms"
+        },
+        "2pct|FIX_1000ms": {
+          "pnl_usdt": 0.0109,
+          "pnl_pct": 0.054,
+          "detail": "fix_1000ms"
+        },
+        "2pct|FIX_1500ms": {
+          "pnl_usdt": -0.0131,
+          "pnl_pct": -0.065,
+          "detail": "fix_1500ms"
+        },
+        "2pct|FIX_2000ms": {
+          "pnl_usdt": -0.0131,
+          "pnl_pct": -0.065,
+          "detail": "fix_2000ms"
+        },
+        "2pct|FIX_3000ms": {
+          "pnl_usdt": 0.0152,
+          "pnl_pct": 0.076,
+          "detail": "fix_3000ms"
+        },
+        "2pct|FIX_5000ms": {
+          "pnl_usdt": 0.024,
+          "pnl_pct": 0.12,
+          "detail": "fix_5000ms"
+        },
+        "2pct|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": 0.0305,
+          "pnl_pct": 0.152,
+          "detail": "tp_0.15%@137ms"
+        },
+        "2pct|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": 0.0109,
+          "pnl_pct": 0.054,
+          "detail": "tout_500ms"
+        },
+        "2pct|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": 0.0109,
+          "pnl_pct": 0.054,
+          "detail": "tout_800ms"
+        },
+        "2pct|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": 0.0109,
+          "pnl_pct": 0.054,
+          "detail": "tout_1000ms"
+        },
+        "2pct|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": -0.0131,
+          "pnl_pct": -0.065,
+          "detail": "tout_1500ms"
+        },
+        "2pct|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": -0.0131,
+          "pnl_pct": -0.065,
+          "detail": "tout_2000ms"
+        },
+        "2pct|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": -0.0022,
+          "pnl_pct": -0.011,
+          "detail": "rev_pk0.10_gb0.08@4ms"
+        },
+        "2pct|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": -0.0065,
+          "pnl_pct": -0.033,
+          "detail": "rev_pk0.15_gb0.10@140ms"
+        },
+        "2pct|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": 0.0109,
+          "pnl_pct": 0.054,
+          "detail": "rev_tout_1200ms"
+        },
+        "2pct|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": -0.0131,
+          "pnl_pct": -0.065,
+          "detail": "rev_tout_1500ms"
+        },
+        "2pct|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": -0.0131,
+          "pnl_pct": -0.065,
+          "detail": "rev_tout_2000ms"
+        },
+        "2pct|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.0305,
+          "pnl_pct": -0.152,
+          "detail": "fav0.10_then_adv0.15@64ms"
+        },
+        "2pct|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": -0.0436,
+          "pnl_pct": -0.218,
+          "detail": "no_fav_sl0.20@117ms"
+        },
+        "2pct|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": 0.0109,
+          "pnl_pct": 0.054,
+          "detail": "ff_tout_1000ms"
+        }
+      }
+    },
+    {
+      "symbol": "PTBUSDT",
+      "side": "BUY",
+      "log_live_pnl": -0.14,
+      "entry_07": {
+        "sec": 0.84,
+        "ms_before_log": -115
+      },
+      "policies_07": {
+        "07|FIX_50ms": {
+          "pnl_usdt": 0.0215,
+          "pnl_pct": 0.108,
+          "detail": "fix_50ms"
+        },
+        "07|FIX_100ms": {
+          "pnl_usdt": 0.0215,
+          "pnl_pct": 0.108,
+          "detail": "fix_100ms"
+        },
+        "07|FIX_150ms": {
+          "pnl_usdt": 0.0215,
+          "pnl_pct": 0.108,
+          "detail": "fix_150ms"
+        },
+        "07|FIX_200ms": {
+          "pnl_usdt": 0.035,
+          "pnl_pct": 0.175,
+          "detail": "fix_200ms"
+        },
+        "07|FIX_300ms": {
+          "pnl_usdt": 0.035,
+          "pnl_pct": 0.175,
+          "detail": "fix_300ms"
+        },
+        "07|FIX_500ms": {
+          "pnl_usdt": 0.035,
+          "pnl_pct": 0.175,
+          "detail": "fix_500ms"
+        },
+        "07|FIX_750ms": {
+          "pnl_usdt": 0.0215,
+          "pnl_pct": 0.108,
+          "detail": "fix_750ms"
+        },
+        "07|FIX_1000ms": {
+          "pnl_usdt": 0.0269,
+          "pnl_pct": 0.135,
+          "detail": "fix_1000ms"
+        },
+        "07|FIX_1500ms": {
+          "pnl_usdt": 0.0242,
+          "pnl_pct": 0.121,
+          "detail": "fix_1500ms"
+        },
+        "07|FIX_2000ms": {
+          "pnl_usdt": -0.0135,
+          "pnl_pct": -0.067,
+          "detail": "fix_2000ms"
+        },
+        "07|FIX_3000ms": {
+          "pnl_usdt": -0.0162,
+          "pnl_pct": -0.081,
+          "detail": "fix_3000ms"
+        },
+        "07|FIX_5000ms": {
+          "pnl_usdt": -0.0162,
+          "pnl_pct": -0.081,
+          "detail": "fix_5000ms"
+        },
+        "07|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": 0.035,
+          "pnl_pct": 0.175,
+          "detail": "tp_0.15%@181ms"
+        },
+        "07|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": 0.035,
+          "pnl_pct": 0.175,
+          "detail": "tout_500ms"
+        },
+        "07|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": 0.0242,
+          "pnl_pct": 0.121,
+          "detail": "tout_800ms"
+        },
+        "07|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": 0.0269,
+          "pnl_pct": 0.135,
+          "detail": "tout_1000ms"
+        },
+        "07|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": 0.0242,
+          "pnl_pct": 0.121,
+          "detail": "tout_1500ms"
+        },
+        "07|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": -0.0135,
+          "pnl_pct": -0.067,
+          "detail": "tout_2000ms"
+        },
+        "07|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": 0.0242,
+          "pnl_pct": 0.121,
+          "detail": "rev_tout_800ms"
+        },
+        "07|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": 0.0135,
+          "pnl_pct": 0.067,
+          "detail": "rev_pk0.15_gb0.10@876ms"
+        },
+        "07|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": 0.0135,
+          "pnl_pct": 0.067,
+          "detail": "rev_tout_1200ms"
+        },
+        "07|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": 0.0242,
+          "pnl_pct": 0.121,
+          "detail": "rev_tout_1500ms"
+        },
+        "07|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": -0.0135,
+          "pnl_pct": -0.067,
+          "detail": "rev_tout_2000ms"
+        },
+        "07|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": 0.0296,
+          "pnl_pct": 0.148,
+          "detail": "ff_tout_600ms"
+        },
+        "07|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": 0.0242,
+          "pnl_pct": 0.121,
+          "detail": "ff_tout_800ms"
+        },
+        "07|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": 0.0269,
+          "pnl_pct": 0.135,
+          "detail": "ff_tout_1000ms"
+        }
+      },
+      "entry_2pct": {
+        "sec": 2.006,
+        "ms_before_log": 16
+      },
+      "policies_2pct": {
+        "2pct|FIX_50ms": {
+          "pnl_usdt": 0.0269,
+          "pnl_pct": 0.134,
+          "detail": "fix_50ms"
+        },
+        "2pct|FIX_100ms": {
+          "pnl_usdt": -0.0107,
+          "pnl_pct": -0.054,
+          "detail": "fix_100ms"
+        },
+        "2pct|FIX_150ms": {
+          "pnl_usdt": -0.0376,
+          "pnl_pct": -0.188,
+          "detail": "fix_150ms"
+        },
+        "2pct|FIX_200ms": {
+          "pnl_usdt": -0.0161,
+          "pnl_pct": -0.081,
+          "detail": "fix_200ms"
+        },
+        "2pct|FIX_300ms": {
+          "pnl_usdt": -0.0161,
+          "pnl_pct": -0.081,
+          "detail": "fix_300ms"
+        },
+        "2pct|FIX_500ms": {
+          "pnl_usdt": -0.0027,
+          "pnl_pct": -0.013,
+          "detail": "fix_500ms"
+        },
+        "2pct|FIX_750ms": {
+          "pnl_usdt": -0.0081,
+          "pnl_pct": -0.04,
+          "detail": "fix_750ms"
+        },
+        "2pct|FIX_1000ms": {
+          "pnl_usdt": -0.0107,
+          "pnl_pct": -0.054,
+          "detail": "fix_1000ms"
+        },
+        "2pct|FIX_1500ms": {
+          "pnl_usdt": -0.0134,
+          "pnl_pct": -0.067,
+          "detail": "fix_1500ms"
+        },
+        "2pct|FIX_2000ms": {
+          "pnl_usdt": -0.0242,
+          "pnl_pct": -0.121,
+          "detail": "fix_2000ms"
+        },
+        "2pct|FIX_3000ms": {
+          "pnl_usdt": -0.043,
+          "pnl_pct": -0.215,
+          "detail": "fix_3000ms"
+        },
+        "2pct|FIX_5000ms": {
+          "pnl_usdt": -0.0537,
+          "pnl_pct": -0.269,
+          "detail": "fix_5000ms"
+        },
+        "2pct|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": -0.051,
+          "pnl_pct": -0.255,
+          "detail": "sl_0.25%@117ms"
+        },
+        "2pct|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": -0.0027,
+          "pnl_pct": -0.013,
+          "detail": "tout_500ms"
+        },
+        "2pct|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": -0.0081,
+          "pnl_pct": -0.04,
+          "detail": "tout_800ms"
+        },
+        "2pct|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": -0.0107,
+          "pnl_pct": -0.054,
+          "detail": "tout_1000ms"
+        },
+        "2pct|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": -0.0134,
+          "pnl_pct": -0.067,
+          "detail": "tout_1500ms"
+        },
+        "2pct|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": -0.0242,
+          "pnl_pct": -0.121,
+          "detail": "tout_2000ms"
+        },
+        "2pct|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": 0.0054,
+          "pnl_pct": 0.027,
+          "detail": "rev_pk0.10_gb0.08@96ms"
+        },
+        "2pct|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": -0.0107,
+          "pnl_pct": -0.054,
+          "detail": "rev_tout_1000ms"
+        },
+        "2pct|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": -0.0215,
+          "pnl_pct": -0.107,
+          "detail": "rev_tout_1200ms"
+        },
+        "2pct|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": -0.0134,
+          "pnl_pct": -0.067,
+          "detail": "rev_tout_1500ms"
+        },
+        "2pct|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": -0.0242,
+          "pnl_pct": -0.121,
+          "detail": "rev_tout_2000ms"
+        },
+        "2pct|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.0322,
+          "pnl_pct": -0.161,
+          "detail": "fav0.10_then_adv0.15@111ms"
+        },
+        "2pct|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": -0.0403,
+          "pnl_pct": -0.202,
+          "detail": "no_fav_sl0.20@115ms"
+        },
+        "2pct|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": -0.051,
+          "pnl_pct": -0.255,
+          "detail": "no_fav_sl0.25@117ms"
+        }
+      }
+    },
+    {
+      "symbol": "DYMUSDT",
+      "side": "BUY",
+      "log_live_pnl": -0.48,
+      "entry_07": {
+        "sec": 0.836,
+        "ms_before_log": -670
+      },
+      "policies_07": {
+        "07|FIX_50ms": {
+          "pnl_usdt": 0.0103,
+          "pnl_pct": 0.052,
+          "detail": "fix_50ms"
+        },
+        "07|FIX_100ms": {
+          "pnl_usdt": -0.0517,
+          "pnl_pct": -0.258,
+          "detail": "fix_100ms"
+        },
+        "07|FIX_150ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "fix_150ms"
+        },
+        "07|FIX_200ms": {
+          "pnl_usdt": -0.0207,
+          "pnl_pct": -0.103,
+          "detail": "fix_200ms"
+        },
+        "07|FIX_300ms": {
+          "pnl_usdt": -0.0207,
+          "pnl_pct": -0.103,
+          "detail": "fix_300ms"
+        },
+        "07|FIX_500ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "fix_500ms"
+        },
+        "07|FIX_750ms": {
+          "pnl_usdt": 0.0103,
+          "pnl_pct": 0.052,
+          "detail": "fix_750ms"
+        },
+        "07|FIX_1000ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "fix_1000ms"
+        },
+        "07|FIX_1500ms": {
+          "pnl_usdt": 0.0103,
+          "pnl_pct": 0.052,
+          "detail": "fix_1500ms"
+        },
+        "07|FIX_2000ms": {
+          "pnl_usdt": 0.031,
+          "pnl_pct": 0.155,
+          "detail": "fix_2000ms"
+        },
+        "07|FIX_3000ms": {
+          "pnl_usdt": 0.0207,
+          "pnl_pct": 0.103,
+          "detail": "fix_3000ms"
+        },
+        "07|FIX_5000ms": {
+          "pnl_usdt": 0.031,
+          "pnl_pct": 0.155,
+          "detail": "fix_5000ms"
+        },
+        "07|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": -0.0517,
+          "pnl_pct": -0.258,
+          "detail": "sl_0.25%@86ms"
+        },
+        "07|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "tout_500ms"
+        },
+        "07|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": 0.0207,
+          "pnl_pct": 0.103,
+          "detail": "tout_800ms"
+        },
+        "07|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "tout_1000ms"
+        },
+        "07|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": 0.0103,
+          "pnl_pct": 0.052,
+          "detail": "tout_1500ms"
+        },
+        "07|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": 0.031,
+          "pnl_pct": 0.155,
+          "detail": "tout_2000ms"
+        },
+        "07|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": 0.0207,
+          "pnl_pct": 0.103,
+          "detail": "rev_tout_800ms"
+        },
+        "07|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "rev_tout_1000ms"
+        },
+        "07|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": 0.0103,
+          "pnl_pct": 0.052,
+          "detail": "rev_tout_1200ms"
+        },
+        "07|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": 0.0103,
+          "pnl_pct": 0.052,
+          "detail": "rev_tout_1500ms"
+        },
+        "07|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": 0.031,
+          "pnl_pct": 0.155,
+          "detail": "rev_tout_2000ms"
+        },
+        "07|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.031,
+          "pnl_pct": -0.155,
+          "detail": "no_fav_sl0.15@55ms"
+        },
+        "07|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": -0.0413,
+          "pnl_pct": -0.207,
+          "detail": "no_fav_sl0.20@72ms"
+        },
+        "07|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": -0.0517,
+          "pnl_pct": -0.258,
+          "detail": "no_fav_sl0.25@86ms"
+        }
+      },
+      "entry_2pct": {
+        "sec": 2.039,
+        "ms_before_log": 22
+      },
+      "policies_2pct": {
+        "2pct|FIX_50ms": {
+          "pnl_usdt": -0.0205,
+          "pnl_pct": -0.102,
+          "detail": "fix_50ms"
+        },
+        "2pct|FIX_100ms": {
+          "pnl_usdt": -0.0205,
+          "pnl_pct": -0.102,
+          "detail": "fix_100ms"
+        },
+        "2pct|FIX_150ms": {
+          "pnl_usdt": -0.041,
+          "pnl_pct": -0.205,
+          "detail": "fix_150ms"
+        },
+        "2pct|FIX_200ms": {
+          "pnl_usdt": -0.0307,
+          "pnl_pct": -0.154,
+          "detail": "fix_200ms"
+        },
+        "2pct|FIX_300ms": {
+          "pnl_usdt": -0.0307,
+          "pnl_pct": -0.154,
+          "detail": "fix_300ms"
+        },
+        "2pct|FIX_500ms": {
+          "pnl_usdt": -0.1126,
+          "pnl_pct": -0.563,
+          "detail": "fix_500ms"
+        },
+        "2pct|FIX_750ms": {
+          "pnl_usdt": -0.2151,
+          "pnl_pct": -1.075,
+          "detail": "fix_750ms"
+        },
+        "2pct|FIX_1000ms": {
+          "pnl_usdt": -0.2048,
+          "pnl_pct": -1.024,
+          "detail": "fix_1000ms"
+        },
+        "2pct|FIX_1500ms": {
+          "pnl_usdt": -0.1639,
+          "pnl_pct": -0.819,
+          "detail": "fix_1500ms"
+        },
+        "2pct|FIX_2000ms": {
+          "pnl_usdt": -0.1741,
+          "pnl_pct": -0.87,
+          "detail": "fix_2000ms"
+        },
+        "2pct|FIX_3000ms": {
+          "pnl_usdt": -0.1536,
+          "pnl_pct": -0.768,
+          "detail": "fix_3000ms"
+        },
+        "2pct|FIX_5000ms": {
+          "pnl_usdt": -0.1639,
+          "pnl_pct": -0.819,
+          "detail": "fix_5000ms"
+        },
+        "2pct|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": -0.0512,
+          "pnl_pct": -0.256,
+          "detail": "sl_0.25%@364ms"
+        },
+        "2pct|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": -0.0614,
+          "pnl_pct": -0.307,
+          "detail": "sl_0.30%@364ms"
+        },
+        "2pct|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": -0.0717,
+          "pnl_pct": -0.358,
+          "detail": "sl_0.35%@409ms"
+        },
+        "2pct|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": -0.0819,
+          "pnl_pct": -0.41,
+          "detail": "sl_0.40%@409ms"
+        },
+        "2pct|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": -0.1024,
+          "pnl_pct": -0.512,
+          "detail": "sl_0.50%@409ms"
+        },
+        "2pct|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": -0.1229,
+          "pnl_pct": -0.614,
+          "detail": "sl_0.60%@409ms"
+        },
+        "2pct|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": -0.2355,
+          "pnl_pct": -1.178,
+          "detail": "rev_tout_800ms"
+        },
+        "2pct|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": -0.2048,
+          "pnl_pct": -1.024,
+          "detail": "rev_tout_1000ms"
+        },
+        "2pct|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": -0.1843,
+          "pnl_pct": -0.922,
+          "detail": "rev_tout_1200ms"
+        },
+        "2pct|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": -0.1639,
+          "pnl_pct": -0.819,
+          "detail": "rev_tout_1500ms"
+        },
+        "2pct|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": -0.1741,
+          "pnl_pct": -0.87,
+          "detail": "rev_tout_2000ms"
+        },
+        "2pct|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.0307,
+          "pnl_pct": -0.154,
+          "detail": "no_fav_sl0.15@127ms"
+        },
+        "2pct|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": -0.041,
+          "pnl_pct": -0.205,
+          "detail": "no_fav_sl0.20@133ms"
+        },
+        "2pct|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": -0.0512,
+          "pnl_pct": -0.256,
+          "detail": "no_fav_sl0.25@364ms"
+        }
+      }
+    },
+    {
+      "symbol": "TRADOORUSDT",
+      "side": "SELL",
+      "log_live_pnl": -0.2,
+      "entry_07": {
+        "sec": -0.833,
+        "ms_before_log": 11
+      },
+      "policies_07": {
+        "07|FIX_50ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "fix_50ms"
+        },
+        "07|FIX_100ms": {
+          "pnl_usdt": -0.0424,
+          "pnl_pct": -0.212,
+          "detail": "fix_100ms"
+        },
+        "07|FIX_150ms": {
+          "pnl_usdt": -0.0466,
+          "pnl_pct": -0.233,
+          "detail": "fix_150ms"
+        },
+        "07|FIX_200ms": {
+          "pnl_usdt": -0.0466,
+          "pnl_pct": -0.233,
+          "detail": "fix_200ms"
+        },
+        "07|FIX_300ms": {
+          "pnl_usdt": -0.0339,
+          "pnl_pct": -0.17,
+          "detail": "fix_300ms"
+        },
+        "07|FIX_500ms": {
+          "pnl_usdt": -0.0594,
+          "pnl_pct": -0.297,
+          "detail": "fix_500ms"
+        },
+        "07|FIX_750ms": {
+          "pnl_usdt": -0.0891,
+          "pnl_pct": -0.445,
+          "detail": "fix_750ms"
+        },
+        "07|FIX_1000ms": {
+          "pnl_usdt": -0.0042,
+          "pnl_pct": -0.021,
+          "detail": "fix_1000ms"
+        },
+        "07|FIX_1500ms": {
+          "pnl_usdt": -0.0339,
+          "pnl_pct": -0.17,
+          "detail": "fix_1500ms"
+        },
+        "07|FIX_2000ms": {
+          "pnl_usdt": -0.1145,
+          "pnl_pct": -0.573,
+          "detail": "fix_2000ms"
+        },
+        "07|FIX_3000ms": {
+          "pnl_usdt": -0.1103,
+          "pnl_pct": -0.551,
+          "detail": "fix_3000ms"
+        },
+        "07|FIX_5000ms": {
+          "pnl_usdt": -0.0975,
+          "pnl_pct": -0.488,
+          "detail": "fix_5000ms"
+        },
+        "07|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": -0.0509,
+          "pnl_pct": -0.254,
+          "detail": "sl_0.25%@78ms"
+        },
+        "07|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": -0.0679,
+          "pnl_pct": -0.339,
+          "detail": "sl_0.30%@335ms"
+        },
+        "07|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": -0.0721,
+          "pnl_pct": -0.36,
+          "detail": "sl_0.35%@335ms"
+        },
+        "07|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": -0.0848,
+          "pnl_pct": -0.424,
+          "detail": "sl_0.40%@556ms"
+        },
+        "07|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": -0.0339,
+          "pnl_pct": -0.17,
+          "detail": "tout_1500ms"
+        },
+        "07|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": -0.1145,
+          "pnl_pct": -0.573,
+          "detail": "tout_2000ms"
+        },
+        "07|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": -0.0891,
+          "pnl_pct": -0.445,
+          "detail": "rev_tout_800ms"
+        },
+        "07|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": -0.0042,
+          "pnl_pct": -0.021,
+          "detail": "rev_tout_1000ms"
+        },
+        "07|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": -0.0339,
+          "pnl_pct": -0.17,
+          "detail": "rev_tout_1200ms"
+        },
+        "07|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": -0.0339,
+          "pnl_pct": -0.17,
+          "detail": "rev_tout_1500ms"
+        },
+        "07|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": -0.1145,
+          "pnl_pct": -0.573,
+          "detail": "rev_tout_2000ms"
+        },
+        "07|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.0382,
+          "pnl_pct": -0.191,
+          "detail": "no_fav_sl0.15@58ms"
+        },
+        "07|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": -0.0509,
+          "pnl_pct": -0.254,
+          "detail": "no_fav_sl0.20@78ms"
+        },
+        "07|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": -0.0509,
+          "pnl_pct": -0.254,
+          "detail": "no_fav_sl0.25@78ms"
+        }
+      },
+      "entry_2pct": {
+        "sec": -2.021,
+        "ms_before_log": 11
+      },
+      "policies_2pct": {
+        "2pct|FIX_50ms": {
+          "pnl_usdt": 0.0,
+          "pnl_pct": 0.0,
+          "detail": "fix_50ms"
+        },
+        "2pct|FIX_100ms": {
+          "pnl_usdt": -0.0424,
+          "pnl_pct": -0.212,
+          "detail": "fix_100ms"
+        },
+        "2pct|FIX_150ms": {
+          "pnl_usdt": -0.0466,
+          "pnl_pct": -0.233,
+          "detail": "fix_150ms"
+        },
+        "2pct|FIX_200ms": {
+          "pnl_usdt": -0.0466,
+          "pnl_pct": -0.233,
+          "detail": "fix_200ms"
+        },
+        "2pct|FIX_300ms": {
+          "pnl_usdt": -0.0339,
+          "pnl_pct": -0.17,
+          "detail": "fix_300ms"
+        },
+        "2pct|FIX_500ms": {
+          "pnl_usdt": -0.0594,
+          "pnl_pct": -0.297,
+          "detail": "fix_500ms"
+        },
+        "2pct|FIX_750ms": {
+          "pnl_usdt": -0.0891,
+          "pnl_pct": -0.445,
+          "detail": "fix_750ms"
+        },
+        "2pct|FIX_1000ms": {
+          "pnl_usdt": -0.0042,
+          "pnl_pct": -0.021,
+          "detail": "fix_1000ms"
+        },
+        "2pct|FIX_1500ms": {
+          "pnl_usdt": -0.0339,
+          "pnl_pct": -0.17,
+          "detail": "fix_1500ms"
+        },
+        "2pct|FIX_2000ms": {
+          "pnl_usdt": -0.1145,
+          "pnl_pct": -0.573,
+          "detail": "fix_2000ms"
+        },
+        "2pct|FIX_3000ms": {
+          "pnl_usdt": -0.1103,
+          "pnl_pct": -0.551,
+          "detail": "fix_3000ms"
+        },
+        "2pct|FIX_5000ms": {
+          "pnl_usdt": -0.0975,
+          "pnl_pct": -0.488,
+          "detail": "fix_5000ms"
+        },
+        "2pct|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": -0.0509,
+          "pnl_pct": -0.254,
+          "detail": "sl_0.25%@78ms"
+        },
+        "2pct|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": -0.0679,
+          "pnl_pct": -0.339,
+          "detail": "sl_0.30%@335ms"
+        },
+        "2pct|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": -0.0721,
+          "pnl_pct": -0.36,
+          "detail": "sl_0.35%@335ms"
+        },
+        "2pct|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": -0.0848,
+          "pnl_pct": -0.424,
+          "detail": "sl_0.40%@556ms"
+        },
+        "2pct|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": -0.0339,
+          "pnl_pct": -0.17,
+          "detail": "tout_1500ms"
+        },
+        "2pct|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": -0.1145,
+          "pnl_pct": -0.573,
+          "detail": "tout_2000ms"
+        },
+        "2pct|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": -0.0891,
+          "pnl_pct": -0.445,
+          "detail": "rev_tout_800ms"
+        },
+        "2pct|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": -0.0042,
+          "pnl_pct": -0.021,
+          "detail": "rev_tout_1000ms"
+        },
+        "2pct|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": -0.0339,
+          "pnl_pct": -0.17,
+          "detail": "rev_tout_1200ms"
+        },
+        "2pct|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": -0.0339,
+          "pnl_pct": -0.17,
+          "detail": "rev_tout_1500ms"
+        },
+        "2pct|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": -0.1145,
+          "pnl_pct": -0.573,
+          "detail": "rev_tout_2000ms"
+        },
+        "2pct|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.0382,
+          "pnl_pct": -0.191,
+          "detail": "no_fav_sl0.15@58ms"
+        },
+        "2pct|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": -0.0509,
+          "pnl_pct": -0.254,
+          "detail": "no_fav_sl0.20@78ms"
+        },
+        "2pct|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": -0.0509,
+          "pnl_pct": -0.254,
+          "detail": "no_fav_sl0.25@78ms"
+        }
+      }
+    },
+    {
+      "symbol": "MEWUSDT",
+      "side": "BUY",
+      "log_live_pnl": -0.14,
+      "entry_07": {
+        "sec": 0.715,
+        "ms_before_log": 16
+      },
+      "policies_07": {
+        "07|FIX_50ms": {
+          "pnl_usdt": -0.0266,
+          "pnl_pct": -0.133,
+          "detail": "fix_50ms"
+        },
+        "07|FIX_100ms": {
+          "pnl_usdt": -0.0533,
+          "pnl_pct": -0.266,
+          "detail": "fix_100ms"
+        },
+        "07|FIX_150ms": {
+          "pnl_usdt": -0.0355,
+          "pnl_pct": -0.178,
+          "detail": "fix_150ms"
+        },
+        "07|FIX_200ms": {
+          "pnl_usdt": -0.0178,
+          "pnl_pct": -0.089,
+          "detail": "fix_200ms"
+        },
+        "07|FIX_300ms": {
+          "pnl_usdt": -0.04,
+          "pnl_pct": -0.2,
+          "detail": "fix_300ms"
+        },
+        "07|FIX_500ms": {
+          "pnl_usdt": -0.0311,
+          "pnl_pct": -0.155,
+          "detail": "fix_500ms"
+        },
+        "07|FIX_750ms": {
+          "pnl_usdt": -0.0444,
+          "pnl_pct": -0.222,
+          "detail": "fix_750ms"
+        },
+        "07|FIX_1000ms": {
+          "pnl_usdt": -0.0311,
+          "pnl_pct": -0.155,
+          "detail": "fix_1000ms"
+        },
+        "07|FIX_1500ms": {
+          "pnl_usdt": -0.0311,
+          "pnl_pct": -0.155,
+          "detail": "fix_1500ms"
+        },
+        "07|FIX_2000ms": {
+          "pnl_usdt": -0.0311,
+          "pnl_pct": -0.155,
+          "detail": "fix_2000ms"
+        },
+        "07|FIX_3000ms": {
+          "pnl_usdt": -0.0311,
+          "pnl_pct": -0.155,
+          "detail": "fix_3000ms"
+        },
+        "07|FIX_5000ms": {
+          "pnl_usdt": -0.0311,
+          "pnl_pct": -0.155,
+          "detail": "fix_5000ms"
+        },
+        "07|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": 0.0311,
+          "pnl_pct": 0.155,
+          "detail": "tp_0.15%@4ms"
+        },
+        "07|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": 0.0488,
+          "pnl_pct": 0.244,
+          "detail": "tp_0.20%@13ms"
+        },
+        "07|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": 0.0533,
+          "pnl_pct": 0.266,
+          "detail": "tp_0.25%@13ms"
+        },
+        "07|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": -0.0311,
+          "pnl_pct": -0.155,
+          "detail": "tout_1000ms"
+        },
+        "07|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": -0.0311,
+          "pnl_pct": -0.155,
+          "detail": "tout_1500ms"
+        },
+        "07|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": -0.0311,
+          "pnl_pct": -0.155,
+          "detail": "tout_2000ms"
+        },
+        "07|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": 0.0133,
+          "pnl_pct": 0.067,
+          "detail": "rev_pk0.10_gb0.08@13ms"
+        },
+        "07|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": 0.0133,
+          "pnl_pct": 0.067,
+          "detail": "rev_pk0.15_gb0.10@13ms"
+        },
+        "07|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": 0.0222,
+          "pnl_pct": 0.111,
+          "detail": "rev_pk0.20_gb0.12@24ms"
+        },
+        "07|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": 0.0222,
+          "pnl_pct": 0.111,
+          "detail": "rev_pk0.25_gb0.15@24ms"
+        },
+        "07|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": -0.0311,
+          "pnl_pct": -0.155,
+          "detail": "rev_tout_2000ms"
+        },
+        "07|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.0355,
+          "pnl_pct": -0.178,
+          "detail": "fav0.10_then_adv0.15@40ms"
+        },
+        "07|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": -0.0444,
+          "pnl_pct": -0.222,
+          "detail": "fav0.15_then_adv0.20@41ms"
+        },
+        "07|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": -0.0533,
+          "pnl_pct": -0.266,
+          "detail": "fav0.20_then_adv0.25@99ms"
+        }
+      },
+      "entry_2pct": {
+        "sec": 2.054,
+        "ms_before_log": 16
+      },
+      "policies_2pct": {
+        "2pct|FIX_50ms": {
+          "pnl_usdt": -0.0266,
+          "pnl_pct": -0.133,
+          "detail": "fix_50ms"
+        },
+        "2pct|FIX_100ms": {
+          "pnl_usdt": -0.0533,
+          "pnl_pct": -0.266,
+          "detail": "fix_100ms"
+        },
+        "2pct|FIX_150ms": {
+          "pnl_usdt": -0.0355,
+          "pnl_pct": -0.178,
+          "detail": "fix_150ms"
+        },
+        "2pct|FIX_200ms": {
+          "pnl_usdt": -0.0178,
+          "pnl_pct": -0.089,
+          "detail": "fix_200ms"
+        },
+        "2pct|FIX_300ms": {
+          "pnl_usdt": -0.04,
+          "pnl_pct": -0.2,
+          "detail": "fix_300ms"
+        },
+        "2pct|FIX_500ms": {
+          "pnl_usdt": -0.0311,
+          "pnl_pct": -0.155,
+          "detail": "fix_500ms"
+        },
+        "2pct|FIX_750ms": {
+          "pnl_usdt": -0.0444,
+          "pnl_pct": -0.222,
+          "detail": "fix_750ms"
+        },
+        "2pct|FIX_1000ms": {
+          "pnl_usdt": -0.0311,
+          "pnl_pct": -0.155,
+          "detail": "fix_1000ms"
+        },
+        "2pct|FIX_1500ms": {
+          "pnl_usdt": -0.0311,
+          "pnl_pct": -0.155,
+          "detail": "fix_1500ms"
+        },
+        "2pct|FIX_2000ms": {
+          "pnl_usdt": -0.0311,
+          "pnl_pct": -0.155,
+          "detail": "fix_2000ms"
+        },
+        "2pct|FIX_3000ms": {
+          "pnl_usdt": -0.0311,
+          "pnl_pct": -0.155,
+          "detail": "fix_3000ms"
+        },
+        "2pct|FIX_5000ms": {
+          "pnl_usdt": -0.0311,
+          "pnl_pct": -0.155,
+          "detail": "fix_5000ms"
+        },
+        "2pct|TP0.15_SL0.25_MAX500ms": {
+          "pnl_usdt": 0.0311,
+          "pnl_pct": 0.155,
+          "detail": "tp_0.15%@4ms"
+        },
+        "2pct|TP0.20_SL0.30_MAX500ms": {
+          "pnl_usdt": 0.0488,
+          "pnl_pct": 0.244,
+          "detail": "tp_0.20%@13ms"
+        },
+        "2pct|TP0.25_SL0.35_MAX800ms": {
+          "pnl_usdt": 0.0533,
+          "pnl_pct": 0.266,
+          "detail": "tp_0.25%@13ms"
+        },
+        "2pct|TP0.30_SL0.40_MAX1000ms": {
+          "pnl_usdt": -0.0311,
+          "pnl_pct": -0.155,
+          "detail": "tout_1000ms"
+        },
+        "2pct|TP0.35_SL0.50_MAX1500ms": {
+          "pnl_usdt": -0.0311,
+          "pnl_pct": -0.155,
+          "detail": "tout_1500ms"
+        },
+        "2pct|TP0.50_SL0.60_MAX2000ms": {
+          "pnl_usdt": -0.0311,
+          "pnl_pct": -0.155,
+          "detail": "tout_2000ms"
+        },
+        "2pct|REVpk0.10_gb0.08_MAX800ms": {
+          "pnl_usdt": 0.0133,
+          "pnl_pct": 0.067,
+          "detail": "rev_pk0.10_gb0.08@13ms"
+        },
+        "2pct|REVpk0.15_gb0.10_MAX1000ms": {
+          "pnl_usdt": 0.0133,
+          "pnl_pct": 0.067,
+          "detail": "rev_pk0.15_gb0.10@13ms"
+        },
+        "2pct|REVpk0.20_gb0.12_MAX1200ms": {
+          "pnl_usdt": 0.0222,
+          "pnl_pct": 0.111,
+          "detail": "rev_pk0.20_gb0.12@24ms"
+        },
+        "2pct|REVpk0.25_gb0.15_MAX1500ms": {
+          "pnl_usdt": 0.0222,
+          "pnl_pct": 0.111,
+          "detail": "rev_pk0.25_gb0.15@24ms"
+        },
+        "2pct|REVpk0.35_gb0.18_MAX2000ms": {
+          "pnl_usdt": -0.0311,
+          "pnl_pct": -0.155,
+          "detail": "rev_tout_2000ms"
+        },
+        "2pct|FAV0.10_ADV0.15_MAX600ms": {
+          "pnl_usdt": -0.0355,
+          "pnl_pct": -0.178,
+          "detail": "fav0.10_then_adv0.15@40ms"
+        },
+        "2pct|FAV0.15_ADV0.20_MAX800ms": {
+          "pnl_usdt": -0.0444,
+          "pnl_pct": -0.222,
+          "detail": "fav0.15_then_adv0.20@41ms"
+        },
+        "2pct|FAV0.20_ADV0.25_MAX1000ms": {
+          "pnl_usdt": -0.0533,
+          "pnl_pct": -0.266,
+          "detail": "fav0.20_then_adv0.25@99ms"
+        }
+      }
+    }
+  ]
+}

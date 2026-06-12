@@ -1,0 +1,908 @@
+[
+  {
+    "symbol": "PTBUSDT",
+    "side": "SELL",
+    "has_live": true,
+    "log_live_pnl": 0.1,
+    "n_ticks": 1384,
+    "early_ms_before_log_signal": -246,
+    "early_sec": -0.795,
+    "early_fast": -0.764,
+    "early_fav_100ms": 1.2563,
+    "early_adv_100ms": -0.7538,
+    "early_fav_500ms": 1.2563,
+    "early_adv_500ms": -0.7538,
+    "early_fav_1000ms": 1.2563,
+    "early_adv_1000ms": -0.7538,
+    "early_fav_3000ms": 1.2563,
+    "early_adv_3000ms": -0.7538,
+    "early_fav_10000ms": 1.9158,
+    "early_adv_10000ms": -0.7538,
+    "violent_ms_before_log": -246,
+    "violent_sec": -2.041,
+    "scenarios": [
+      {
+        "scenario": "A_log_2pct",
+        "entry_px": 0.000637,
+        "exit_px": 0.0006279,
+        "pnl_pct": 1.429,
+        "pnl_usdt": 0.286,
+        "exit": "no_mega",
+        "reversal_ms": 212
+      },
+      {
+        "scenario": "B_replay_2pct",
+        "entry_px": 0.0006367,
+        "exit_px": 0.0006279,
+        "pnl_pct": 1.382,
+        "pnl_usdt": 0.276,
+        "exit": "no_mega",
+        "reversal_ms": 56
+      },
+      {
+        "scenario": "C_early_07",
+        "entry_px": 0.0006367,
+        "exit_px": 0.0006279,
+        "pnl_pct": 1.382,
+        "pnl_usdt": 0.276,
+        "exit": "no_mega",
+        "reversal_ms": 56
+      },
+      {
+        "scenario": "D_early_07_zero_slip",
+        "entry_px": 0.0006367,
+        "exit_px": 0.0006279,
+        "pnl_pct": 1.382,
+        "pnl_usdt": 0.276,
+        "exit": "no_mega",
+        "reversal_ms": 56
+      },
+      {
+        "scenario": "E_early_07_instant",
+        "entry_px": 0.0006361,
+        "exit_px": 0.0006279,
+        "pnl_pct": 1.289,
+        "pnl_usdt": 0.258,
+        "exit": "no_mega",
+        "reversal_ms": 2
+      }
+    ]
+  },
+  {
+    "symbol": "GTCUSDT",
+    "side": "SELL",
+    "has_live": true,
+    "log_live_pnl": -0.26,
+    "n_ticks": 786,
+    "early_in_window_only": true,
+    "early_signal": "NONE",
+    "violent_ms_before_log": -708,
+    "violent_sec": -2.338,
+    "scenarios": [
+      {
+        "scenario": "A_log_2pct",
+        "entry_px": 0.08079,
+        "exit_px": 0.08207,
+        "pnl_pct": -1.584,
+        "pnl_usdt": -0.317,
+        "exit": "no_mega",
+        "reversal_ms": 676
+      },
+      {
+        "scenario": "B_replay_2pct",
+        "entry_px": 0.08036363345594115,
+        "exit_px": 0.08207,
+        "pnl_pct": -2.123,
+        "pnl_usdt": -0.425,
+        "exit": "no_mega",
+        "reversal_ms": -1
+      },
+      {
+        "scenario": "C_early_07",
+        "skip": "no_cross"
+      },
+      {
+        "scenario": "D_early_07_zero_slip",
+        "skip": "no_cross"
+      },
+      {
+        "scenario": "E_early_07_instant",
+        "skip": "no_cross"
+      }
+    ]
+  },
+  {
+    "symbol": "STARUSDT",
+    "side": "BUY",
+    "has_live": false,
+    "log_live_pnl": null,
+    "n_ticks": 600,
+    "early_in_window_only": true,
+    "early_signal": "NONE",
+    "violent_ms_before_log": -453,
+    "violent_sec": 2.372,
+    "scenarios": [
+      {
+        "scenario": "B_replay_2pct",
+        "entry_px": 0.17378236,
+        "exit_px": 0.17315,
+        "pnl_pct": -0.364,
+        "pnl_usdt": -0.073,
+        "exit": "no_mega",
+        "reversal_ms": 133
+      },
+      {
+        "scenario": "C_early_07",
+        "skip": "no_cross"
+      },
+      {
+        "scenario": "D_early_07_zero_slip",
+        "skip": "no_cross"
+      },
+      {
+        "scenario": "E_early_07_instant",
+        "skip": "no_cross"
+      }
+    ]
+  },
+  {
+    "symbol": "QUSDT",
+    "side": "BUY",
+    "has_live": true,
+    "log_live_pnl": -0.09,
+    "n_ticks": 1042,
+    "early_ms_before_log_signal": -414,
+    "early_sec": 0.705,
+    "early_fast": 0.705,
+    "early_fav_100ms": 1.5399,
+    "early_adv_100ms": -0.7,
+    "early_fav_500ms": 1.6954,
+    "early_adv_500ms": -0.7,
+    "early_fav_1000ms": 1.6954,
+    "early_adv_1000ms": -0.7,
+    "early_fav_3000ms": 1.9132,
+    "early_adv_3000ms": -0.7,
+    "early_fav_10000ms": 1.9962,
+    "early_adv_10000ms": -0.7,
+    "violent_ms_before_log": -450,
+    "violent_sec": 2.01,
+    "scenarios": [
+      {
+        "scenario": "A_log_2pct",
+        "entry_px": 0.019563,
+        "exit_px": 0.019476,
+        "pnl_pct": -0.445,
+        "pnl_usdt": -0.089,
+        "exit": "no_mega",
+        "reversal_ms": 868
+      },
+      {
+        "scenario": "B_replay_2pct",
+        "entry_px": 0.01952997298818233,
+        "exit_px": 0.019476,
+        "pnl_pct": -0.276,
+        "pnl_usdt": -0.055,
+        "exit": "no_mega",
+        "reversal_ms": 10
+      },
+      {
+        "scenario": "C_early_07",
+        "entry_px": 0.019531974625262186,
+        "exit_px": 0.019476,
+        "pnl_pct": -0.287,
+        "pnl_usdt": -0.057,
+        "exit": "no_mega",
+        "reversal_ms": 11
+      },
+      {
+        "scenario": "D_early_07_zero_slip",
+        "entry_px": 0.019516,
+        "exit_px": 0.019476,
+        "pnl_pct": -0.205,
+        "pnl_usdt": -0.041,
+        "exit": "no_mega",
+        "reversal_ms": 11
+      },
+      {
+        "scenario": "E_early_07_instant",
+        "entry_px": 0.019419882948790098,
+        "exit_px": 0.019476,
+        "pnl_pct": 0.289,
+        "pnl_usdt": 0.058,
+        "exit": "no_mega",
+        "reversal_ms": 5
+      }
+    ]
+  },
+  {
+    "symbol": "STARUSDT",
+    "side": "SELL",
+    "has_live": true,
+    "log_live_pnl": 0.01,
+    "n_ticks": 1054,
+    "early_ms_before_log_signal": -1071,
+    "early_sec": -0.719,
+    "early_fast": 0.065,
+    "early_fav_100ms": 0.0,
+    "early_adv_100ms": -0.5584,
+    "early_fav_500ms": 0.4752,
+    "early_adv_500ms": -0.9801,
+    "early_fav_1000ms": 0.4752,
+    "early_adv_1000ms": -0.9801,
+    "early_fav_3000ms": 0.4752,
+    "early_adv_3000ms": -0.9801,
+    "early_fav_10000ms": 0.4752,
+    "early_adv_10000ms": -3.0294,
+    "violent_ms_before_log": 5,
+    "violent_sec": -2.025,
+    "scenarios": [
+      {
+        "scenario": "A_log_2pct",
+        "entry_px": 0.16956,
+        "exit_px": 0.16927,
+        "pnl_pct": 0.171,
+        "pnl_usdt": 0.034,
+        "exit": "trail_sim",
+        "reversal_ms": 47
+      },
+      {
+        "scenario": "B_replay_2pct",
+        "entry_px": 0.16544979077336364,
+        "exit_px": 0.16868,
+        "pnl_pct": -1.952,
+        "pnl_usdt": -0.39,
+        "exit": "trail",
+        "reversal_ms": -1
+      },
+      {
+        "scenario": "C_early_07",
+        "entry_px": 0.1640093196259751,
+        "exit_px": 0.1697,
+        "pnl_pct": -3.47,
+        "pnl_usdt": -0.694,
+        "exit": "trail",
+        "reversal_ms": -1
+      },
+      {
+        "scenario": "D_early_07_zero_slip",
+        "entry_px": 0.16851,
+        "exit_px": 0.16828,
+        "pnl_pct": 0.136,
+        "pnl_usdt": 0.027,
+        "exit": "trail_sim",
+        "reversal_ms": 228
+      },
+      {
+        "scenario": "E_early_07_instant",
+        "entry_px": 0.1640093196259751,
+        "exit_px": 0.1697,
+        "pnl_pct": -3.47,
+        "pnl_usdt": -0.694,
+        "exit": "trail",
+        "reversal_ms": -1
+      }
+    ]
+  },
+  {
+    "symbol": "SHELLUSDT",
+    "side": "SELL",
+    "has_live": true,
+    "log_live_pnl": -0.03,
+    "n_ticks": 511,
+    "early_ms_before_log_signal": 7,
+    "early_sec": -0.759,
+    "early_fast": -0.759,
+    "early_fav_100ms": 2.7584,
+    "early_adv_100ms": -0.0665,
+    "early_fav_500ms": 2.7584,
+    "early_adv_500ms": -0.0665,
+    "early_fav_1000ms": 2.7584,
+    "early_adv_1000ms": -0.0665,
+    "early_fav_3000ms": 2.7584,
+    "early_adv_3000ms": -0.0665,
+    "early_fav_10000ms": 2.7584,
+    "early_adv_10000ms": -0.0997,
+    "violent_ms_before_log": 17,
+    "violent_sec": -2.012,
+    "scenarios": [
+      {
+        "scenario": "A_log_2pct",
+        "entry_px": 0.029998,
+        "exit_px": 0.03004,
+        "pnl_pct": -0.14,
+        "pnl_usdt": -0.028,
+        "exit": "no_mega",
+        "reversal_ms": 14
+      },
+      {
+        "scenario": "B_replay_2pct",
+        "entry_px": 0.02997,
+        "exit_px": 0.03004,
+        "pnl_pct": -0.234,
+        "pnl_usdt": -0.047,
+        "exit": "no_mega",
+        "reversal_ms": 31
+      },
+      {
+        "scenario": "C_early_07",
+        "entry_px": 0.02999,
+        "exit_px": 0.03004,
+        "pnl_pct": -0.167,
+        "pnl_usdt": -0.033,
+        "exit": "no_mega",
+        "reversal_ms": 21
+      },
+      {
+        "scenario": "D_early_07_zero_slip",
+        "entry_px": 0.02999,
+        "exit_px": 0.03004,
+        "pnl_pct": -0.167,
+        "pnl_usdt": -0.033,
+        "exit": "no_mega",
+        "reversal_ms": 21
+      },
+      {
+        "scenario": "E_early_07_instant",
+        "entry_px": 0.0301,
+        "exit_px": 0.03004,
+        "pnl_pct": 0.199,
+        "pnl_usdt": 0.04,
+        "exit": "no_mega",
+        "reversal_ms": 0
+      }
+    ]
+  },
+  {
+    "symbol": "CETUSUSDT",
+    "side": "SELL",
+    "has_live": true,
+    "log_live_pnl": -0.04,
+    "n_ticks": 302,
+    "early_ms_before_log_signal": 9,
+    "early_sec": -0.717,
+    "early_fast": -0.717,
+    "early_fav_100ms": 1.6851,
+    "early_adv_100ms": -0.7222,
+    "early_fav_500ms": 1.6851,
+    "early_adv_500ms": -0.7222,
+    "early_fav_1000ms": 1.6851,
+    "early_adv_1000ms": -0.7222,
+    "early_fav_3000ms": 1.6851,
+    "early_adv_3000ms": -0.7222,
+    "early_fav_10000ms": 1.6851,
+    "early_adv_10000ms": -0.7222,
+    "violent_ms_before_log": 9,
+    "violent_sec": -2.008,
+    "scenarios": [
+      {
+        "scenario": "A_log_2pct",
+        "entry_px": 0.02076,
+        "exit_px": 0.02077,
+        "pnl_pct": -0.048,
+        "pnl_usdt": -0.01,
+        "exit": "no_mega",
+        "reversal_ms": -1
+      },
+      {
+        "scenario": "B_replay_2pct",
+        "entry_px": 0.02077,
+        "exit_px": 0.02077,
+        "pnl_pct": 0.0,
+        "pnl_usdt": 0.0,
+        "exit": "no_mega",
+        "reversal_ms": -1
+      },
+      {
+        "scenario": "C_early_07",
+        "entry_px": 0.02077,
+        "exit_px": 0.02077,
+        "pnl_pct": 0.0,
+        "pnl_usdt": 0.0,
+        "exit": "no_mega",
+        "reversal_ms": -1
+      },
+      {
+        "scenario": "D_early_07_zero_slip",
+        "entry_px": 0.02077,
+        "exit_px": 0.02077,
+        "pnl_pct": 0.0,
+        "pnl_usdt": 0.0,
+        "exit": "no_mega",
+        "reversal_ms": -1
+      },
+      {
+        "scenario": "E_early_07_instant",
+        "entry_px": 0.02067,
+        "exit_px": 0.02077,
+        "pnl_pct": -0.484,
+        "pnl_usdt": -0.097,
+        "exit": "no_mega",
+        "reversal_ms": -1
+      }
+    ]
+  },
+  {
+    "symbol": "AKEUSDT",
+    "side": "SELL",
+    "has_live": true,
+    "log_live_pnl": -0.18,
+    "n_ticks": 1274,
+    "early_in_window_only": true,
+    "early_ms_before_log_signal": -259566,
+    "early_sec": -0.713,
+    "early_fast": -0.544,
+    "early_fav_100ms": 0.2392,
+    "early_adv_100ms": -0.0684,
+    "early_fav_500ms": 0.2392,
+    "early_adv_500ms": -0.0684,
+    "early_fav_1000ms": 0.2392,
+    "early_adv_1000ms": -0.0684,
+    "early_fav_3000ms": 0.2392,
+    "early_adv_3000ms": -0.0684,
+    "early_fav_10000ms": 0.2392,
+    "early_adv_10000ms": -0.0684,
+    "violent_ms_before_log": 9,
+    "violent_sec": -2.067,
+    "scenarios": [
+      {
+        "scenario": "A_log_2pct",
+        "entry_px": 0.000292,
+        "exit_px": 0.0002939,
+        "pnl_pct": -0.651,
+        "pnl_usdt": -0.13,
+        "exit": "timeout",
+        "reversal_ms": 259527
+      },
+      {
+        "scenario": "B_replay_2pct",
+        "entry_px": 0.0002904108843537415,
+        "exit_px": 0.0002939,
+        "pnl_pct": -1.201,
+        "pnl_usdt": -0.24,
+        "exit": "timeout",
+        "reversal_ms": -1
+      },
+      {
+        "scenario": "C_early_07",
+        "entry_px": 0.000290708843537415,
+        "exit_px": 0.0002955,
+        "pnl_pct": -1.648,
+        "pnl_usdt": -0.33,
+        "exit": "timeout",
+        "reversal_ms": -1
+      },
+      {
+        "scenario": "D_early_07_zero_slip",
+        "entry_px": 0.0002927,
+        "exit_px": 0.0002955,
+        "pnl_pct": -0.957,
+        "pnl_usdt": -0.191,
+        "exit": "timeout",
+        "reversal_ms": 274
+      },
+      {
+        "scenario": "E_early_07_instant",
+        "entry_px": 0.0002905102040816327,
+        "exit_px": 0.0002955,
+        "pnl_pct": -1.718,
+        "pnl_usdt": -0.344,
+        "exit": "timeout",
+        "reversal_ms": -1
+      }
+    ]
+  },
+  {
+    "symbol": "BANUSDT",
+    "side": "BUY",
+    "has_live": true,
+    "log_live_pnl": -0.01,
+    "n_ticks": 451,
+    "early_ms_before_log_signal": 24,
+    "early_sec": 0.799,
+    "early_fast": 0.799,
+    "early_fav_100ms": 0.6694,
+    "early_adv_100ms": -0.2049,
+    "early_fav_500ms": 0.6694,
+    "early_adv_500ms": -0.2049,
+    "early_fav_1000ms": 0.6694,
+    "early_adv_1000ms": -0.2049,
+    "early_fav_3000ms": 0.9153,
+    "early_adv_3000ms": -0.2049,
+    "early_fav_10000ms": 0.9153,
+    "early_adv_10000ms": -0.2049,
+    "violent_ms_before_log": 33,
+    "violent_sec": 2.024,
+    "scenarios": [
+      {
+        "scenario": "A_log_2pct",
+        "entry_px": 0.07333,
+        "exit_px": 0.07329,
+        "pnl_pct": -0.055,
+        "pnl_usdt": -0.011,
+        "exit": "no_mega",
+        "reversal_ms": 694
+      },
+      {
+        "scenario": "B_replay_2pct",
+        "entry_px": 0.07325,
+        "exit_px": 0.07329,
+        "pnl_pct": 0.055,
+        "pnl_usdt": 0.011,
+        "exit": "no_mega",
+        "reversal_ms": 727
+      },
+      {
+        "scenario": "C_early_07",
+        "entry_px": 0.07325,
+        "exit_px": 0.07329,
+        "pnl_pct": 0.055,
+        "pnl_usdt": 0.011,
+        "exit": "no_mega",
+        "reversal_ms": 718
+      },
+      {
+        "scenario": "D_early_07_zero_slip",
+        "entry_px": 0.07325,
+        "exit_px": 0.07329,
+        "pnl_pct": 0.055,
+        "pnl_usdt": 0.011,
+        "exit": "no_mega",
+        "reversal_ms": 718
+      },
+      {
+        "scenario": "E_early_07_instant",
+        "entry_px": 0.07335,
+        "exit_px": 0.0733,
+        "pnl_pct": -0.068,
+        "pnl_usdt": -0.014,
+        "exit": "no_mega",
+        "reversal_ms": 743
+      }
+    ]
+  },
+  {
+    "symbol": "DUSDT",
+    "side": "SELL",
+    "has_live": true,
+    "log_live_pnl": -0.09,
+    "n_ticks": 385,
+    "early_ms_before_log_signal": 16,
+    "early_sec": -0.715,
+    "early_fast": -0.715,
+    "early_fav_100ms": 1.3319,
+    "early_adv_100ms": -0.4148,
+    "early_fav_500ms": 1.3319,
+    "early_adv_500ms": -0.4694,
+    "early_fav_1000ms": 1.3319,
+    "early_adv_1000ms": -0.4694,
+    "early_fav_3000ms": 1.3319,
+    "early_adv_3000ms": -0.4694,
+    "early_fav_10000ms": 1.3319,
+    "early_adv_10000ms": -0.4694,
+    "violent_ms_before_log": 16,
+    "violent_sec": -2.016,
+    "scenarios": [
+      {
+        "scenario": "A_log_2pct",
+        "entry_px": 0.009171,
+        "exit_px": 0.009219,
+        "pnl_pct": -0.523,
+        "pnl_usdt": -0.105,
+        "exit": "sl",
+        "reversal_ms": -1
+      },
+      {
+        "scenario": "B_replay_2pct",
+        "entry_px": 0.009183,
+        "exit_px": 0.009219,
+        "pnl_pct": -0.392,
+        "pnl_usdt": -0.078,
+        "exit": "sl",
+        "reversal_ms": 140
+      },
+      {
+        "scenario": "C_early_07",
+        "entry_px": 0.009183,
+        "exit_px": 0.009219,
+        "pnl_pct": -0.392,
+        "pnl_usdt": -0.078,
+        "exit": "sl",
+        "reversal_ms": 140
+      },
+      {
+        "scenario": "D_early_07_zero_slip",
+        "entry_px": 0.009183,
+        "exit_px": 0.009219,
+        "pnl_pct": -0.392,
+        "pnl_usdt": -0.078,
+        "exit": "sl",
+        "reversal_ms": 140
+      },
+      {
+        "scenario": "E_early_07_instant",
+        "entry_px": 0.009133,
+        "exit_px": 0.009219,
+        "pnl_pct": -0.942,
+        "pnl_usdt": -0.188,
+        "exit": "sl",
+        "reversal_ms": -1
+      }
+    ]
+  },
+  {
+    "symbol": "PTBUSDT",
+    "side": "BUY",
+    "has_live": true,
+    "log_live_pnl": -0.14,
+    "n_ticks": 397,
+    "early_ms_before_log_signal": -115,
+    "early_sec": 0.84,
+    "early_fast": -0.054,
+    "early_fav_100ms": 0.0806,
+    "early_adv_100ms": -0.2016,
+    "early_fav_500ms": 0.0806,
+    "early_adv_500ms": -0.2016,
+    "early_fav_1000ms": 0.0806,
+    "early_adv_1000ms": -0.2016,
+    "early_fav_3000ms": 0.0806,
+    "early_adv_3000ms": -0.2016,
+    "early_fav_10000ms": 0.0806,
+    "early_adv_10000ms": -0.2823,
+    "violent_ms_before_log": 16,
+    "violent_sec": 2.006,
+    "scenarios": [
+      {
+        "scenario": "A_log_2pct",
+        "entry_px": 0.000745,
+        "exit_px": 0.0007406,
+        "pnl_pct": -0.591,
+        "pnl_usdt": -0.118,
+        "exit": "no_mega",
+        "reversal_ms": -1
+      },
+      {
+        "scenario": "B_replay_2pct",
+        "entry_px": 0.0007444,
+        "exit_px": 0.0007406,
+        "pnl_pct": -0.51,
+        "pnl_usdt": -0.102,
+        "exit": "no_mega",
+        "reversal_ms": -1
+      },
+      {
+        "scenario": "C_early_07",
+        "entry_px": 0.000743,
+        "exit_px": 0.0007406,
+        "pnl_pct": -0.323,
+        "pnl_usdt": -0.065,
+        "exit": "no_mega",
+        "reversal_ms": 876
+      },
+      {
+        "scenario": "D_early_07_zero_slip",
+        "entry_px": 0.000743,
+        "exit_px": 0.0007406,
+        "pnl_pct": -0.323,
+        "pnl_usdt": -0.065,
+        "exit": "no_mega",
+        "reversal_ms": 876
+      },
+      {
+        "scenario": "E_early_07_instant",
+        "entry_px": 0.0007438,
+        "exit_px": 0.0007406,
+        "pnl_pct": -0.43,
+        "pnl_usdt": -0.086,
+        "exit": "no_mega",
+        "reversal_ms": -1
+      }
+    ]
+  },
+  {
+    "symbol": "DYMUSDT",
+    "side": "BUY",
+    "has_live": true,
+    "log_live_pnl": -0.48,
+    "n_ticks": 477,
+    "early_ms_before_log_signal": -670,
+    "early_sec": 0.836,
+    "early_fast": -0.31,
+    "early_fav_100ms": 0.3627,
+    "early_adv_100ms": 0.0,
+    "early_fav_500ms": 0.3627,
+    "early_adv_500ms": 0.0,
+    "early_fav_1000ms": 0.3627,
+    "early_adv_1000ms": 0.0,
+    "early_fav_3000ms": 0.4145,
+    "early_adv_3000ms": 0.0,
+    "early_fav_10000ms": 0.5181,
+    "early_adv_10000ms": 0.0,
+    "violent_ms_before_log": 22,
+    "violent_sec": 2.039,
+    "scenarios": [
+      {
+        "scenario": "A_log_2pct",
+        "entry_px": 0.01953,
+        "exit_px": 0.01944,
+        "pnl_pct": -0.461,
+        "pnl_usdt": -0.092,
+        "exit": "sl",
+        "reversal_ms": -1
+      },
+      {
+        "scenario": "B_replay_2pct",
+        "entry_px": 0.01953,
+        "exit_px": 0.01944,
+        "pnl_pct": -0.461,
+        "pnl_usdt": -0.092,
+        "exit": "sl",
+        "reversal_ms": -1
+      },
+      {
+        "scenario": "C_early_07",
+        "entry_px": 0.01935,
+        "exit_px": 0.0192,
+        "pnl_pct": -0.775,
+        "pnl_usdt": -0.155,
+        "exit": "sl",
+        "reversal_ms": 5182
+      },
+      {
+        "scenario": "D_early_07_zero_slip",
+        "entry_px": 0.01935,
+        "exit_px": 0.0192,
+        "pnl_pct": -0.775,
+        "pnl_usdt": -0.155,
+        "exit": "sl",
+        "reversal_ms": 5182
+      },
+      {
+        "scenario": "E_early_07_instant",
+        "entry_px": 0.01935,
+        "exit_px": 0.0192,
+        "pnl_pct": -0.775,
+        "pnl_usdt": -0.155,
+        "exit": "sl",
+        "reversal_ms": 5207
+      }
+    ]
+  },
+  {
+    "symbol": "TRADOORUSDT",
+    "side": "SELL",
+    "has_live": true,
+    "log_live_pnl": -0.2,
+    "n_ticks": 324,
+    "early_ms_before_log_signal": 11,
+    "early_sec": -0.833,
+    "early_fast": -0.813,
+    "early_fav_100ms": 2.0588,
+    "early_adv_100ms": -0.063,
+    "early_fav_500ms": 2.0588,
+    "early_adv_500ms": -0.063,
+    "early_fav_1000ms": 2.0588,
+    "early_adv_1000ms": -0.063,
+    "early_fav_3000ms": 2.0588,
+    "early_adv_3000ms": -0.063,
+    "early_fav_10000ms": 2.0588,
+    "early_adv_10000ms": -0.063,
+    "violent_ms_before_log": 11,
+    "violent_sec": -2.021,
+    "scenarios": [
+      {
+        "scenario": "A_log_2pct",
+        "entry_px": 0.4716,
+        "exit_px": 0.4754,
+        "pnl_pct": -0.806,
+        "pnl_usdt": -0.161,
+        "exit": "no_mega",
+        "reversal_ms": -1
+      },
+      {
+        "scenario": "B_replay_2pct",
+        "entry_px": 0.4716,
+        "exit_px": 0.4754,
+        "pnl_pct": -0.806,
+        "pnl_usdt": -0.161,
+        "exit": "no_mega",
+        "reversal_ms": -1
+      },
+      {
+        "scenario": "C_early_07",
+        "entry_px": 0.4716,
+        "exit_px": 0.4754,
+        "pnl_pct": -0.806,
+        "pnl_usdt": -0.161,
+        "exit": "no_mega",
+        "reversal_ms": -1
+      },
+      {
+        "scenario": "D_early_07_zero_slip",
+        "entry_px": 0.4716,
+        "exit_px": 0.4754,
+        "pnl_pct": -0.806,
+        "pnl_usdt": -0.161,
+        "exit": "no_mega",
+        "reversal_ms": -1
+      },
+      {
+        "scenario": "E_early_07_instant",
+        "entry_px": 0.471,
+        "exit_px": 0.4754,
+        "pnl_pct": -0.934,
+        "pnl_usdt": -0.187,
+        "exit": "no_mega",
+        "reversal_ms": 0
+      }
+    ]
+  },
+  {
+    "symbol": "MEWUSDT",
+    "side": "BUY",
+    "has_live": true,
+    "log_live_pnl": -0.14,
+    "n_ticks": 955,
+    "early_ms_before_log_signal": 16,
+    "early_sec": 0.715,
+    "early_fast": 0.715,
+    "early_fav_100ms": 1.7738,
+    "early_adv_100ms": -0.7095,
+    "early_fav_500ms": 1.7738,
+    "early_adv_500ms": -0.7095,
+    "early_fav_1000ms": 1.7738,
+    "early_adv_1000ms": -0.7095,
+    "early_fav_3000ms": 1.7738,
+    "early_adv_3000ms": -0.7095,
+    "early_fav_10000ms": 1.7738,
+    "early_adv_10000ms": -0.7095,
+    "violent_ms_before_log": 16,
+    "violent_sec": 2.054,
+    "scenarios": [
+      {
+        "scenario": "A_log_2pct",
+        "entry_px": 0.000451,
+        "exit_px": 0.0004487,
+        "pnl_pct": -0.51,
+        "pnl_usdt": -0.102,
+        "exit": "no_mega",
+        "reversal_ms": -1
+      },
+      {
+        "scenario": "B_replay_2pct",
+        "entry_px": 0.0004504,
+        "exit_px": 0.0004487,
+        "pnl_pct": -0.377,
+        "pnl_usdt": -0.075,
+        "exit": "no_mega",
+        "reversal_ms": 13
+      },
+      {
+        "scenario": "C_early_07",
+        "entry_px": 0.0004504,
+        "exit_px": 0.0004487,
+        "pnl_pct": -0.377,
+        "pnl_usdt": -0.075,
+        "exit": "no_mega",
+        "reversal_ms": 13
+      },
+      {
+        "scenario": "D_early_07_zero_slip",
+        "entry_px": 0.0004504,
+        "exit_px": 0.0004487,
+        "pnl_pct": -0.377,
+        "pnl_usdt": -0.075,
+        "exit": "no_mega",
+        "reversal_ms": 13
+      },
+      {
+        "scenario": "E_early_07_instant",
+        "entry_px": 0.0004526,
+        "exit_px": 0.0004487,
+        "pnl_pct": -0.862,
+        "pnl_usdt": -0.172,
+        "exit": "no_mega",
+        "reversal_ms": 1
+      }
+    ]
+  }
+]
