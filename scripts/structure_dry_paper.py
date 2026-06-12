@@ -127,14 +127,15 @@ for eng in ENGINES:
 
     LOGGERS[eng.name] = make_log(log_path)
     TRADES_CSV[eng.name] = trades_path
-    with trades_path.open("w", newline="") as f:
-        csv.writer(f).writerow(
-            [
-                "symbol", "signal_utc", "entry_utc", "exit_utc", "side",
-                "entry_price", "exit_price", "exit_reason", "hold_bars",
-                "gross_pct", "net_pct", "net_usd", "meta",
-            ]
-        )
+    if not trades_path.exists() or trades_path.stat().st_size == 0:
+        with trades_path.open("w", newline="") as f:
+            csv.writer(f).writerow(
+                [
+                    "symbol", "signal_utc", "entry_utc", "exit_utc", "side",
+                    "entry_price", "exit_price", "exit_reason", "hold_bars",
+                    "gross_pct", "net_pct", "net_usd", "meta",
+                ]
+            )
     LOGGERS[eng.name](f"structure_dry | log_file={log_path}")
 
 
