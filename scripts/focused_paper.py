@@ -11,6 +11,9 @@ Live paper: 6% 1s events + sig_open_break adaptive direction.
 
 Entry: signal second T excluded → T+1 OPEN. Exit: T+hold_sec CLOSE. Flip on sig_open.
 
+Live Binance (FOCUSED_LIVE_TRADE): inverse of dry at entry (dry LONG → live SHORT).
+Dry flip does not change the live position; live exits when dry exits.
+
 Output: data/focused/<run_ts>/{events,trades,results}.csv
 """
 from __future__ import annotations
@@ -41,6 +44,7 @@ from focused_lib import (
     SigOpenBreakTrade,
     burst_direction,
     dry_pnl_usdt,
+    inv_direction,
     is_six_pct_event,
     side_label,
 )
@@ -235,7 +239,7 @@ stats = {
     "cooldown_skips": 0,
     "live_entries": 0,
     "live_exits": 0,
-    "live_flips": 0,
+    "live_flip_skips": 0,
     "live_skips": 0,
     "dry_pnl_usdt": 0.0,
     "late_dry_pnl_usdt": 0.0,
@@ -270,9 +274,11 @@ async def live_entry(symbol: str, trade: SigOpenBreakTrade, entry_open: float) -
         log(f"[LIVE_SKIP] {symbol} not tradable")
         return
 
+    live_dir = inv_direction(trade.trade_dir)
+
     def _place():
         lev = binance.set_max_leverage(sym)
-        side = order_side_for_dir(trade.trade_dir)
+        side = order_side_for_dir(live_dir)
         resp = binance.market_order_notional(sym, side, NOTIONAL)
         entry, qty = parse_fill(resp)
         return lev, entry, qty, side
@@ -282,55 +288,35 @@ async def live_entry(symbol: str, trade: SigOpenBreakTrade, entry_open: float) -
         if entry <= 0:
             entry = entry_open
         live_slots[sym] = {
-            "trade_dir": trade.trade_dir,
+            "trade_dir": live_dir,
+            "dry_dir": trade.trade_dir,
             "qty": qty,
             "entry_price": entry,
             "leverage": lev,
         }
         stats["live_entries"] += 1
         log(
-            f"[LIVE_ENTRY] {symbol} {side_label(trade.trade_dir)} side={side} "
+            f"[LIVE_ENTRY] {symbol} dry={side_label(trade.trade_dir)} "
+            f"live={side_label(live_dir)} side={side} "
             f"fill={entry:.8f} qty={qty:.8f} notional=${NOTIONAL:.2f} lev={lev}x"
         )
     except Exception as e:
         log(f"[LIVE_ENTRY_FAIL] {symbol} {e}")
 
 
-async def live_flip(symbol: str, new_dir: str, ref_price: float) -> None:
+async def live_flip_skip(symbol: str, dry_new_dir: str) -> None:
+    """Dry flipped; live keeps the original inverse position until dry exit."""
     if not LIVE_TRADE or binance is None:
         return
     sym = symbol.upper()
     slot = live_slots.get(sym)
     if not slot:
         return
-
-    def _flip():
-        close_side = close_side_for_dir(slot["trade_dir"])
-        binance.market_close_qty(sym, close_side, slot["qty"])
-        lev = binance.set_max_leverage(sym)
-        open_side = order_side_for_dir(new_dir)
-        resp = binance.market_order_notional(sym, open_side, NOTIONAL)
-        entry, qty = parse_fill(resp)
-        return lev, entry, qty, open_side
-
-    try:
-        lev, entry, qty, side = await asyncio.get_running_loop().run_in_executor(None, _flip)
-        if entry <= 0:
-            entry = ref_price
-        live_slots[sym] = {
-            "trade_dir": new_dir,
-            "qty": qty,
-            "entry_price": entry,
-            "leverage": lev,
-        }
-        stats["live_flips"] += 1
-        log(
-            f"[LIVE_FLIP] {symbol} -> {side_label(new_dir)} side={side} "
-            f"fill={entry:.8f} qty={qty:.8f} lev={lev}x"
-        )
-    except Exception as e:
-        log(f"[LIVE_FLIP_FAIL] {symbol} {e}")
-        live_slots.pop(sym, None)
+    stats["live_flip_skips"] += 1
+    log(
+        f"[LIVE_FLIP_SKIP] {symbol} dry -> {side_label(dry_new_dir)} "
+        f"live holds {side_label(slot['trade_dir'])} (no Binance change)"
+    )
 
 
 async def live_exit(symbol: str) -> None:
@@ -350,7 +336,8 @@ async def live_exit(symbol: str) -> None:
         exit_px, _ = parse_fill(resp)
         stats["live_exits"] += 1
         log(
-            f"[LIVE_EXIT] {symbol} {side_label(slot['trade_dir'])} "
+            f"[LIVE_EXIT] {symbol} live={side_label(slot['trade_dir'])} "
+            f"dry_at_entry={side_label(slot.get('dry_dir', slot['trade_dir']))} "
             f"exit={exit_px:.8f} entry={slot['entry_price']:.8f}"
         )
     except Exception as e:
@@ -518,7 +505,7 @@ async def process_bar(symbol: str, b: dict) -> None:
                     f"[FLIP] {symbol} -> {side_label(trade.trade_dir)} @ T+{trade.flip_sec}s "
                     f"close={c:.8f} sig_open={trade.sig_open:.8f}"
                 )
-                await live_flip(symbol, trade.trade_dir, c)
+                await live_flip_skip(symbol, trade.trade_dir)
             if sec >= trade.exit_ts_ms:
                 trade.exit_ts_ms = sec
                 await close_trade(symbol, c)
@@ -611,8 +598,8 @@ async def stats_loop() -> None:
         if LIVE_TRADE:
             live_line = (
                 f" live_open={live_open}/{MAX_OPEN_ORDERS} "
-                f"live_entries={stats['live_entries']} live_flips={stats['live_flips']} "
-                f"live_skips={stats['live_skips']}"
+                f"live_entries={stats['live_entries']} live_exits={stats['live_exits']} "
+                f"live_flip_skips={stats['live_flip_skips']} live_skips={stats['live_skips']}"
             )
         log(
             f"[stats] agg_trades={stats['trades']} events={stats['events']} "
@@ -632,7 +619,7 @@ async def main() -> None:
     )
     log(
         f"  LIVE_TRADE={LIVE_TRADE} max_open={MAX_OPEN_ORDERS} "
-        f"(live mirrors paper: entry T+1 / flip / exit T+{HOLD_SEC}s)"
+        f"(live inverse dry at entry; no live flip; exit T+{HOLD_SEC}s with dry)"
     )
     log(f"  out={OUT_DIR}")
     await asyncio.gather(
