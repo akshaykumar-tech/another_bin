@@ -18,6 +18,7 @@ class LotRules:
     step_size: float = 0.0
     min_qty: float = 0.0
     min_notional: float = 5.0
+    tick_size: float = 0.0
 
 
 class BinanceFuturesClient:
@@ -93,6 +94,9 @@ class BinanceFuturesClient:
     def _signed_get(self, path: str, params: dict[str, str] | None = None) -> Any:
         return self._http("GET", path, params or {}, signed=True)
 
+    def _signed_delete(self, path: str, params: dict[str, str]) -> Any:
+        return self._http("DELETE", path, params, signed=True)
+
     def warm_cache(self) -> None:
         info = self._http("GET", "/fapi/v1/exchangeInfo", {})
         for s in info.get("symbols", []):
@@ -110,6 +114,8 @@ class BinanceFuturesClient:
                     n = float(f.get("notional") or f.get("minNotional") or 0)
                     if n > 0:
                         rules.min_notional = n
+                elif ft == "PRICE_FILTER":
+                    rules.tick_size = float(f.get("tickSize") or 0)
             self.lot_rules[sym] = rules
         if self.configured():
             try:
@@ -132,10 +138,12 @@ class BinanceFuturesClient:
     def max_leverage(self, symbol: str) -> int:
         return self.max_leverage_map.get(symbol.upper(), 125)
 
-    def set_max_leverage(self, symbol: str) -> int:
+    def set_max_leverage(self, symbol: str, cap: int | None = None) -> int:
         """Set highest leverage Binance accepts (bracket max may exceed account limit)."""
         sym = symbol.upper()
         target = self.max_leverage(sym)
+        if cap is not None and cap > 0:
+            target = min(target, cap)
         candidates: list[int] = []
         for lev in (target, 75, 50, 25, 20, 10, 5, 3, 2, 1):
             if lev > 0 and lev <= target and lev not in candidates:
@@ -159,6 +167,18 @@ class BinanceFuturesClient:
         return math.floor(qty / step) * step
 
     @staticmethod
+    def _price_str(price: float, tick: float) -> str:
+        if tick > 0:
+            decimals = max(0, -int(math.floor(math.log10(tick))))
+            s = f"{price:.{decimals}f}".rstrip("0").rstrip(".")
+            return s or "0"
+        if price >= 1000:
+            return f"{price:.2f}"
+        if price >= 1:
+            return f"{price:.4f}"
+        return f"{price:.8f}".rstrip("0").rstrip(".") or "0"
+
+    @staticmethod
     def _qty_str(qty: float, step: float) -> str:
         if step >= 1:
             return str(int(qty))
@@ -180,6 +200,57 @@ class BinanceFuturesClient:
             if rules.min_qty > 0 and q < rules.min_qty:
                 q = rules.min_qty
         return q
+
+    def available_usdt(self) -> float:
+        rows = self._signed_get("/fapi/v2/balance")
+        for row in rows:
+            if row.get("asset") == "USDT":
+                return float(row.get("availableBalance") or 0)
+        return 0.0
+
+    def position_qty(self, symbol: str) -> float:
+        sym = symbol.upper()
+        rows = self._signed_get("/fapi/v2/positionRisk", {"symbol": sym})
+        for row in rows:
+            if row.get("symbol") == sym:
+                return abs(float(row.get("positionAmt") or 0))
+        return 0.0
+
+    def cancel_order(self, symbol: str, order_id: int) -> None:
+        self._signed_delete(
+            "/fapi/v1/order",
+            {"symbol": symbol.upper(), "orderId": str(order_id)},
+        )
+
+    def cancel_all_open_orders(self, symbol: str) -> None:
+        self._signed_delete(
+            "/fapi/v1/allOpenOrders",
+            {"symbol": symbol.upper()},
+        )
+
+    def stop_market_reduce(
+        self,
+        symbol: str,
+        side: str,
+        stop_price: float,
+        qty: float,
+    ) -> dict[str, Any]:
+        sym = symbol.upper()
+        rules = self.lot_rules.get(sym, LotRules())
+        q = self._format_qty(sym, qty)
+        return self._signed_post(
+            "/fapi/v1/order",
+            {
+                "symbol": sym,
+                "side": side.upper(),
+                "type": "STOP_MARKET",
+                "stopPrice": self._price_str(stop_price, rules.tick_size),
+                "quantity": self._qty_str(q, rules.step_size),
+                "reduceOnly": "true",
+                "workingType": "CONTRACT_PRICE",
+                "newOrderRespType": "RESULT",
+            },
+        )
 
     def mark_price(self, symbol: str) -> float:
         data = self._http(

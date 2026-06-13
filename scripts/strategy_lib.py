@@ -12,6 +12,12 @@ Direction = Literal["high", "low"]
 LOCKS = [0.5, 1, 2, 3, 4, 5, 6, 8, 10, 15, 20]
 
 
+def trail_stop_price(entry_price: float, trade_dir: Direction, lock_pct: float) -> float:
+    if trade_dir == "high":
+        return entry_price * (1 + lock_pct / 100)
+    return entry_price * (1 - lock_pct / 100)
+
+
 def amp_burst(bar: Bar, amp_min: float = 3.0, min_vol: float = 100.0) -> tuple[Optional[Direction], float]:
     if bar.vol < min_vol or bar.o <= 0:
         return None, 0.0
@@ -108,7 +114,7 @@ class DryTrade:
         if self.lock_pct <= 0:
             return None
         ep = self.entry_price
-        stop = ep * (1 + self.lock_pct / 100) if self.trade_dir == "high" else ep * (1 - self.lock_pct / 100)
+        stop = trail_stop_price(ep, self.trade_dir, self.lock_pct)
         if self.trade_dir == "high" and bar.l <= stop:
             return stop
         if self.trade_dir == "low" and bar.h >= stop:
