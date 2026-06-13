@@ -236,7 +236,7 @@ async def live_entry_trail(symbol: str, trade: DryTrade, entry_open: float) -> N
             "entry_price": entry,
             "leverage": lev,
             "lock_pct": 0.0,
-            "stop_order_id": None,
+            "stop_algo_id": None,
         }
         live_stats["entries"] += 1
         trail_log(
@@ -261,28 +261,28 @@ async def sync_trail_stop(symbol: str, trade: DryTrade) -> None:
 
     stop_px = trail_stop_price(slot["entry_price"], trade.trade_dir, trade.lock_pct)
     close_side = close_side_for_dir(trade.trade_dir)
-    old_order_id = slot.get("stop_order_id")
+    old_algo_id = slot.get("stop_algo_id")
 
     def _sync():
-        if old_order_id:
+        if old_algo_id:
             try:
-                binance.cancel_order(sym, int(old_order_id))
+                binance.cancel_algo_order(int(old_algo_id))
             except Exception:
                 try:
-                    binance.cancel_all_open_orders(sym)
+                    binance.cancel_all_algo_orders(sym)
                 except Exception:
                     pass
         resp = binance.stop_market_reduce(sym, close_side, stop_px, slot["qty"])
-        return int(resp.get("orderId") or 0), stop_px
+        return int(resp.get("algoId") or 0), stop_px
 
     try:
-        order_id, placed_stop = await asyncio.get_running_loop().run_in_executor(None, _sync)
+        algo_id, placed_stop = await asyncio.get_running_loop().run_in_executor(None, _sync)
         slot["lock_pct"] = trade.lock_pct
-        slot["stop_order_id"] = order_id or None
+        slot["stop_algo_id"] = algo_id or None
         live_stats["stops"] += 1
         trail_log(
             f"[LIVE_STOP] {symbol} lock={trade.lock_pct:.1f}% stop={placed_stop:.8f} "
-            f"side={close_side} order_id={order_id or 'n/a'}"
+            f"side={close_side} algo_id={algo_id or 'n/a'}"
         )
     except Exception as e:
         trail_log(f"[LIVE_STOP_FAIL] {symbol} lock={trade.lock_pct:.1f}% {e}")
@@ -297,35 +297,45 @@ async def live_exit_trail(symbol: str, reason: str) -> None:
         return
 
     def _close():
-        if slot.get("stop_order_id"):
-            try:
-                binance.cancel_order(sym, int(slot["stop_order_id"]))
-            except Exception:
-                try:
-                    binance.cancel_all_open_orders(sym)
-                except Exception:
-                    pass
         pos_qty = binance.position_qty(sym)
         if pos_qty <= 0:
-            return None, 0.0
+            if slot.get("stop_algo_id"):
+                try:
+                    binance.cancel_algo_order(int(slot["stop_algo_id"]))
+                except Exception:
+                    try:
+                        binance.cancel_all_algo_orders(sym)
+                    except Exception:
+                        pass
+            return None, 0.0, True
+
+        if slot.get("stop_algo_id"):
+            try:
+                binance.cancel_algo_order(int(slot["stop_algo_id"]))
+            except Exception:
+                try:
+                    binance.cancel_all_algo_orders(sym)
+                except Exception:
+                    pass
         close_side = close_side_for_dir(slot["trade_dir"])
         qty = min(pos_qty, slot["qty"])
         resp = binance.market_close_qty(sym, close_side, qty)
         exit_px, _ = parse_fill(resp)
-        return resp, exit_px
+        return resp, exit_px, False
 
     try:
-        resp, exit_px = await asyncio.get_running_loop().run_in_executor(None, _close)
+        resp, exit_px, stop_filled = await asyncio.get_running_loop().run_in_executor(None, _close)
         live_stats["exits"] += 1
         if resp is None:
             trail_log(
                 f"[LIVE_EXIT] {symbol} {side_label(slot['trade_dir'])} reason={reason} "
-                f"(stop already filled) entry={slot['entry_price']:.8f}"
+                f"(stop filled on exchange) entry={slot['entry_price']:.8f}"
             )
         else:
             trail_log(
                 f"[LIVE_EXIT] {symbol} {side_label(slot['trade_dir'])} reason={reason} "
                 f"exit={exit_px:.8f} entry={slot['entry_price']:.8f}"
+                + (" fallback_market" if reason == "trail_lock" and not stop_filled else "")
             )
     except Exception as e:
         trail_log(f"[LIVE_EXIT_FAIL] {symbol} reason={reason} {e}")

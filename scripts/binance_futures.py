@@ -216,6 +216,15 @@ class BinanceFuturesClient:
                 return abs(float(row.get("positionAmt") or 0))
         return 0.0
 
+    def cancel_algo_order(self, algo_id: int) -> None:
+        self._signed_delete("/fapi/v1/algoOrder", {"algoId": str(algo_id)})
+
+    def cancel_all_algo_orders(self, symbol: str) -> None:
+        self._signed_delete(
+            "/fapi/v1/algoOpenOrders",
+            {"symbol": symbol.upper()},
+        )
+
     def cancel_order(self, symbol: str, order_id: int) -> None:
         self._signed_delete(
             "/fapi/v1/order",
@@ -235,16 +244,18 @@ class BinanceFuturesClient:
         stop_price: float,
         qty: float,
     ) -> dict[str, Any]:
+        """Place STOP_MARKET via Binance Algo Order API (required since 2025-12-09)."""
         sym = symbol.upper()
         rules = self.lot_rules.get(sym, LotRules())
         q = self._format_qty(sym, qty)
         return self._signed_post(
-            "/fapi/v1/order",
+            "/fapi/v1/algoOrder",
             {
+                "algoType": "CONDITIONAL",
                 "symbol": sym,
                 "side": side.upper(),
                 "type": "STOP_MARKET",
-                "stopPrice": self._price_str(stop_price, rules.tick_size),
+                "triggerPrice": self._price_str(stop_price, rules.tick_size),
                 "quantity": self._qty_str(q, rules.step_size),
                 "reduceOnly": "true",
                 "workingType": "CONTRACT_PRICE",
