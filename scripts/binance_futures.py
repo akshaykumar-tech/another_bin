@@ -243,6 +243,7 @@ class BinanceFuturesClient:
         side: str,
         stop_price: float,
         qty: float,
+        working_type: str = "MARK_PRICE",
     ) -> dict[str, Any]:
         """Place STOP_MARKET via Binance Algo Order API (required since 2025-12-09)."""
         sym = symbol.upper()
@@ -258,10 +259,21 @@ class BinanceFuturesClient:
                 "triggerPrice": self._price_str(stop_price, rules.tick_size),
                 "quantity": self._qty_str(q, rules.step_size),
                 "reduceOnly": "true",
-                "workingType": "CONTRACT_PRICE",
+                "workingType": working_type,
                 "newOrderRespType": "RESULT",
             },
         )
+
+    def last_price(self, symbol: str) -> float:
+        data = self._http(
+            "GET",
+            "/fapi/v1/ticker/price",
+            {"symbol": symbol.upper()},
+        )
+        px = float(data.get("price") or 0)
+        if px <= 0:
+            raise ValueError(f"invalid last price for {symbol}")
+        return px
 
     def mark_price(self, symbol: str) -> float:
         data = self._http(
@@ -308,6 +320,60 @@ class BinanceFuturesClient:
                 "reduceOnly": "true",
                 "newOrderRespType": "RESULT",
             },
+        )
+
+    def limit_order_notional(
+        self,
+        symbol: str,
+        side: str,
+        notional_usdt: float,
+        limit_price: float,
+    ) -> dict[str, Any]:
+        sym = symbol.upper()
+        rules = self.lot_rules.get(sym, LotRules())
+        px = max(limit_price, rules.tick_size)
+        qty = self._format_qty(sym, notional_usdt / px, px)
+        return self._signed_post(
+            "/fapi/v1/order",
+            {
+                "symbol": sym,
+                "side": side.upper(),
+                "type": "LIMIT",
+                "timeInForce": "GTC",
+                "price": self._price_str(px, rules.tick_size),
+                "quantity": self._qty_str(qty, rules.step_size),
+                "newOrderRespType": "RESULT",
+            },
+        )
+
+    def limit_close_qty(
+        self,
+        symbol: str,
+        side: str,
+        qty: float,
+        limit_price: float,
+    ) -> dict[str, Any]:
+        sym = symbol.upper()
+        rules = self.lot_rules.get(sym, LotRules())
+        q = self._format_qty(sym, qty, limit_price)
+        return self._signed_post(
+            "/fapi/v1/order",
+            {
+                "symbol": sym,
+                "side": side.upper(),
+                "type": "LIMIT",
+                "timeInForce": "GTC",
+                "price": self._price_str(limit_price, rules.tick_size),
+                "quantity": self._qty_str(q, rules.step_size),
+                "reduceOnly": "true",
+                "newOrderRespType": "RESULT",
+            },
+        )
+
+    def query_order(self, symbol: str, order_id: int) -> dict[str, Any]:
+        return self._signed_get(
+            "/fapi/v1/order",
+            {"symbol": symbol.upper(), "orderId": str(order_id)},
         )
 
 

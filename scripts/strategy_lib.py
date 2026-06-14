@@ -18,6 +18,47 @@ def trail_stop_price(entry_price: float, trade_dir: Direction, lock_pct: float) 
     return entry_price * (1 - lock_pct / 100)
 
 
+def lock_pct_from_mfe(mfe_pct: float) -> float:
+    lp = 0.0
+    for lv in LOCKS:
+        if mfe_pct >= lv:
+            lp = max(lp, lv)
+    return lp
+
+
+def tick_fav_pct(entry: float, price: float, direction: Direction) -> float:
+    if entry <= 0:
+        return 0.0
+    if direction == "high":
+        return (price - entry) / entry * 100
+    return (entry - price) / entry * 100
+
+
+def entry_slip_pct(trade_dir: Direction, dry_entry: float, mark: float) -> float:
+    """Positive = live mark worse than dry T+1 open (pay more on LONG, receive less on SHORT)."""
+    if dry_entry <= 0:
+        return 0.0
+    if trade_dir == "high":
+        return (mark - dry_entry) / dry_entry * 100
+    return (dry_entry - mark) / dry_entry * 100
+
+
+def stop_market_would_trigger(trade_dir: Direction, mark: float, stop_px: float) -> bool:
+    """STOP_MARKET reduce-only would reject (-2021) if True."""
+    if trade_dir == "high":
+        return mark <= stop_px
+    return mark >= stop_px
+
+
+def stop_can_place(trade_dir: Direction, ref_price: float, stop_px: float, min_gap_pct: float) -> bool:
+    """Enough room to place STOP_MARKET without immediate trigger."""
+    if ref_price <= 0 or stop_px <= 0:
+        return False
+    if trade_dir == "high":
+        return ref_price > stop_px * (1 + min_gap_pct / 100)
+    return ref_price < stop_px * (1 - min_gap_pct / 100)
+
+
 def amp_burst(bar: Bar, amp_min: float = 3.0, min_vol: float = 100.0) -> tuple[Optional[Direction], float]:
     if bar.vol < min_vol or bar.o <= 0:
         return None, 0.0
