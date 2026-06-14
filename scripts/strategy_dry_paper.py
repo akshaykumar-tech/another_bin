@@ -16,8 +16,9 @@ Live Binance orders (trail_lock_300 only when STRATEGY_DRY_LIVE_TRADE=true):
   STRATEGY_DRY_LIVE_MAX_ENTRY_SLIP_PCT — skip live if mark worse than dry T+1 open (default 0.35%)
   STRATEGY_DRY_LIVE_ENTRY_MODE=t0_last30ms — live enters at signal bar close when burst detected; dry stays T+1
   STRATEGY_DRY_LIVE_STOP_MIN_GAP_PCT — min gap before placing exchange stop (default 0.04%)
+  STRATEGY_DRY_LIVE_LOCK_LIMIT_SEC — seconds to wait for limit exit at lock price (default 3)
   Uses max leverage + min margin (notional/leverage) from available balance
-  Tick-level trail locks + limit exit at lock price (avoids -2021 stop reject)
+  Lock exits align to dry T+1 entry; 1s bar triggers exit (same as dry paper)
 
 Output: data/strategy_dry/<run_ts>/{ll_cont_low_short,trail_lock_300,hh_cont_high_long,fade_60s}.log
 """
@@ -125,6 +126,7 @@ LIVE_LIMIT_ENTRY_SEC = _env_float("STRATEGY_DRY_LIVE_LIMIT_ENTRY_SEC", 2.0)
 LIVE_ENTRY_MODE = os.environ.get("STRATEGY_DRY_LIVE_ENTRY_MODE", "t0_last30ms").strip().lower()
 LIVE_ENTRY_T0_MS = _env_int("STRATEGY_DRY_LIVE_ENTRY_T0_MS", 30)
 LIVE_T0_LIMIT_SEC = _env_float("STRATEGY_DRY_LIVE_T0_LIMIT_SEC", 0.5)
+LIVE_LOCK_LIMIT_SEC = _env_float("STRATEGY_DRY_LIVE_LOCK_LIMIT_SEC", 3.0)
 STOP_MIN_GAP_PCT = _env_float("STRATEGY_DRY_LIVE_STOP_MIN_GAP_PCT", 0.04)
 TRAIL_LOCK_NAME = "trail_lock_300"
 
@@ -207,6 +209,31 @@ def live_open_count() -> int:
 
 def can_open_live() -> bool:
     return LIVE_TRADE and live_open_count() < MAX_OPEN_LIVE
+
+
+def live_lock_entry(slot: dict, trade: DryTrade | None = None) -> float:
+    """Dry T+1 open — live lock stops match dry paper."""
+    if trade and trade.status == "active" and trade.entry_price > 0:
+        return trade.entry_price
+    le = slot.get("lock_entry")
+    if le and le > 0:
+        return le
+    return slot["entry_price"]
+
+
+def market_worse_than_stop(trade_dir: str, stop_px: float, mark: float) -> bool:
+    if trade_dir == "high":
+        return mark < stop_px
+    return mark > stop_px
+
+
+def sync_live_lock_entry(symbol: str, dry_entry: float) -> None:
+    sym = symbol.upper()
+    slot = live_slots.get(sym)
+    if not slot:
+        return
+    slot["lock_entry"] = dry_entry
+    slot["best_mfe"] = 0.0
 
 
 async def live_entry_trail(
@@ -317,6 +344,7 @@ async def live_entry_trail(
             "qty": qty,
             "entry_price": entry,
             "dry_entry": entry_ref,
+            "lock_entry": 0.0,
             "leverage": lev,
             "lock_pct": 0.0,
             "best_mfe": 0.0,
@@ -349,7 +377,7 @@ async def sync_trail_stop(symbol: str, trade: DryTrade, lock_pct: float | None =
     if slot["lock_pct"] >= lp:
         return False
 
-    stop_px = trail_stop_price(slot["entry_price"], trade.trade_dir, lp)
+    stop_px = trail_stop_price(live_lock_entry(slot, trade), trade.trade_dir, lp)
     close_side = close_side_for_dir(trade.trade_dir)
     old_algo_id = slot.get("stop_algo_id")
 
@@ -446,9 +474,35 @@ async def live_exit_trail(
     if not LIVE_TRADE or binance is None:
         return
     sym = symbol.upper()
-    slot = live_slots.pop(sym, None)
-    if not slot:
+    slot = live_slots.get(sym)
+    if not slot or slot.get("closing"):
         return
+    slot["closing"] = True
+    trade_dir = slot["trade_dir"]
+
+    def _limit_close(close_side: str, qty: float, px: float, wait_sec: float) -> tuple[float, bool]:
+        deadline = time.time() + wait_sec
+        while time.time() < deadline:
+            resp = binance.limit_close_qty(sym, close_side, qty, px)
+            oid = int(resp.get("orderId") or 0)
+            while oid and time.time() < deadline:
+                time.sleep(0.05)
+                o = binance.query_order(sym, oid)
+                status = o.get("status", "")
+                if status == "FILLED":
+                    exit_px, _ = parse_fill(o)
+                    return exit_px, True
+                if status in ("CANCELED", "REJECTED", "EXPIRED"):
+                    break
+            if oid:
+                try:
+                    binance.cancel_order(sym, oid)
+                except Exception:
+                    pass
+            if binance.position_qty(sym) <= 0:
+                return px, True
+            time.sleep(0.05)
+        return 0.0, False
 
     def _close():
         pos_qty = binance.position_qty(sym)
@@ -471,58 +525,62 @@ async def live_exit_trail(
                     binance.cancel_all_algo_orders(sym)
                 except Exception:
                     pass
-        close_side = close_side_for_dir(slot["trade_dir"])
+        close_side = close_side_for_dir(trade_dir)
         qty = min(pos_qty, slot["qty"])
-        mode = "market"
-        if target_price and target_price > 0:
-            try:
-                resp = binance.limit_close_qty(sym, close_side, qty, target_price)
-                oid = int(resp.get("orderId") or 0)
-                deadline = time.time() + 1.0
-                while oid and time.time() < deadline:
-                    time.sleep(0.1)
-                    o = binance.query_order(sym, oid)
-                    if o.get("status") == "FILLED":
-                        exit_px, _ = parse_fill(o)
-                        return resp, exit_px, False, "limit"
-                    if o.get("status") in ("CANCELED", "REJECTED", "EXPIRED"):
-                        break
-                if oid:
-                    try:
-                        binance.cancel_order(sym, oid)
-                    except Exception:
-                        pass
-                pos_qty = binance.position_qty(sym)
-                if pos_qty <= 0:
-                    return None, target_price, True, "limit"
-                qty = min(pos_qty, slot["qty"])
-            except Exception:
-                pass
+
+        if reason == "trail_lock" and target_price and target_price > 0:
+            exit_px, filled = _limit_close(close_side, qty, target_price, LIVE_LOCK_LIMIT_SEC)
+            if filled and exit_px > 0:
+                return {"avgPrice": str(exit_px)}, exit_px, False, "limit"
+            pos_qty = binance.position_qty(sym)
+            if pos_qty <= 0:
+                return None, target_price, True, "limit"
+            qty = min(pos_qty, slot["qty"])
+            mark = binance.mark_price(sym)
+            if not market_worse_than_stop(trade_dir, target_price, mark):
+                resp = binance.market_close_qty(sym, close_side, qty)
+                exit_px, _ = parse_fill(resp)
+                return resp, exit_px, False, "market_favorable"
+            exit_px, filled = _limit_close(close_side, qty, target_price, 2.0)
+            if filled and exit_px > 0:
+                return {"avgPrice": str(exit_px)}, exit_px, False, "limit"
+            pos_qty = binance.position_qty(sym)
+            if pos_qty <= 0:
+                return None, target_price, True, "limit"
+            qty = min(pos_qty, slot["qty"])
+            resp = binance.market_close_qty(sym, close_side, qty)
+            exit_px, _ = parse_fill(resp)
+            return resp, exit_px, False, "market_adverse"
+
         resp = binance.market_close_qty(sym, close_side, qty)
         exit_px, _ = parse_fill(resp)
-        return resp, exit_px, False, mode
+        return resp, exit_px, False, "market"
 
     try:
         resp, exit_px, stop_filled, mode = await asyncio.get_running_loop().run_in_executor(
             None, _close
         )
         live_stats["exits"] += 1
+        live_slots.pop(sym, None)
         if resp is None:
             trail_log(
-                f"[LIVE_EXIT] {symbol} {side_label(slot['trade_dir'])} reason={reason} "
+                f"[LIVE_EXIT] {symbol} {side_label(trade_dir)} reason={reason} "
                 f"(stop filled on exchange) entry={slot['entry_price']:.8f}"
             )
         else:
             extra = ""
-            if reason == "trail_lock" and mode == "market" and not stop_filled:
-                extra = " fallback_market"
-            elif mode == "limit":
+            if mode == "limit":
                 extra = f" limit@{target_price:.8f}" if target_price else " limit"
+            elif mode == "market_favorable":
+                extra = " market@favorable"
+            elif mode == "market_adverse":
+                extra = f" market@adverse lock={target_price:.8f}" if target_price else " market@adverse"
             trail_log(
-                f"[LIVE_EXIT] {symbol} {side_label(slot['trade_dir'])} reason={reason} "
+                f"[LIVE_EXIT] {symbol} {side_label(trade_dir)} reason={reason} "
                 f"exit={exit_px:.8f} entry={slot['entry_price']:.8f}{extra}"
             )
     except Exception as e:
+        slot["closing"] = False
         trail_log(f"[LIVE_EXIT_FAIL] {symbol} reason={reason} {e}")
 
 
@@ -539,7 +597,7 @@ async def try_live_signal_close_entry(st: StrategyState, symbol: str, bar: Bar) 
 
 
 async def live_trail_on_tick(symbol: str, price: float) -> None:
-    """Tick-level MFE + stop sync — only after dry T+1 entry so locks match dry."""
+    """Tick MFE + exchange stop sync; trail_lock exit only on 1s bar (same as dry)."""
     if not LIVE_TRADE or binance is None:
         return
     sym = symbol.upper()
@@ -550,22 +608,12 @@ async def live_trail_on_tick(symbol: str, price: float) -> None:
     if not trade or trade.status != "active":
         return
 
-    entry = slot["entry_price"]
+    entry = live_lock_entry(slot, trade)
     d = slot["trade_dir"]
     slot["best_mfe"] = max(slot.get("best_mfe", 0.0), tick_fav_pct(entry, price, d))
     live_lock = lock_pct_from_mfe(slot["best_mfe"])
     if live_lock > slot.get("lock_pct", 0.0):
-        if await sync_trail_stop(symbol, trade, lock_pct=live_lock):
-            return
-
-    eff_lock = max(slot.get("lock_pct", 0.0), live_lock)
-    if eff_lock <= 0:
-        return
-    stop = trail_stop_price(entry, d, eff_lock)
-    if d == "high" and price <= stop:
-        await live_exit_trail(symbol, "trail_lock", target_price=stop)
-    elif d == "low" and price >= stop:
-        await live_exit_trail(symbol, "trail_lock", target_price=stop)
+        await sync_trail_stop(symbol, trade, lock_pct=live_lock)
 
 
 def utc_iso(ms: int) -> str:
@@ -805,6 +853,7 @@ async def process_strategy_bar(st: StrategyState, symbol: str, bar: Bar) -> None
                 f"burst={trade.burst} amp={trade.amp_pct:.2f}%"
             )
             if trail_live:
+                sync_live_lock_entry(symbol, trade.entry_price)
                 if LIVE_ENTRY_MODE == "t0_last30ms":
                     if symbol.upper() not in live_slots:
                         await live_entry_trail(
@@ -816,10 +865,7 @@ async def process_strategy_bar(st: StrategyState, symbol: str, bar: Bar) -> None
             old_lock = trade.lock_pct
             stop_px = trade.on_bar(bar)
             if trail_live and trade.lock_pct > old_lock:
-                if await sync_trail_stop(symbol, trade):
-                    trade.exit_ms = bar.sec
-                    close_trade(st, symbol, stop_px or bar.c, "trail_lock")
-                    return
+                await sync_trail_stop(symbol, trade)
             if stop_px is not None:
                 trade.exit_ms = bar.sec
                 if trail_live and symbol.upper() in live_slots:
@@ -974,7 +1020,8 @@ async def main() -> None:
         trail_log(
             f"  LIVE trail_lock | entry={LIVE_ENTRY_MODE} t0_ms={LIVE_ENTRY_T0_MS} "
             f"notional=${NOTIONAL} max_open={MAX_OPEN_LIVE} "
-            f"stop_gap={STOP_MIN_GAP_PCT}% t0_limit={LIVE_T0_LIMIT_SEC}s"
+            f"stop_gap={STOP_MIN_GAP_PCT}% t0_limit={LIVE_T0_LIMIT_SEC}s "
+            f"lock_limit={LIVE_LOCK_LIMIT_SEC}s dry_lock=on"
         )
     await asyncio.gather(
         *[ws_handler(i, c) for i, c in enumerate(chunks)],
