@@ -13,7 +13,7 @@ Strategies (3% 1s burst, 1 position/symbol each, realistic entry timing):
 Live Binance orders (trail_lock_300 only when STRATEGY_DRY_LIVE_TRADE=true):
   STRATEGY_DRY_NOTIONAL_USDT   — target order notional
   STRATEGY_DRY_MAX_OPEN_LIVE    — max concurrent live positions
-  STRATEGY_DRY_LIVE_MAX_ENTRY_SLIP_PCT — skip live if mark worse than dry T+1 open (default 0.35%)
+  STRATEGY_DRY_LIVE_MAX_ENTRY_SLIP_PCT — skip live if fill slip vs ref (default 0.50%)
   STRATEGY_DRY_LIVE_ENTRY_MODE=t0_last30ms — live enters at signal bar close when burst detected; dry stays T+1
   STRATEGY_DRY_LIVE_STOP_MIN_GAP_PCT — min gap before placing exchange stop (default 0.04%)
   STRATEGY_DRY_LIVE_LOCK_LIMIT_SEC — seconds to wait for limit exit at lock price (default 3)
@@ -46,7 +46,6 @@ from strategy_lib import (
     amp_burst,
     entry_slip_pct,
     ll_cont_at,
-    lock_pct_from_mfe,
     net_pnl_pct,
     net_pnl_usdt,
     post_struct,
@@ -120,7 +119,7 @@ LIVE_TRADE = _env_bool("STRATEGY_DRY_LIVE_TRADE", False)
 MAX_OPEN_LIVE = _env_int("STRATEGY_DRY_MAX_OPEN_LIVE", 5)
 MAX_LEVERAGE = _env_int("STRATEGY_DRY_MAX_LEVERAGE", 125)
 MARGIN_BUFFER = _env_float("STRATEGY_DRY_MARGIN_BUFFER", 1.05)
-MAX_ENTRY_SLIP_PCT = _env_float("STRATEGY_DRY_LIVE_MAX_ENTRY_SLIP_PCT", 0.35)
+MAX_ENTRY_SLIP_PCT = _env_float("STRATEGY_DRY_LIVE_MAX_ENTRY_SLIP_PCT", 0.50)
 LIVE_LIMIT_ENTRY = _env_bool("STRATEGY_DRY_LIVE_LIMIT_ENTRY", True)
 LIVE_LIMIT_ENTRY_SEC = _env_float("STRATEGY_DRY_LIVE_LIMIT_ENTRY_SEC", 2.0)
 LIVE_ENTRY_MODE = os.environ.get("STRATEGY_DRY_LIVE_ENTRY_MODE", "t0_last30ms").strip().lower()
@@ -364,7 +363,7 @@ async def live_entry_trail(
 
 
 async def sync_trail_stop(symbol: str, trade: DryTrade, lock_pct: float | None = None) -> bool:
-    """Update live trail lock; place exchange stop only when safe. Returns True if closed."""
+    """Place/update exchange STOP_MARKET only. Never exit here — bar handler calls live_exit_trail once."""
     if not LIVE_TRADE or binance is None:
         return False
     lp = lock_pct if lock_pct is not None else trade.lock_pct
@@ -394,11 +393,11 @@ async def sync_trail_stop(symbol: str, trade: DryTrade, lock_pct: float | None =
 
     if stop_market_would_trigger(trade.trade_dir, ref, stop_px):
         trail_log(
-            f"[LIVE_STOP_NOW] {symbol} lock={lp:.1f}% mark={mark:.8f} last={last:.8f} "
-            f"stop={stop_px:.8f} — at lock, closing"
+            f"[LIVE_STOP_SKIP] {symbol} lock={lp:.1f}% mark={mark:.8f} last={last:.8f} "
+            f"stop={stop_px:.8f} — wait for bar exit (no double-fire)"
         )
-        await live_exit_trail(symbol, "trail_lock", target_price=stop_px)
-        return True
+        slot["lock_pct"] = lp
+        return False
 
     slot["lock_pct"] = lp
 
@@ -433,11 +432,11 @@ async def sync_trail_stop(symbol: str, trade: DryTrade, lock_pct: float | None =
         result, a, placed_stop = await asyncio.get_running_loop().run_in_executor(None, _place_stop)
         if result == "now":
             trail_log(
-                f"[LIVE_STOP_NOW] {symbol} lock={lp:.1f}% ref={a:.8f} "
-                f"stop={placed_stop:.8f} — closing"
+                f"[LIVE_STOP_SKIP] {symbol} lock={lp:.1f}% ref={a:.8f} "
+                f"stop={placed_stop:.8f} — wait for bar exit"
             )
-            await live_exit_trail(symbol, "trail_lock", target_price=placed_stop)
-            return True
+            slot["lock_pct"] = lp
+            return False
         if result == "tick":
             slot["tick_exit_only"] = True
             trail_log(
@@ -460,9 +459,6 @@ async def sync_trail_stop(symbol: str, trade: DryTrade, lock_pct: float | None =
                 f"[LIVE_LOCK] {symbol} lock={lp:.1f}% stop={stop_px:.8f} "
                 f"tick_exit (-2021 avoided)"
             )
-            if stop_market_would_trigger(trade.trade_dir, ref, stop_px):
-                await live_exit_trail(symbol, "trail_lock", target_price=stop_px)
-                return True
             return False
         trail_log(f"[LIVE_STOP_FAIL] {symbol} lock={lp:.1f}% {e}")
         return False
@@ -541,13 +537,20 @@ async def live_exit_trail(
                 resp = binance.market_close_qty(sym, close_side, qty)
                 exit_px, _ = parse_fill(resp)
                 return resp, exit_px, False, "market_favorable"
-            exit_px, filled = _limit_close(close_side, qty, target_price, 2.0)
-            if filled and exit_px > 0:
-                return {"avgPrice": str(exit_px)}, exit_px, False, "limit"
-            pos_qty = binance.position_qty(sym)
-            if pos_qty <= 0:
-                return None, target_price, True, "limit"
-            qty = min(pos_qty, slot["qty"])
+            # Price moved past stop: keep trying limit at lock (avoid instant market@adverse)
+            for wait in (2.0, 2.0):
+                exit_px, filled = _limit_close(close_side, qty, target_price, wait)
+                if filled and exit_px > 0:
+                    return {"avgPrice": str(exit_px)}, exit_px, False, "limit"
+                pos_qty = binance.position_qty(sym)
+                if pos_qty <= 0:
+                    return None, target_price, True, "limit"
+                qty = min(pos_qty, slot["qty"])
+                mark = binance.mark_price(sym)
+                if not market_worse_than_stop(trade_dir, target_price, mark):
+                    resp = binance.market_close_qty(sym, close_side, qty)
+                    exit_px, _ = parse_fill(resp)
+                    return resp, exit_px, False, "market_favorable"
             resp = binance.market_close_qty(sym, close_side, qty)
             exit_px, _ = parse_fill(resp)
             return resp, exit_px, False, "market_adverse"
@@ -597,7 +600,7 @@ async def try_live_signal_close_entry(st: StrategyState, symbol: str, bar: Bar) 
 
 
 async def live_trail_on_tick(symbol: str, price: float) -> None:
-    """Tick MFE + exchange stop sync; trail_lock exit only on 1s bar (same as dry)."""
+    """Tick MFE tracking only; lock placement + exit on 1s bar (same as dry)."""
     if not LIVE_TRADE or binance is None:
         return
     sym = symbol.upper()
@@ -611,9 +614,6 @@ async def live_trail_on_tick(symbol: str, price: float) -> None:
     entry = live_lock_entry(slot, trade)
     d = slot["trade_dir"]
     slot["best_mfe"] = max(slot.get("best_mfe", 0.0), tick_fav_pct(entry, price, d))
-    live_lock = lock_pct_from_mfe(slot["best_mfe"])
-    if live_lock > slot.get("lock_pct", 0.0):
-        await sync_trail_stop(symbol, trade, lock_pct=live_lock)
 
 
 def utc_iso(ms: int) -> str:
@@ -864,18 +864,25 @@ async def process_strategy_bar(st: StrategyState, symbol: str, bar: Bar) -> None
         elif trade.status == "active":
             old_lock = trade.lock_pct
             stop_px = trade.on_bar(bar)
-            if trail_live and trade.lock_pct > old_lock:
-                await sync_trail_stop(symbol, trade)
+            sym_u = symbol.upper()
             if stop_px is not None:
                 trade.exit_ms = bar.sec
-                if trail_live and symbol.upper() in live_slots:
-                    await live_exit_trail(symbol, "trail_lock", target_price=stop_px)
+                if trail_live and sym_u in live_slots:
+                    slot = live_slots.get(sym_u)
+                    if slot and not slot.get("closing"):
+                        await live_exit_trail(
+                            symbol, "trail_lock", target_price=stop_px
+                        )
                 close_trade(st, symbol, stop_px, "trail_lock")
                 return
+            if trail_live and trade.lock_pct > old_lock and sym_u in live_slots:
+                await sync_trail_stop(symbol, trade)
             if bar.sec >= trade.exit_ms:
                 trade.exit_ms = bar.sec
-                if trail_live and symbol.upper() in live_slots:
-                    await live_exit_trail(symbol, "time_exit")
+                if trail_live and sym_u in live_slots:
+                    slot = live_slots.get(sym_u)
+                    if slot and not slot.get("closing"):
+                        await live_exit_trail(symbol, "time_exit")
                 close_trade(st, symbol, bar.c, "time_exit")
                 return
 
