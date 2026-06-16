@@ -100,6 +100,10 @@ MAX_HOLD_SEC = 96 * 900
 STATS_INTERVAL_SEC = _env_int("ALMA_ST_STATS_INTERVAL_SEC", "STRATEGY_DRY_STATS_INTERVAL_SEC", 1800)
 EXCLUDE = {s.strip().upper() for s in _env("ALMA_ST_EXCLUDE", "", "SAHARAUSDT").split(",") if s.strip()}
 
+DUAL_MAX_HOLD_SEC = _env_int("ALMA_ST_DUAL_MAX_HOLD_SEC", "", 20 * 60)
+SL_HEAVY_ENTRY_PRICE_MAX = _env_float("ALMA_ST_SL_HEAVY_ENTRY_PRICE_MAX", "", 0.01)
+SL_HEAVY_STC_VAL_MAX = _env_float("ALMA_ST_SL_HEAVY_STC_VAL_MAX", "", 40.0)
+
 RUN_TS = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 OUT_DIR = Path(os.environ.get("ALMA_ST_OUT_DIR", ROOT / f"data/alma_st_dry/{RUN_TS}"))
 OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -160,6 +164,7 @@ class StrategyRunner:
     log_path: Path
     trades_csv: Path
     signal_fn: Callable[[IndicatorSnap], str | None]
+    max_hold_sec: int | None = MAX_HOLD_SEC
     stats: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -174,6 +179,7 @@ class StrategyRunner:
             "timeout": 0,
             "warmup_ready": 0,
             "skipped_busy": 0,
+            "filtered_skips": 0,
         }
         with self.trades_csv.open("w", newline="") as f:
             csv.writer(f).writerow(
@@ -207,14 +213,6 @@ def net_pnl_usd(side: str, entry: float, exit_px: float) -> float:
     return NOTIONAL * gross / 100 - NOTIONAL * FEE_RT
 
 
-def signal_alma_only(snap: IndicatorSnap) -> str | None:
-    if snap.alma_long:
-        return "long"
-    if snap.alma_short:
-        return "short"
-    return None
-
-
 def signal_dual_flip(snap: IndicatorSnap) -> str | None:
     al = snap.alma_long or (snap.alma_bull and snap.stc_buy)
     sh = snap.alma_short or (snap.alma_bear and snap.stc_sell)
@@ -225,18 +223,28 @@ def signal_dual_flip(snap: IndicatorSnap) -> str | None:
     return None
 
 
+def signal_sl_heavy_mirror(snap: IndicatorSnap) -> str | None:
+    # Same base signal family, but long-only side is required for mirror bucket.
+    side = signal_dual_flip(snap)
+    if side == "long":
+        return "long"
+    return None
+
+
 STRATEGIES: list[StrategyRunner] = [
-    StrategyRunner(
-        "alma_only",
-        OUT_DIR / "alma_only.log",
-        OUT_DIR / "alma_only_trades.csv",
-        signal_alma_only,
-    ),
     StrategyRunner(
         "dual_flip_consensus",
         OUT_DIR / "dual_flip_consensus.log",
         OUT_DIR / "dual_flip_consensus_trades.csv",
         signal_dual_flip,
+        max_hold_sec=DUAL_MAX_HOLD_SEC,
+    ),
+    StrategyRunner(
+        "sl_heavy_mirror",
+        OUT_DIR / "sl_heavy_mirror.log",
+        OUT_DIR / "sl_heavy_mirror_trades.csv",
+        signal_sl_heavy_mirror,
+        max_hold_sec=None,
     ),
 ]
 
@@ -450,6 +458,30 @@ def open_trade(
     )
 
 
+def entry_filter_for_runner(
+    runner_name: str,
+    side: str,
+    snap: IndicatorSnap | None,
+    entry_px: float,
+) -> bool:
+    if runner_name != "sl_heavy_mirror":
+        return True
+    if side.upper() != "LONG":
+        return False
+    if SL_HEAVY_ENTRY_PRICE_MAX > 0 and entry_px > SL_HEAVY_ENTRY_PRICE_MAX:
+        return False
+    if SL_HEAVY_STC_VAL_MAX > 0:
+        if snap is None:
+            return False
+        v = snap.stc_val
+        # snap.stc_val uses -1.0 sentinel when invalid.
+        if v != v or v < 0:
+            return False
+        if v > SL_HEAVY_STC_VAL_MAX:
+            return False
+    return True
+
+
 def update_mfe_mae(t: ActiveTrade, bar_h: float, bar_l: float) -> None:
     ep = t.entry_price
     if ep <= 0:
@@ -537,10 +569,21 @@ def process_1s_bar(symbol: str, bar: dict) -> None:
         snap = st.pending_snap
 
         if st.pending_side and st.trade is None and sec >= st.pending_at_ms:
-            open_trade(
-                runner, st, symbol, st.pending_side,
-                st.pending_at_ms - BAR_MS, sec, bar["open"], snap,
-            )
+            entry_px = bar["open"]
+            if entry_filter_for_runner(runner.name, st.pending_side, snap, entry_px):
+                open_trade(
+                    runner, st, symbol, st.pending_side,
+                    st.pending_at_ms - BAR_MS, sec, entry_px, snap,
+                )
+            else:
+                runner.stats["filtered_skips"] += 1
+                if snap:
+                    runner.log(
+                        f"[FILTER_SKIP] {symbol} {st.pending_side.upper()} "
+                        f"entry_px={entry_px:.8f} stc_val={snap.stc_val:.1f}"
+                    )
+                else:
+                    runner.log(f"[FILTER_SKIP] {symbol} {st.pending_side.upper()} entry_px={entry_px:.8f}")
             st.pending_side = None
             st.pending_at_ms = 0
             st.pending_snap = None
@@ -552,7 +595,7 @@ def process_1s_bar(symbol: str, bar: dict) -> None:
             if hit:
                 reason, px = hit
                 close_trade(runner, st, sec, px, reason)
-            elif sec - t.entry_ms >= MAX_HOLD_SEC * 1000:
+            elif runner.max_hold_sec is not None and sec - t.entry_ms >= runner.max_hold_sec * 1000:
                 close_trade(runner, st, sec, bar["close"], "timeout")
 
     finalize_15m_from_1s(symbol, feed, bar)
@@ -628,15 +671,16 @@ async def stats_loop() -> None:
             s = runner.stats
             exits = s["exits"]
             wr = (s["wins"] / exits * 100) if exits else 0.0
-        runner.log(
-            f"[stats] agg={agg_stats['trades']} warmed={s['warmup_ready']}/{len(SYMBOLS)} "
-            f"signals={s['signals']} entries={s['entries']} exits={exits} "
-            f"wr={wr:.1f}% net=${s['net_usd']:+.4f} "
-            f"tp={s['tp']} sl={s['sl']} timeout={s['timeout']} "
-            f"open={open_n} pending={pending_n} busy_skips={s['skipped_busy']}"
-        )
-        if agg_stats["trades"] == 0:
-            runner.log("[WARN] agg=0 — no websocket ticks received; check network / WS URL")
+            runner.log(
+                f"[stats] agg={agg_stats['trades']} warmed={s['warmup_ready']}/{len(SYMBOLS)} "
+                f"signals={s['signals']} entries={s['entries']} exits={exits} "
+                f"wr={wr:.1f}% net=${s['net_usd']:+.4f} "
+                f"tp={s['tp']} sl={s['sl']} timeout={s['timeout']} "
+                f"open={open_n} pending={pending_n} busy_skips={s['skipped_busy']} "
+                f"filtered_skips={s['filtered_skips']}"
+            )
+            if agg_stats["trades"] == 0:
+                runner.log("[WARN] agg=0 — no websocket ticks received; check network / WS URL")
 
 
 async def main() -> None:
@@ -647,15 +691,16 @@ async def main() -> None:
     )
     for runner in STRATEGIES:
         runner.log(header)
-        if runner.name == "alma_only":
-            runner.log(
-                f"  signal: Alma SD ST flip | ALMA({ALMA_LEN}) factor={FACTOR} SD={SD_LEN}"
-            )
-        else:
+        if runner.name == "dual_flip_consensus":
             runner.log(
                 "  signal: Alma flip OR (Alma bull+bear + STC buy/sell cross 25/75)"
             )
-        runner.log(f"  warmup={WARMUP_BARS}×15m | max_hold={MAX_HOLD_SEC // 3600}h")
+        else:
+            runner.log(
+                f"  signal: SL-heavy mirror bucket (dual_flip long-only + entry_px<={SL_HEAVY_ENTRY_PRICE_MAX:g} + stc<={SL_HEAVY_STC_VAL_MAX:g})"
+            )
+        hold_msg = "none" if runner.max_hold_sec is None else f"{runner.max_hold_sec}s"
+        runner.log(f"  warmup={WARMUP_BARS}×15m | max_hold={hold_msg}")
         runner.log(f"  log={runner.log_path}")
         runner.log(f"  trades_csv={runner.trades_csv}")
     for runner in STRATEGIES:
