@@ -6,12 +6,16 @@ Dry paper: Alma SD SuperTrend + dual_flip_consensus (Alma+STC) on 15m.
 
 Strategies (parallel, SL 3% / TP 8%):
   dual_flip_consensus — Alma flip OR (Alma trend + STC buy/sell); entry next 15m open
+    optional live mirror on Binance (opposite side, same timing as dry)
   early_min1_confirm  — same signal; entry at minute-1 partial bar; unconfirmed exit @ 15m close
 
 Logs (terminal + file per strategy):
   data/alma_st_dry/<run_ts>/dual_flip_consensus.log
   data/alma_st_dry/<run_ts>/early_min1_confirm.log
   + matching *_trades.csv
+
+Live mirror (dual_flip_consensus only, ALMA_ST_BINANCE_LIVE=true):
+  ALMA_ST_NOTIONAL_USDT, ALMA_ST_MAX_OPEN_LIVE, ALMA_ST_MIN_LEVERAGE (default 50)
 """
 from __future__ import annotations
 
@@ -44,6 +48,7 @@ from alma_st_lib import (
     sl_tp_prices,
 )
 from stc_lib import WARMUP_BARS as STC_WARMUP, compute_stc, stc_signals
+from binance_futures import BinanceFuturesClient, parse_fill
 
 try:
     import websockets
@@ -82,6 +87,11 @@ def _env_float(name: str, fallback: str, default: float) -> float:
     return float(_env(name, fallback, str(default)))
 
 
+def _env_bool(name: str, fallback: str, default: bool) -> bool:
+    v = _env(name, fallback, "true" if default else "false").lower()
+    return v in ("1", "true", "yes", "on")
+
+
 load_dotenv()
 
 WS_ROOT = _env("ALMA_ST_WS_ROOT", "STRATEGY_DRY_WS_ROOT", "wss://fstream.binance.com").rstrip("/")
@@ -101,6 +111,16 @@ EXCLUDE = {s.strip().upper() for s in _env("ALMA_ST_EXCLUDE", "", "SAHARAUSDT").
 EARLY_ENTRY_MINUTE = _env_int("ALMA_ST_EARLY_ENTRY_MINUTE", "", 1)
 EARLY_MAX_HOLD_SEC = _env_int("ALMA_ST_EARLY_MAX_HOLD_SEC", "", 20 * 60)
 MIN1_MS = 60_000
+
+LIVE_TRADE = _env_bool("ALMA_ST_BINANCE_LIVE", "STRATEGY_DRY_LIVE_TRADE", False)
+MAX_OPEN_LIVE = _env_int("ALMA_ST_MAX_OPEN_LIVE", "STRATEGY_DRY_MAX_OPEN_LIVE", 30)
+MIN_LEVERAGE = _env_int("ALMA_ST_MIN_LEVERAGE", "", 50)
+MARGIN_BUFFER = _env_float("ALMA_ST_MARGIN_BUFFER", "STRATEGY_DRY_MARGIN_BUFFER", 1.05)
+LIVE_MIRROR_RUNNER = "dual_flip_consensus"
+
+binance: BinanceFuturesClient | None = None
+live_slots: dict[str, dict] = {}
+live_stats = {"entries": 0, "exits": 0, "skips": 0}
 
 RUN_TS = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 OUT_DIR = Path(os.environ.get("ALMA_ST_OUT_DIR", ROOT / f"data/alma_st_dry/{RUN_TS}"))
@@ -343,15 +363,174 @@ def resolve_symbols() -> list[str]:
     return [s for s in syms if s not in EXCLUDE]
 
 
-SYMBOLS = resolve_symbols()
-if not SYMBOLS:
-    raise SystemExit("no symbols resolved")
-
+SYMBOLS: list[str] = []
 feeds: dict[str, SymbolFeed] = {}
-for sym in SYMBOLS:
-    f = SymbolFeed()
-    f.strat = {st.name: StratSymState() for st in STRATEGIES}
-    feeds[sym] = f
+
+
+def init_binance_client() -> None:
+    global binance
+    api_key = _env("ALMA_ST_BINANCE_API_KEY", "STRATEGY_DRY_BINANCE_API_KEY", "")
+    if not api_key:
+        api_key = _env("BINANCE_API_KEY", "FOCUSED_BINANCE_API_KEY", "")
+    api_secret = _env("ALMA_ST_BINANCE_API_SECRET", "STRATEGY_DRY_BINANCE_API_SECRET", "")
+    if not api_secret:
+        api_secret = _env("BINANCE_API_SECRET", "FOCUSED_BINANCE_API_SECRET", "")
+    if not api_key or not api_secret:
+        return
+    binance = BinanceFuturesClient(api_key, api_secret, FAPI)
+    binance.warm_cache()
+
+
+def filter_symbols_by_leverage(syms: list[str]) -> list[str]:
+    if not binance or MIN_LEVERAGE <= 0:
+        return syms
+    return [s for s in syms if binance.max_leverage(s) >= MIN_LEVERAGE]
+
+
+def init_feeds() -> None:
+    global feeds
+    feeds = {}
+    for sym in SYMBOLS:
+        f = SymbolFeed()
+        f.strat = {st.name: StratSymState() for st in STRATEGIES}
+        feeds[sym] = f
+
+
+def mirror_entry_side(dry_side: str) -> str:
+    return "SELL" if dry_side == "long" else "BUY"
+
+
+def mirror_close_side(dry_side: str) -> str:
+    return "BUY" if dry_side == "long" else "SELL"
+
+
+def live_open_count() -> int:
+    return len(live_slots)
+
+
+def dual_flip_runner() -> StrategyRunner | None:
+    for runner in STRATEGIES:
+        if runner.name == LIVE_MIRROR_RUNNER:
+            return runner
+    return None
+
+
+def mirror_log(msg: str) -> None:
+    runner = dual_flip_runner()
+    if runner:
+        runner.log(msg)
+
+
+async def live_mirror_entry(symbol: str, dry_side: str, ref_px: float) -> None:
+    if not LIVE_TRADE or binance is None:
+        return
+    sym = symbol.upper()
+    if sym in live_slots:
+        live_stats["skips"] += 1
+        mirror_log(f"[LIVE_MIRROR_SKIP] {sym} already open")
+        return
+    if live_open_count() >= MAX_OPEN_LIVE:
+        live_stats["skips"] += 1
+        mirror_log(f"[LIVE_MIRROR_SKIP] {sym} max_open={MAX_OPEN_LIVE}")
+        return
+    if not binance.symbol_tradable(sym):
+        live_stats["skips"] += 1
+        mirror_log(f"[LIVE_MIRROR_SKIP] {sym} not tradable")
+        return
+    if binance.max_leverage(sym) < MIN_LEVERAGE:
+        live_stats["skips"] += 1
+        mirror_log(f"[LIVE_MIRROR_SKIP] {sym} lev<{MIN_LEVERAGE}x")
+        return
+
+    order_side = mirror_entry_side(dry_side)
+
+    def _place():
+        lev = binance.set_max_leverage(sym)
+        margin_needed = (NOTIONAL / lev) * MARGIN_BUFFER
+        bal = binance.available_usdt()
+        if bal < margin_needed:
+            raise RuntimeError(
+                f"insufficient margin: need ${margin_needed:.2f} "
+                f"(notional=${NOTIONAL:.2f} @ {lev}x), available=${bal:.2f}"
+            )
+        resp = binance.market_order_notional(sym, order_side, NOTIONAL)
+        entry, qty = parse_fill(resp)
+        if qty <= 0:
+            qty = binance.position_qty(sym)
+        if entry <= 0:
+            entry = ref_px
+        return lev, entry, qty, margin_needed, bal
+
+    try:
+        lev, entry, qty, margin_needed, bal = await asyncio.get_running_loop().run_in_executor(
+            None, _place
+        )
+        live_slots[sym] = {
+            "dry_side": dry_side,
+            "qty": qty,
+            "entry_price": entry,
+            "leverage": lev,
+        }
+        live_stats["entries"] += 1
+        mirror_log(
+            f"[LIVE_MIRROR_ENTRY] {sym} dry={dry_side.upper()} binance={order_side} "
+            f"fill={entry:.8f} qty={qty:.8f} notional=${NOTIONAL:.2f} lev={lev}x "
+            f"margin~=${margin_needed:.2f} bal=${bal:.2f} ref={ref_px:.8f}"
+        )
+    except Exception as e:
+        live_stats["skips"] += 1
+        mirror_log(f"[LIVE_MIRROR_ENTRY_FAIL] {sym} {e}")
+
+
+async def live_mirror_exit(symbol: str, dry_side: str, reason: str) -> None:
+    if not LIVE_TRADE or binance is None:
+        return
+    sym = symbol.upper()
+    slot = live_slots.get(sym)
+    if not slot:
+        return
+    close_side = mirror_close_side(dry_side)
+
+    def _close():
+        pos_qty = binance.position_qty(sym)
+        if pos_qty <= 0:
+            return 0.0, True
+        qty = min(pos_qty, slot["qty"])
+        resp = binance.market_close_qty(sym, close_side, qty)
+        exit_px, _ = parse_fill(resp)
+        if exit_px <= 0:
+            exit_px = binance.mark_price(sym)
+        if binance.position_qty(sym) > 0:
+            binance.market_close_qty(sym, close_side, binance.position_qty(sym))
+        return exit_px, False
+
+    try:
+        exit_px, already_flat = await asyncio.get_running_loop().run_in_executor(None, _close)
+        live_slots.pop(sym, None)
+        live_stats["exits"] += 1
+        if already_flat:
+            mirror_log(f"[LIVE_MIRROR_EXIT] {sym} reason={reason} already_flat")
+        else:
+            mirror_log(
+                f"[LIVE_MIRROR_EXIT] {sym} reason={reason} side={close_side} "
+                f"exit={exit_px:.8f} dry={dry_side.upper()}"
+            )
+    except Exception as e:
+        mirror_log(f"[LIVE_MIRROR_EXIT_FAIL] {sym} reason={reason} {e}")
+
+
+def schedule_live_mirror_entry(symbol: str, dry_side: str, ref_px: float) -> None:
+    try:
+        asyncio.get_running_loop().create_task(live_mirror_entry(symbol, dry_side, ref_px))
+    except RuntimeError:
+        pass
+
+
+def schedule_live_mirror_exit(symbol: str, dry_side: str, reason: str) -> None:
+    try:
+        asyncio.get_running_loop().create_task(live_mirror_exit(symbol, dry_side, reason))
+    except RuntimeError:
+        pass
 
 
 def build_snap(feed: SymbolFeed, bar: OHLC) -> IndicatorSnap | None:
@@ -418,6 +597,8 @@ def close_trade(runner: StrategyRunner, st: StratSymState, exit_ms: int, exit_px
     t = st.trade
     if not t:
         return
+    if runner.name == LIVE_MIRROR_RUNNER and LIVE_TRADE:
+        schedule_live_mirror_exit(t.symbol, t.side, reason)
     net = net_pnl_usd(t.side, t.entry_price, exit_px)
     runner.stats["exits"] += 1
     runner.stats["net_usd"] += net
@@ -463,6 +644,8 @@ def open_trade(
         f"[ENTRY] {symbol} {side.upper()} @ {utc_iso(entry_ms)} price={entry_px:.8f} "
         f"SL={sl_px:.8f} ({SL_PCT}%) TP={tp_px:.8f} ({TP_PCT}%) signal@{utc_iso(signal_ms)}{extra}"
     )
+    if runner.name == LIVE_MIRROR_RUNNER and LIVE_TRADE:
+        schedule_live_mirror_entry(symbol, side, entry_px)
 
 
 def try_early_minute_entry(
@@ -533,6 +716,8 @@ def on_15m_close(symbol: str, feed: SymbolFeed, bar: OHLC) -> None:
             continue
         side = runner.signal_fn(snap)
         if side is None:
+            continue
+        if binance and binance.max_leverage(symbol) < MIN_LEVERAGE:
             continue
         st = feed.strat[runner.name]
         if st.trade is not None:
@@ -709,12 +894,32 @@ async def stats_loop() -> None:
                 f"wr={wr:.1f}% net=${s['net_usd']:+.4f} "
                 f"tp={s['tp']} sl={s['sl']} timeout={s['timeout']} unconf={s['unconfirmed']} "
                 f"open={open_n} pending={pending_n} busy_skips={s['skipped_busy']}"
+                + (
+                    f" live_open={live_open_count()} live_in={live_stats['entries']} "
+                    f"live_out={live_stats['exits']} live_skip={live_stats['skips']}"
+                    if runner.name == LIVE_MIRROR_RUNNER and LIVE_TRADE
+                    else ""
+                )
             )
             if agg_stats["trades"] == 0:
                 runner.log("[WARN] agg=0 — no websocket ticks received; check network / WS URL")
 
 
 async def main() -> None:
+    global SYMBOLS
+    SYMBOLS = resolve_symbols()
+    if LIVE_TRADE or MIN_LEVERAGE > 0:
+        init_binance_client()
+    if LIVE_TRADE and (binance is None or not binance.configured()):
+        raise SystemExit(
+            "ALMA_ST_BINANCE_LIVE requires ALMA_ST_BINANCE_API_KEY/SECRET "
+            "(or STRATEGY_DRY_BINANCE_API_KEY/SECRET / BINANCE_API_KEY/SECRET)"
+        )
+    SYMBOLS = filter_symbols_by_leverage(SYMBOLS)
+    if not SYMBOLS:
+        raise SystemExit("no symbols resolved after leverage filter")
+    init_feeds()
+
     chunks = [SYMBOLS[i : i + WS_CHUNK] for i in range(0, len(SYMBOLS), WS_CHUNK)]
     header = (
         f"alma_st_dry | TF=15m SL={SL_PCT}% TP={TP_PCT}% | symbols={len(SYMBOLS)} "
@@ -729,6 +934,13 @@ async def main() -> None:
             runner.log(
                 f"  entry: next 15m bar open | warmup={WARMUP_BARS}×15m | max_hold={MAX_HOLD_SEC // 3600}h"
             )
+            if LIVE_TRADE:
+                runner.log(
+                    f"  live_mirror: ON opposite side | max_open={MAX_OPEN_LIVE} "
+                    f"min_lev={MIN_LEVERAGE}x margin_buf={MARGIN_BUFFER}"
+                )
+            else:
+                runner.log("  live_mirror: OFF (ALMA_ST_BINANCE_LIVE=false)")
         else:
             runner.log(
                 "  signal: same dual_flip | entry: minute-1 partial bar only"
