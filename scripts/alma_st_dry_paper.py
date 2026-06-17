@@ -5,14 +5,12 @@ Dry paper: Alma SD SuperTrend + dual_flip_consensus (Alma+STC) on 15m.
   python3 scripts/alma_st_dry_paper.py
 
 Strategies (parallel, SL 3% / TP 8%):
-  alma_only           — Alma signal flip only
-  dual_flip_consensus — Alma flip OR (Alma trend + STC buy/sell)
-
-Entry: next 15m bar open | Exit: SL/TP on 1s bars
+  dual_flip_consensus — Alma flip OR (Alma trend + STC buy/sell); entry next 15m open
+  early_min1_confirm  — same signal; entry at minute-1 partial bar; unconfirmed exit @ 15m close
 
 Logs (terminal + file per strategy):
-  data/alma_st_dry/<run_ts>/alma_only.log
   data/alma_st_dry/<run_ts>/dual_flip_consensus.log
+  data/alma_st_dry/<run_ts>/early_min1_confirm.log
   + matching *_trades.csv
 """
 from __future__ import annotations
@@ -100,9 +98,9 @@ MAX_HOLD_SEC = 96 * 900
 STATS_INTERVAL_SEC = _env_int("ALMA_ST_STATS_INTERVAL_SEC", "STRATEGY_DRY_STATS_INTERVAL_SEC", 1800)
 EXCLUDE = {s.strip().upper() for s in _env("ALMA_ST_EXCLUDE", "", "SAHARAUSDT").split(",") if s.strip()}
 
-DUAL_MAX_HOLD_SEC = _env_int("ALMA_ST_DUAL_MAX_HOLD_SEC", "", 20 * 60)
-SL_HEAVY_ENTRY_PRICE_MAX = _env_float("ALMA_ST_SL_HEAVY_ENTRY_PRICE_MAX", "", 0.01)
-SL_HEAVY_STC_VAL_MAX = _env_float("ALMA_ST_SL_HEAVY_STC_VAL_MAX", "", 40.0)
+EARLY_ENTRY_MINUTE = _env_int("ALMA_ST_EARLY_ENTRY_MINUTE", "", 1)
+EARLY_MAX_HOLD_SEC = _env_int("ALMA_ST_EARLY_MAX_HOLD_SEC", "", 20 * 60)
+MIN1_MS = 60_000
 
 RUN_TS = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 OUT_DIR = Path(os.environ.get("ALMA_ST_OUT_DIR", ROOT / f"data/alma_st_dry/{RUN_TS}"))
@@ -146,6 +144,7 @@ class StratSymState:
     pending_side: str | None = None
     pending_at_ms: int = 0
     pending_snap: IndicatorSnap | None = None
+    early_checked_period: int = 0
 
 
 @dataclass
@@ -164,7 +163,8 @@ class StrategyRunner:
     log_path: Path
     trades_csv: Path
     signal_fn: Callable[[IndicatorSnap], str | None]
-    max_hold_sec: int | None = MAX_HOLD_SEC
+    entry_mode: str = "next_bar"
+    max_hold_sec: int | None = None
     stats: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -177,9 +177,9 @@ class StrategyRunner:
             "sl": 0,
             "tp": 0,
             "timeout": 0,
+            "unconfirmed": 0,
             "warmup_ready": 0,
             "skipped_busy": 0,
-            "filtered_skips": 0,
         }
         with self.trades_csv.open("w", newline="") as f:
             csv.writer(f).writerow(
@@ -223,12 +223,8 @@ def signal_dual_flip(snap: IndicatorSnap) -> str | None:
     return None
 
 
-def signal_sl_heavy_mirror(snap: IndicatorSnap) -> str | None:
-    # Same base signal family, but long-only side is required for mirror bucket.
-    side = signal_dual_flip(snap)
-    if side == "long":
-        return "long"
-    return None
+def effective_max_hold_sec(runner: StrategyRunner) -> int:
+    return runner.max_hold_sec if runner.max_hold_sec is not None else MAX_HOLD_SEC
 
 
 STRATEGIES: list[StrategyRunner] = [
@@ -237,14 +233,15 @@ STRATEGIES: list[StrategyRunner] = [
         OUT_DIR / "dual_flip_consensus.log",
         OUT_DIR / "dual_flip_consensus_trades.csv",
         signal_dual_flip,
-        max_hold_sec=DUAL_MAX_HOLD_SEC,
+        entry_mode="next_bar",
     ),
     StrategyRunner(
-        "sl_heavy_mirror",
-        OUT_DIR / "sl_heavy_mirror.log",
-        OUT_DIR / "sl_heavy_mirror_trades.csv",
-        signal_sl_heavy_mirror,
-        max_hold_sec=None,
+        "early_min1_confirm",
+        OUT_DIR / "early_min1_confirm.log",
+        OUT_DIR / "early_min1_confirm_trades.csv",
+        signal_dual_flip,
+        entry_mode="minute1_early",
+        max_hold_sec=EARLY_MAX_HOLD_SEC,
     ),
 ]
 
@@ -363,13 +360,21 @@ def build_snap(feed: SymbolFeed, bar: OHLC) -> IndicatorSnap | None:
         return None
 
     bars = list(feed.bars_15m)
+    snap, cur_sig = indicator_snap_from_bars(bars, feed.prev_alma_sig)
+    feed.prev_alma_sig = cur_sig
+    return snap
+
+
+def indicator_snap_from_bars(bars: list[OHLC], prev_alma_sig: int) -> tuple[IndicatorSnap | None, int]:
+    if len(bars) < WARMUP_BARS:
+        return None, prev_alma_sig
+
     closes = [b.c for b in bars]
     direction = compute_supertrend(bars)
     sigs = signal_series(direction)
     i = len(bars) - 1
-    prev_sig = sigs[i - 1] if i >= 1 else feed.prev_alma_sig
+    prev_sig = sigs[i - 1] if i >= 1 else prev_alma_sig
     cur_sig = sigs[i]
-    feed.prev_alma_sig = cur_sig
 
     stc = compute_stc(closes)
     stc_v = stc[i] if i < len(stc) else float("nan")
@@ -378,8 +383,8 @@ def build_snap(feed: SymbolFeed, bar: OHLC) -> IndicatorSnap | None:
     }
 
     return IndicatorSnap(
-        bar_ts=bar.ts,
-        bar_close=bar.c,
+        bar_ts=bars[i].ts,
+        bar_close=bars[i].c,
         alma_long=signal_flip(prev_sig, cur_sig) == "long",
         alma_short=signal_flip(prev_sig, cur_sig) == "short",
         alma_bull=direction[i] < 0,
@@ -387,7 +392,7 @@ def build_snap(feed: SymbolFeed, bar: OHLC) -> IndicatorSnap | None:
         stc_buy=sg["buy"],
         stc_sell=sg["sell"],
         stc_val=stc_v if stc_v == stc_v else -1.0,
-    )
+    ), cur_sig
 
 
 def write_trade_row(runner: StrategyRunner, t: ActiveTrade, exit_ms: int, exit_px: float, reason: str) -> None:
@@ -422,6 +427,8 @@ def close_trade(runner: StrategyRunner, st: StratSymState, exit_ms: int, exit_px
         runner.stats["sl"] += 1
     elif reason == "tp":
         runner.stats["tp"] += 1
+    elif reason == "unconfirmed":
+        runner.stats["unconfirmed"] += 1
     else:
         runner.stats["timeout"] += 1
     write_trade_row(runner, t, exit_ms, exit_px, reason)
@@ -447,7 +454,7 @@ def open_trade(
     st.trade = ActiveTrade(symbol, side, signal_ms, entry_ms, entry_px, sl_px, tp_px)
     runner.stats["entries"] += 1
     extra = ""
-    if runner.name == "dual_flip_consensus" and snap:
+    if snap:
         extra = (
             f" alma_L={snap.alma_long} alma_S={snap.alma_short} "
             f"bull={snap.alma_bull} stc={snap.stc_val:.1f} stc_buy={snap.stc_buy} stc_sell={snap.stc_sell}"
@@ -458,28 +465,42 @@ def open_trade(
     )
 
 
-def entry_filter_for_runner(
-    runner_name: str,
-    side: str,
-    snap: IndicatorSnap | None,
-    entry_px: float,
-) -> bool:
-    if runner_name != "sl_heavy_mirror":
-        return True
-    if side.upper() != "LONG":
-        return False
-    if SL_HEAVY_ENTRY_PRICE_MAX > 0 and entry_px > SL_HEAVY_ENTRY_PRICE_MAX:
-        return False
-    if SL_HEAVY_STC_VAL_MAX > 0:
-        if snap is None:
-            return False
-        v = snap.stc_val
-        # snap.stc_val uses -1.0 sentinel when invalid.
-        if v != v or v < 0:
-            return False
-        if v > SL_HEAVY_STC_VAL_MAX:
-            return False
-    return True
+def try_early_minute_entry(
+    runner: StrategyRunner,
+    st: StratSymState,
+    feed: SymbolFeed,
+    symbol: str,
+    sec: int,
+    bar: dict,
+) -> None:
+    if runner.entry_mode != "minute1_early" or st.trade is not None:
+        return
+    cur = feed.cur_15m
+    if not cur or not feed.warmed:
+        return
+
+    period = cur["ts"]
+    trigger_ms = period + (EARLY_ENTRY_MINUTE + 1) * MIN1_MS
+    if sec < trigger_ms or st.early_checked_period == period:
+        return
+
+    st.early_checked_period = period
+    partial = OHLC(period, cur["o"], cur["h"], cur["l"], cur["c"])
+    snap, _ = indicator_snap_from_bars(list(feed.bars_15m) + [partial], feed.prev_alma_sig)
+    if snap is None:
+        return
+
+    side = runner.signal_fn(snap)
+    if side is None:
+        return
+
+    runner.stats["signals"] += 1
+    entry_px = bar["close"]
+    runner.log(
+        f"[SIGNAL] {symbol} {side.upper()} @ {utc_iso(period)} minute={EARLY_ENTRY_MINUTE} "
+        f"partial_close={entry_px:.8f} stc={snap.stc_val:.1f}"
+    )
+    open_trade(runner, st, symbol, side, period, sec, entry_px, snap)
 
 
 def update_mfe_mae(t: ActiveTrade, bar_h: float, bar_l: float) -> None:
@@ -508,6 +529,8 @@ def on_15m_close(symbol: str, feed: SymbolFeed, bar: OHLC) -> None:
             runner.log(f"[WARMUP] {symbol} ready bars_15m={len(feed.bars_15m)}")
 
     for runner in STRATEGIES:
+        if runner.entry_mode != "next_bar":
+            continue
         side = runner.signal_fn(snap)
         if side is None:
             continue
@@ -520,16 +543,33 @@ def on_15m_close(symbol: str, feed: SymbolFeed, bar: OHLC) -> None:
         st.pending_side = side
         st.pending_at_ms = bar.ts + BAR_MS
         st.pending_snap = snap
-        extra = ""
-        if runner.name == "dual_flip_consensus":
-            extra = (
-                f" alma_L={snap.alma_long} bull+stc={snap.alma_bull and snap.stc_buy} "
-                f"stc={snap.stc_val:.1f}"
-            )
+        extra = (
+            f" alma_L={snap.alma_long} bull+stc={snap.alma_bull and snap.stc_buy} "
+            f"stc={snap.stc_val:.1f}"
+        )
         runner.log(
             f"[SIGNAL] {symbol} {side.upper()} @ {utc_iso(bar.ts)} close={bar.c:.8f} "
             f"entry_scheduled@{utc_iso(st.pending_at_ms)}{extra}"
         )
+
+    for runner in STRATEGIES:
+        if runner.entry_mode != "minute1_early":
+            continue
+        st = feed.strat[runner.name]
+        t = st.trade
+        if not t or t.signal_ms != bar.ts:
+            continue
+        confirm_side = runner.signal_fn(snap)
+        if confirm_side == t.side:
+            runner.log(
+                f"[CONFIRMED] {symbol} {t.side.upper()} @ {utc_iso(bar.ts)} close={bar.c:.8f}"
+            )
+            continue
+        runner.log(
+            f"[UNCONFIRMED_EXIT] {symbol} {t.side.upper()} @ {utc_iso(bar.ts)} "
+            f"close={bar.c:.8f} confirm_side={confirm_side or 'none'}"
+        )
+        close_trade(runner, st, bar.ts + BAR_MS, bar.c, "unconfirmed")
 
 
 def finalize_15m_from_1s(symbol: str, feed: SymbolFeed, bar_1s: dict) -> None:
@@ -568,25 +608,17 @@ def process_1s_bar(symbol: str, bar: dict) -> None:
         st = feed.strat[runner.name]
         snap = st.pending_snap
 
-        if st.pending_side and st.trade is None and sec >= st.pending_at_ms:
-            entry_px = bar["open"]
-            if entry_filter_for_runner(runner.name, st.pending_side, snap, entry_px):
+        if runner.entry_mode == "next_bar":
+            if st.pending_side and st.trade is None and sec >= st.pending_at_ms:
                 open_trade(
                     runner, st, symbol, st.pending_side,
-                    st.pending_at_ms - BAR_MS, sec, entry_px, snap,
+                    st.pending_at_ms - BAR_MS, sec, bar["open"], snap,
                 )
-            else:
-                runner.stats["filtered_skips"] += 1
-                if snap:
-                    runner.log(
-                        f"[FILTER_SKIP] {symbol} {st.pending_side.upper()} "
-                        f"entry_px={entry_px:.8f} stc_val={snap.stc_val:.1f}"
-                    )
-                else:
-                    runner.log(f"[FILTER_SKIP] {symbol} {st.pending_side.upper()} entry_px={entry_px:.8f}")
-            st.pending_side = None
-            st.pending_at_ms = 0
-            st.pending_snap = None
+                st.pending_side = None
+                st.pending_at_ms = 0
+                st.pending_snap = None
+        elif runner.entry_mode == "minute1_early":
+            try_early_minute_entry(runner, st, feed, symbol, sec, bar)
 
         t = st.trade
         if t:
@@ -595,7 +627,7 @@ def process_1s_bar(symbol: str, bar: dict) -> None:
             if hit:
                 reason, px = hit
                 close_trade(runner, st, sec, px, reason)
-            elif runner.max_hold_sec is not None and sec - t.entry_ms >= runner.max_hold_sec * 1000:
+            elif sec - t.entry_ms >= effective_max_hold_sec(runner) * 1000:
                 close_trade(runner, st, sec, bar["close"], "timeout")
 
     finalize_15m_from_1s(symbol, feed, bar)
@@ -675,9 +707,8 @@ async def stats_loop() -> None:
                 f"[stats] agg={agg_stats['trades']} warmed={s['warmup_ready']}/{len(SYMBOLS)} "
                 f"signals={s['signals']} entries={s['entries']} exits={exits} "
                 f"wr={wr:.1f}% net=${s['net_usd']:+.4f} "
-                f"tp={s['tp']} sl={s['sl']} timeout={s['timeout']} "
-                f"open={open_n} pending={pending_n} busy_skips={s['skipped_busy']} "
-                f"filtered_skips={s['filtered_skips']}"
+                f"tp={s['tp']} sl={s['sl']} timeout={s['timeout']} unconf={s['unconfirmed']} "
+                f"open={open_n} pending={pending_n} busy_skips={s['skipped_busy']}"
             )
             if agg_stats["trades"] == 0:
                 runner.log("[WARN] agg=0 — no websocket ticks received; check network / WS URL")
@@ -695,12 +726,17 @@ async def main() -> None:
             runner.log(
                 "  signal: Alma flip OR (Alma bull+bear + STC buy/sell cross 25/75)"
             )
+            runner.log(
+                f"  entry: next 15m bar open | warmup={WARMUP_BARS}×15m | max_hold={MAX_HOLD_SEC // 3600}h"
+            )
         else:
             runner.log(
-                f"  signal: SL-heavy mirror bucket (dual_flip long-only + entry_px<={SL_HEAVY_ENTRY_PRICE_MAX:g} + stc<={SL_HEAVY_STC_VAL_MAX:g})"
+                "  signal: same dual_flip | entry: minute-1 partial bar only"
             )
-        hold_msg = "none" if runner.max_hold_sec is None else f"{runner.max_hold_sec}s"
-        runner.log(f"  warmup={WARMUP_BARS}×15m | max_hold={hold_msg}")
+            runner.log(
+                f"  confirm@15m close else exit | warmup={WARMUP_BARS}×15m | "
+                f"entry_minute={EARLY_ENTRY_MINUTE} | max_hold={EARLY_MAX_HOLD_SEC}s"
+            )
         runner.log(f"  log={runner.log_path}")
         runner.log(f"  trades_csv={runner.trades_csv}")
     for runner in STRATEGIES:
