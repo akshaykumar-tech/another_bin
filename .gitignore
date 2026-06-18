@@ -11,3 +11,4 @@ data/analysis/trail_sim_cache/
 data/analysis/trail_sim_cache_v2/
 scripts/__pycache__/
 *.pyc
+data/aws/

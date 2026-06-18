@@ -221,12 +221,18 @@ class BinanceFuturesClient:
         return 0.0
 
     def position_qty(self, symbol: str) -> float:
+        row = self.position_row(symbol)
+        if not row:
+            return 0.0
+        return abs(float(row.get("positionAmt") or 0))
+
+    def position_row(self, symbol: str) -> dict[str, Any] | None:
         sym = symbol.upper()
         rows = self._signed_get("/fapi/v2/positionRisk", {"symbol": sym})
         for row in rows:
             if row.get("symbol") == sym:
-                return abs(float(row.get("positionAmt") or 0))
-        return 0.0
+                return row
+        return None
 
     def open_position_symbols(self) -> list[str]:
         rows = self._signed_get("/fapi/v2/positionRisk")
@@ -246,6 +252,34 @@ class BinanceFuturesClient:
             "/fapi/v1/algoOpenOrders",
             {"symbol": symbol.upper()},
         )
+
+    def open_algo_orders(self, symbol: str | None = None) -> list[dict[str, Any]]:
+        params: dict[str, str] = {}
+        if symbol:
+            params["symbol"] = symbol.upper()
+        data = self._signed_get("/fapi/v1/openAlgoOrders", params)
+        if isinstance(data, list):
+            return [r for r in data if isinstance(r, dict)]
+        if isinstance(data, dict):
+            rows = data.get("orders") or data.get("data") or []
+            return [r for r in rows if isinstance(r, dict)]
+        return []
+
+    def cancel_tp_algo_orders(self, symbol: str) -> int:
+        cancelled = 0
+        for row in self.open_algo_orders(symbol):
+            ot = str(row.get("orderType") or row.get("type") or "").upper()
+            if ot not in ("TAKE_PROFIT_MARKET", "TAKE_PROFIT"):
+                continue
+            algo_id = row.get("algoId")
+            if algo_id is None:
+                continue
+            try:
+                self.cancel_algo_order(int(algo_id))
+                cancelled += 1
+            except Exception:
+                pass
+        return cancelled
 
     def open_algo_order_symbols(self) -> list[str]:
         data = self._signed_get("/fapi/v1/openAlgoOrders", {})
