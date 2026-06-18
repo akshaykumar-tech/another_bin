@@ -237,15 +237,15 @@ class BinanceFuturesClient:
             {"symbol": symbol.upper()},
         )
 
-    def stop_market_reduce(
+    def _algo_reduce_order(
         self,
         symbol: str,
         side: str,
-        stop_price: float,
+        order_type: str,
+        trigger_price: float,
         qty: float,
         working_type: str = "MARK_PRICE",
     ) -> dict[str, Any]:
-        """Place STOP_MARKET via Binance Algo Order API (required since 2025-12-09)."""
         sym = symbol.upper()
         rules = self.lot_rules.get(sym, LotRules())
         q = self._format_qty(sym, qty)
@@ -255,13 +255,39 @@ class BinanceFuturesClient:
                 "algoType": "CONDITIONAL",
                 "symbol": sym,
                 "side": side.upper(),
-                "type": "STOP_MARKET",
-                "triggerPrice": self._price_str(stop_price, rules.tick_size),
+                "type": order_type,
+                "triggerPrice": self._price_str(trigger_price, rules.tick_size),
                 "quantity": self._qty_str(q, rules.step_size),
                 "reduceOnly": "true",
                 "workingType": working_type,
                 "newOrderRespType": "RESULT",
             },
+        )
+
+    def stop_market_reduce(
+        self,
+        symbol: str,
+        side: str,
+        stop_price: float,
+        qty: float,
+        working_type: str = "MARK_PRICE",
+    ) -> dict[str, Any]:
+        """Place STOP_MARKET via Binance Algo Order API (required since 2025-12-09)."""
+        return self._algo_reduce_order(
+            symbol, side, "STOP_MARKET", stop_price, qty, working_type
+        )
+
+    def take_profit_market_reduce(
+        self,
+        symbol: str,
+        side: str,
+        trigger_price: float,
+        qty: float,
+        working_type: str = "MARK_PRICE",
+    ) -> dict[str, Any]:
+        """Place TAKE_PROFIT_MARKET reduce-only close."""
+        return self._algo_reduce_order(
+            symbol, side, "TAKE_PROFIT_MARKET", trigger_price, qty, working_type
         )
 
     def last_price(self, symbol: str) -> float:
