@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import math
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -34,11 +35,61 @@ class BinanceFuturesClient:
         self.tradable: dict[str, bool] = {}
         self.lot_rules: dict[str, LotRules] = {}
         self.max_leverage_map: dict[str, int] = {}
+        self._pos_lock = threading.Lock()
+        self._pos_cache: list[dict[str, Any]] | None = None
+        self._pos_cache_ts: float = 0.0
+        self._pos_cache_ttl: float = 3.0
 
     def configured(self) -> bool:
         return bool(self.api_key and self.api_secret)
 
+    @staticmethod
+    def _is_rate_limit_error(exc: BaseException) -> bool:
+        msg = str(exc)
+        return (
+            "429" in msg
+            or "-1003" in msg
+            or "Too many requests" in msg
+            or "Too Many Requests" in msg
+        )
+
     def _http(
+        self,
+        method: str,
+        path: str,
+        params: dict[str, str],
+        signed: bool = False,
+    ) -> Any:
+        last_err: BaseException | None = None
+        for attempt in range(4):
+            if attempt > 0:
+                time.sleep(min(8.0, 0.5 * (2 ** (attempt - 1))))
+            try:
+                return self._http_once(method, path, params, signed)
+            except RuntimeError as e:
+                last_err = e
+                if self._is_rate_limit_error(e) and attempt < 3:
+                    continue
+                raise
+            except urllib.error.HTTPError as e:
+                last_err = e
+                if e.code == 429 and attempt < 3:
+                    continue
+                body = e.read().decode(errors="replace")
+                try:
+                    err = json.loads(body)
+                    if isinstance(err, dict) and err.get("msg"):
+                        raise RuntimeError(
+                            f"binance {err.get('code')}: {err.get('msg')}"
+                        ) from e
+                except json.JSONDecodeError:
+                    pass
+                raise RuntimeError(f"HTTP {e.code}: {body[:200]}") from e
+        if last_err is not None:
+            raise last_err
+        raise RuntimeError("binance request failed")
+
+    def _http_once(
         self,
         method: str,
         path: str,
@@ -55,37 +106,51 @@ class BinanceFuturesClient:
                 query.encode(),
                 hashlib.sha256,
             ).hexdigest()
-            body = f"{query}&signature={sig}".encode()
-            req = urllib.request.Request(
-                f"{self.base}{path}",
-                data=body,
-                method=method,
-                headers={
-                    "X-MBX-APIKEY": self.api_key,
-                    "Content-Type": "application/x-www-form-urlencoded",
-                },
-            )
+            headers = {"X-MBX-APIKEY": self.api_key}
+            if method == "GET":
+                url = f"{self.base}{path}?{query}&signature={sig}"
+                req = urllib.request.Request(url, method=method, headers=headers)
+            else:
+                body = f"{query}&signature={sig}".encode()
+                headers["Content-Type"] = "application/x-www-form-urlencoded"
+                req = urllib.request.Request(
+                    f"{self.base}{path}",
+                    data=body,
+                    method=method,
+                    headers=headers,
+                )
         else:
             url = f"{self.base}{path}"
             if params:
                 url += "?" + urllib.parse.urlencode(params)
             req = urllib.request.Request(url, method=method)
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                raw = resp.read()
-        except urllib.error.HTTPError as e:
-            body = e.read().decode(errors="replace")
-            try:
-                err = json.loads(body)
-                if isinstance(err, dict) and err.get("msg"):
-                    raise RuntimeError(f"binance {err.get('code')}: {err.get('msg')}") from e
-            except json.JSONDecodeError:
-                pass
-            raise RuntimeError(f"HTTP {e.code}: {body[:200]}") from e
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read()
         data = json.loads(raw)
         if isinstance(data, dict) and self._is_binance_error(data):
             raise RuntimeError(f"binance {data.get('code')}: {data.get('msg')}")
         return data
+
+    def invalidate_position_cache(self) -> None:
+        with self._pos_lock:
+            self._pos_cache = None
+
+    def _all_position_risk(self, force: bool = False) -> list[dict[str, Any]]:
+        with self._pos_lock:
+            now = time.time()
+            if (
+                not force
+                and self._pos_cache is not None
+                and (now - self._pos_cache_ts) < self._pos_cache_ttl
+            ):
+                return self._pos_cache
+        rows = self._signed_get("/fapi/v2/positionRisk")
+        if not isinstance(rows, list):
+            rows = []
+        with self._pos_lock:
+            self._pos_cache = rows
+            self._pos_cache_ts = time.time()
+        return rows
 
     @staticmethod
     def _is_binance_error(data: dict[str, Any]) -> bool:
@@ -228,16 +293,14 @@ class BinanceFuturesClient:
 
     def position_row(self, symbol: str) -> dict[str, Any] | None:
         sym = symbol.upper()
-        rows = self._signed_get("/fapi/v2/positionRisk", {"symbol": sym})
-        for row in rows:
+        for row in self._all_position_risk():
             if row.get("symbol") == sym:
                 return row
         return None
 
     def open_position_symbols(self) -> list[str]:
-        rows = self._signed_get("/fapi/v2/positionRisk")
         out: list[str] = []
-        for row in rows:
+        for row in self._all_position_risk():
             if abs(float(row.get("positionAmt") or 0)) > 0:
                 sym = str(row.get("symbol") or "").upper()
                 if sym:
@@ -408,7 +471,7 @@ class BinanceFuturesClient:
         price = self.mark_price(sym)
         rules = self.lot_rules.get(sym, LotRules())
         qty = self._format_qty(sym, notional_usdt / price, price)
-        return self._signed_post(
+        out = self._signed_post(
             "/fapi/v1/order",
             {
                 "symbol": sym,
@@ -418,12 +481,14 @@ class BinanceFuturesClient:
                 "newOrderRespType": "RESULT",
             },
         )
+        self.invalidate_position_cache()
+        return out
 
     def market_close_qty(self, symbol: str, side: str, qty: float) -> dict[str, Any]:
         sym = symbol.upper()
         rules = self.lot_rules.get(sym, LotRules())
         q = self._format_qty(sym, qty)
-        return self._signed_post(
+        out = self._signed_post(
             "/fapi/v1/order",
             {
                 "symbol": sym,
@@ -434,6 +499,8 @@ class BinanceFuturesClient:
                 "newOrderRespType": "RESULT",
             },
         )
+        self.invalidate_position_cache()
+        return out
 
     def limit_order_notional(
         self,

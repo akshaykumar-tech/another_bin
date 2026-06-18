@@ -119,6 +119,7 @@ LIVE_MIRROR_RUNNER = "dual_flip_consensus"
 binance: BinanceFuturesClient | None = None
 live_slots: dict[str, dict] = {}
 live_stats = {"entries": 0, "exits": 0, "skips": 0}
+live_mirror_lock = asyncio.Lock()
 
 RUN_TS = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 OUT_DIR = Path(os.environ.get("ALMA_ST_OUT_DIR", ROOT / f"data/alma_st_dry/{RUN_TS}"))
@@ -603,81 +604,82 @@ async def bootstrap_live_mirror() -> None:
 async def live_mirror_entry(symbol: str, dry_side: str, ref_px: float) -> None:
     if not LIVE_TRADE or binance is None:
         return
-    await reconcile_live_slots()
     sym = symbol.upper()
-    if sym in live_slots:
-        live_stats["skips"] += 1
-        mirror_log(f"[LIVE_MIRROR_SKIP] {sym} already open")
-        return
-    if binance.position_qty(sym) > 0:
-        live_stats["skips"] += 1
-        mirror_log(f"[LIVE_MIRROR_SKIP] {sym} exchange position open")
-        return
-    n_open = live_open_count()
-    if n_open >= MAX_OPEN_LIVE:
-        live_stats["skips"] += 1
-        mirror_log(f"[LIVE_MIRROR_SKIP] {sym} max_open={MAX_OPEN_LIVE} (exchange={n_open})")
-        return
-    if not binance.symbol_tradable(sym):
-        live_stats["skips"] += 1
-        mirror_log(f"[LIVE_MIRROR_SKIP] {sym} not tradable")
-        return
-    if binance.max_leverage(sym) < MIN_LEVERAGE:
-        live_stats["skips"] += 1
-        mirror_log(f"[LIVE_MIRROR_SKIP] {sym} lev<{MIN_LEVERAGE}x")
-        return
-
-    order_side = mirror_entry_side(dry_side)
-
-    def _place():
-        lev = binance.set_max_leverage(sym)
-        margin_needed = (NOTIONAL / lev) * MARGIN_BUFFER
-        bal = binance.available_usdt()
-        if bal < margin_needed:
-            raise RuntimeError(
-                f"insufficient margin: need ${margin_needed:.2f} "
-                f"(notional=${NOTIONAL:.2f} @ {lev}x), available=${bal:.2f}"
-            )
-        resp = binance.market_order_notional(sym, order_side, NOTIONAL)
-        entry, qty = parse_fill(resp)
-        if qty <= 0:
-            qty = binance.position_qty(sym)
-        if entry <= 0:
-            entry = ref_px
-        live_side = mirror_live_side(order_side)
-        sl_px, tp_px = mirror_live_sl_tp(entry, live_side, ref_px)
-        close_side = mirror_close_side(dry_side)
-        sl_resp = binance.stop_market_reduce(
-            sym, close_side, sl_px, qty, working_type=ALGO_WORKING_TYPE
-        )
-        tp_resp = binance.take_profit_market_reduce(
-            sym, close_side, tp_px, qty, working_type=ALGO_WORKING_TYPE
-        )
-        return lev, entry, qty, margin_needed, bal, live_side, sl_px, tp_px, sl_resp, tp_resp
-
     try:
-        (
-            lev, entry, qty, margin_needed, bal,
-            live_side, sl_px, tp_px, sl_resp, tp_resp,
-        ) = await asyncio.get_running_loop().run_in_executor(None, _place)
-        live_slots[sym] = {
-            "dry_side": dry_side,
-            "qty": qty,
-            "entry_price": entry,
-            "leverage": lev,
-            "live_side": live_side,
-            "sl_px": sl_px,
-            "tp_px": tp_px,
-        }
-        live_stats["entries"] += 1
-        mirror_log(
-            f"[LIVE_MIRROR_ENTRY] {sym} dry={dry_side.upper()} binance={order_side} "
-            f"fill={entry:.8f} qty={qty:.8f} notional=${NOTIONAL:.2f} lev={lev}x "
-            f"margin~=${margin_needed:.2f} bal=${bal:.2f} ref={ref_px:.8f} "
-            f"SL={sl_px:.8f} ({LIVE_MIRROR_SL_PCT}%) TP={tp_px:.8f} ({LIVE_MIRROR_TP_PCT}%) "
-            f"sl_algo={sl_resp.get('algoId', sl_resp.get('clientAlgoId', '?'))} "
-            f"tp_algo={tp_resp.get('algoId', tp_resp.get('clientAlgoId', '?'))}"
-        )
+        async with live_mirror_lock:
+            if sym in live_slots:
+                live_stats["skips"] += 1
+                mirror_log(f"[LIVE_MIRROR_SKIP] {sym} already open")
+                return
+            open_syms = set(binance.open_position_symbols())
+            if sym in open_syms:
+                live_stats["skips"] += 1
+                mirror_log(f"[LIVE_MIRROR_SKIP] {sym} exchange position open")
+                return
+            n_open = len(open_syms)
+            if n_open >= MAX_OPEN_LIVE:
+                live_stats["skips"] += 1
+                mirror_log(f"[LIVE_MIRROR_SKIP] {sym} max_open={MAX_OPEN_LIVE} (exchange={n_open})")
+                return
+            if not binance.symbol_tradable(sym):
+                live_stats["skips"] += 1
+                mirror_log(f"[LIVE_MIRROR_SKIP] {sym} not tradable")
+                return
+            if binance.max_leverage(sym) < MIN_LEVERAGE:
+                live_stats["skips"] += 1
+                mirror_log(f"[LIVE_MIRROR_SKIP] {sym} lev<{MIN_LEVERAGE}x")
+                return
+
+            order_side = mirror_entry_side(dry_side)
+
+            def _place():
+                lev = binance.set_max_leverage(sym)
+                margin_needed = (NOTIONAL / lev) * MARGIN_BUFFER
+                bal = binance.available_usdt()
+                if bal < margin_needed:
+                    raise RuntimeError(
+                        f"insufficient margin: need ${margin_needed:.2f} "
+                        f"(notional=${NOTIONAL:.2f} @ {lev}x), available=${bal:.2f}"
+                    )
+                resp = binance.market_order_notional(sym, order_side, NOTIONAL)
+                entry, qty = parse_fill(resp)
+                if qty <= 0:
+                    qty = binance.position_qty(sym)
+                if entry <= 0:
+                    entry = ref_px
+                live_side = mirror_live_side(order_side)
+                sl_px, tp_px = mirror_live_sl_tp(entry, live_side, ref_px)
+                close_side = mirror_close_side(dry_side)
+                sl_resp = binance.stop_market_reduce(
+                    sym, close_side, sl_px, qty, working_type=ALGO_WORKING_TYPE
+                )
+                tp_resp = binance.take_profit_market_reduce(
+                    sym, close_side, tp_px, qty, working_type=ALGO_WORKING_TYPE
+                )
+                return lev, entry, qty, margin_needed, bal, live_side, sl_px, tp_px, sl_resp, tp_resp
+
+            (
+                lev, entry, qty, margin_needed, bal,
+                live_side, sl_px, tp_px, sl_resp, tp_resp,
+            ) = await asyncio.get_running_loop().run_in_executor(None, _place)
+            live_slots[sym] = {
+                "dry_side": dry_side,
+                "qty": qty,
+                "entry_price": entry,
+                "leverage": lev,
+                "live_side": live_side,
+                "sl_px": sl_px,
+                "tp_px": tp_px,
+            }
+            live_stats["entries"] += 1
+            mirror_log(
+                f"[LIVE_MIRROR_ENTRY] {sym} dry={dry_side.upper()} binance={order_side} "
+                f"fill={entry:.8f} qty={qty:.8f} notional=${NOTIONAL:.2f} lev={lev}x "
+                f"margin~=${margin_needed:.2f} bal=${bal:.2f} ref={ref_px:.8f} "
+                f"SL={sl_px:.8f} ({LIVE_MIRROR_SL_PCT}%) TP={tp_px:.8f} ({LIVE_MIRROR_TP_PCT}%) "
+                f"sl_algo={sl_resp.get('algoId', sl_resp.get('clientAlgoId', '?'))} "
+                f"tp_algo={tp_resp.get('algoId', tp_resp.get('clientAlgoId', '?'))}"
+            )
     except Exception as e:
         live_stats["skips"] += 1
         mirror_log(f"[LIVE_MIRROR_ENTRY_FAIL] {sym} {e}")
@@ -709,16 +711,17 @@ async def live_mirror_exit(symbol: str, dry_side: str, reason: str) -> None:
         return exit_px, False
 
     try:
-        exit_px, already_flat = await asyncio.get_running_loop().run_in_executor(None, _close)
-        live_slots.pop(sym, None)
-        live_stats["exits"] += 1
-        if already_flat:
-            mirror_log(f"[LIVE_MIRROR_EXIT] {sym} reason={reason} already_flat")
-        else:
-            mirror_log(
-                f"[LIVE_MIRROR_EXIT] {sym} reason={reason} side={close_side} "
-                f"exit={exit_px:.8f} dry={dry_side.upper()}"
-            )
+        async with live_mirror_lock:
+            exit_px, already_flat = await asyncio.get_running_loop().run_in_executor(None, _close)
+            live_slots.pop(sym, None)
+            live_stats["exits"] += 1
+            if already_flat:
+                mirror_log(f"[LIVE_MIRROR_EXIT] {sym} reason={reason} already_flat")
+            else:
+                mirror_log(
+                    f"[LIVE_MIRROR_EXIT] {sym} reason={reason} side={close_side} "
+                    f"exit={exit_px:.8f} dry={dry_side.upper()}"
+                )
     except Exception as e:
         mirror_log(f"[LIVE_MIRROR_EXIT_FAIL] {sym} reason={reason} {e}")
         try:
