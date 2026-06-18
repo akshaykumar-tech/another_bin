@@ -109,6 +109,8 @@ EXCLUDE = {s.strip().upper() for s in _env("ALMA_ST_EXCLUDE", "", "SAHARAUSDT").
 LIVE_TRADE = _env_bool("ALMA_ST_BINANCE_LIVE", "STRATEGY_DRY_LIVE_TRADE", False)
 LIVE_MIRROR_SL_PCT = _env_float("ALMA_ST_LIVE_MIRROR_SL_PCT", "", 8.0)
 LIVE_MIRROR_TP_PCT = _env_float("ALMA_ST_LIVE_MIRROR_TP_PCT", "", 3.0)
+ALGO_WORKING_TYPE = _env("ALMA_ST_ALGO_WORKING_TYPE", "", "CONTRACT_PRICE").upper()
+LIVE_RECONCILE_SEC = _env_int("ALMA_ST_LIVE_RECONCILE_SEC", "", 60)
 MAX_OPEN_LIVE = _env_int("ALMA_ST_MAX_OPEN_LIVE", "STRATEGY_DRY_MAX_OPEN_LIVE", 30)
 MIN_LEVERAGE = _env_int("ALMA_ST_MIN_LEVERAGE", "", 50)
 MARGIN_BUFFER = _env_float("ALMA_ST_MARGIN_BUFFER", "STRATEGY_DRY_MARGIN_BUFFER", 1.05)
@@ -387,19 +389,73 @@ def mirror_live_side(order_side: str) -> str:
     return "long" if order_side == "BUY" else "short"
 
 
-def mirror_live_sl_tp(entry: float, live_side: str) -> tuple[float, float]:
-    """Live mirror: SL 8% / TP 3% from fill (inverse of dry 3%/8%)."""
+def mirror_live_sl_tp(entry: float, live_side: str, ref_px: float) -> tuple[float, float]:
+    """Live mirror: SL 8% from fill; TP at dry SL level (ref ± dry SL_PCT)."""
     if live_side == "long":
         sl_px = entry * (1 - LIVE_MIRROR_SL_PCT / 100)
-        tp_px = entry * (1 + LIVE_MIRROR_TP_PCT / 100)
+        tp_px = ref_px * (1 + SL_PCT / 100)
     else:
         sl_px = entry * (1 + LIVE_MIRROR_SL_PCT / 100)
-        tp_px = entry * (1 - LIVE_MIRROR_TP_PCT / 100)
+        tp_px = ref_px * (1 - SL_PCT / 100)
     return sl_px, tp_px
 
 
 def live_open_count() -> int:
+    if LIVE_TRADE and binance is not None:
+        return len(binance.open_position_symbols())
     return len(live_slots)
+
+
+def _cancel_orphan_algos_sync() -> list[str]:
+    if not LIVE_TRADE or binance is None:
+        return []
+    try:
+        return binance.cancel_orphan_algo_orders()
+    except Exception:
+        return []
+
+
+def _reconcile_live_slots_sync() -> list[tuple[str, bool]]:
+    """Drop stale slots; cancel leftover SL/TP when position is flat."""
+    if not LIVE_TRADE or binance is None:
+        return []
+    open_syms = set(binance.open_position_symbols())
+    removed: list[tuple[str, bool]] = []
+    for sym in list(live_slots.keys()):
+        if sym not in open_syms:
+            cancelled = False
+            try:
+                binance.cancel_all_algo_orders(sym)
+                cancelled = True
+            except Exception:
+                pass
+            live_slots.pop(sym, None)
+            removed.append((sym, cancelled))
+    return removed
+
+
+def _seed_live_slots_sync() -> int:
+    """On restart: track existing exchange positions (no new orders)."""
+    if not LIVE_TRADE or binance is None:
+        return 0
+    seeded = 0
+    for sym in binance.open_position_symbols():
+        if sym in live_slots:
+            continue
+        qty = binance.position_qty(sym)
+        if qty <= 0:
+            continue
+        live_slots[sym] = {
+            "dry_side": "unknown",
+            "qty": qty,
+            "entry_price": 0.0,
+            "leverage": 0,
+            "live_side": "unknown",
+            "sl_px": 0.0,
+            "tp_px": 0.0,
+        }
+        seeded += 1
+    return seeded
 
 
 def dual_flip_runner() -> StrategyRunner | None:
@@ -415,17 +471,57 @@ def mirror_log(msg: str) -> None:
         runner.log(msg)
 
 
+async def reconcile_live_slots() -> None:
+    if not LIVE_TRADE or binance is None:
+        return
+    loop = asyncio.get_running_loop()
+    removed = await loop.run_in_executor(None, _reconcile_live_slots_sync)
+    for sym, algos_cancelled in removed:
+        live_stats["exits"] += 1
+        extra = " + algos cancelled" if algos_cancelled else ""
+        mirror_log(f"[LIVE_MIRROR_RECONCILE] {sym} flat on exchange — slot cleared{extra}")
+    orphans = await loop.run_in_executor(None, _cancel_orphan_algos_sync)
+    for sym in orphans:
+        mirror_log(f"[LIVE_MIRROR_RECONCILE] {sym} orphan SL/TP algos cancelled (no position)")
+
+
+async def bootstrap_live_mirror() -> None:
+    if not LIVE_TRADE or binance is None:
+        return
+    loop = asyncio.get_running_loop()
+
+    def _boot():
+        orphans = _cancel_orphan_algos_sync()
+        seeded = _seed_live_slots_sync()
+        n_pos = len(binance.open_position_symbols())
+        return orphans, seeded, n_pos
+
+    orphans, seeded, n_pos = await loop.run_in_executor(None, _boot)
+    mirror_log(
+        f"[LIVE_MIRROR_BOOT] exchange_positions={n_pos} seeded_slots={seeded} "
+        f"max_open={MAX_OPEN_LIVE} (no new orders on startup)"
+    )
+    for sym in orphans:
+        mirror_log(f"[LIVE_MIRROR_BOOT] {sym} orphan SL/TP algos cancelled")
+
+
 async def live_mirror_entry(symbol: str, dry_side: str, ref_px: float) -> None:
     if not LIVE_TRADE or binance is None:
         return
+    await reconcile_live_slots()
     sym = symbol.upper()
     if sym in live_slots:
         live_stats["skips"] += 1
         mirror_log(f"[LIVE_MIRROR_SKIP] {sym} already open")
         return
-    if live_open_count() >= MAX_OPEN_LIVE:
+    if binance.position_qty(sym) > 0:
         live_stats["skips"] += 1
-        mirror_log(f"[LIVE_MIRROR_SKIP] {sym} max_open={MAX_OPEN_LIVE}")
+        mirror_log(f"[LIVE_MIRROR_SKIP] {sym} exchange position open")
+        return
+    n_open = live_open_count()
+    if n_open >= MAX_OPEN_LIVE:
+        live_stats["skips"] += 1
+        mirror_log(f"[LIVE_MIRROR_SKIP] {sym} max_open={MAX_OPEN_LIVE} (exchange={n_open})")
         return
     if not binance.symbol_tradable(sym):
         live_stats["skips"] += 1
@@ -454,10 +550,14 @@ async def live_mirror_entry(symbol: str, dry_side: str, ref_px: float) -> None:
         if entry <= 0:
             entry = ref_px
         live_side = mirror_live_side(order_side)
-        sl_px, tp_px = mirror_live_sl_tp(entry, live_side)
+        sl_px, tp_px = mirror_live_sl_tp(entry, live_side, ref_px)
         close_side = mirror_close_side(dry_side)
-        sl_resp = binance.stop_market_reduce(sym, close_side, sl_px, qty)
-        tp_resp = binance.take_profit_market_reduce(sym, close_side, tp_px, qty)
+        sl_resp = binance.stop_market_reduce(
+            sym, close_side, sl_px, qty, working_type=ALGO_WORKING_TYPE
+        )
+        tp_resp = binance.take_profit_market_reduce(
+            sym, close_side, tp_px, qty, working_type=ALGO_WORKING_TYPE
+        )
         return lev, entry, qty, margin_needed, bal, live_side, sl_px, tp_px, sl_resp, tp_resp
 
     try:
@@ -479,7 +579,7 @@ async def live_mirror_entry(symbol: str, dry_side: str, ref_px: float) -> None:
             f"[LIVE_MIRROR_ENTRY] {sym} dry={dry_side.upper()} binance={order_side} "
             f"fill={entry:.8f} qty={qty:.8f} notional=${NOTIONAL:.2f} lev={lev}x "
             f"margin~=${margin_needed:.2f} bal=${bal:.2f} ref={ref_px:.8f} "
-            f"SL={sl_px:.8f} ({LIVE_MIRROR_SL_PCT}%) TP={tp_px:.8f} ({LIVE_MIRROR_TP_PCT}%) "
+            f"SL={sl_px:.8f} ({LIVE_MIRROR_SL_PCT}%) TP={tp_px:.8f} (dry_sl@{ref_px:.8f}) "
             f"sl_algo={sl_resp.get('algoId', sl_resp.get('clientAlgoId', '?'))} "
             f"tp_algo={tp_resp.get('algoId', tp_resp.get('clientAlgoId', '?'))}"
         )
@@ -493,16 +593,18 @@ async def live_mirror_exit(symbol: str, dry_side: str, reason: str) -> None:
         return
     sym = symbol.upper()
     slot = live_slots.get(sym)
-    if not slot:
-        return
     close_side = mirror_close_side(dry_side)
 
     def _close():
-        binance.cancel_all_algo_orders(sym)
+        try:
+            binance.cancel_all_algo_orders(sym)
+        except Exception:
+            pass
         pos_qty = binance.position_qty(sym)
         if pos_qty <= 0:
             return 0.0, True
-        qty = min(pos_qty, slot["qty"])
+        slot_qty = float(slot["qty"]) if slot else pos_qty
+        qty = min(pos_qty, slot_qty)
         resp = binance.market_close_qty(sym, close_side, qty)
         exit_px, _ = parse_fill(resp)
         if exit_px <= 0:
@@ -524,6 +626,16 @@ async def live_mirror_exit(symbol: str, dry_side: str, reason: str) -> None:
             )
     except Exception as e:
         mirror_log(f"[LIVE_MIRROR_EXIT_FAIL] {sym} reason={reason} {e}")
+        try:
+            flat = await asyncio.get_running_loop().run_in_executor(
+                None, lambda: binance.position_qty(sym) <= 0
+            )
+            if flat:
+                live_slots.pop(sym, None)
+                live_stats["exits"] += 1
+                mirror_log(f"[LIVE_MIRROR_EXIT] {sym} reason={reason} flat_after_fail")
+        except Exception:
+            pass
 
 
 def schedule_live_mirror_entry(symbol: str, dry_side: str, ref_px: float) -> None:
@@ -822,6 +934,12 @@ async def flush_stale_loop() -> None:
         await asyncio.sleep(0.5)
 
 
+async def live_reconcile_loop() -> None:
+    while True:
+        await asyncio.sleep(max(15, LIVE_RECONCILE_SEC))
+        await reconcile_live_slots()
+
+
 async def stats_loop() -> None:
     while True:
         await asyncio.sleep(STATS_INTERVAL_SEC)
@@ -878,7 +996,8 @@ async def main() -> None:
             runner.log(
                 f"  live_mirror: ON opposite side | max_open={MAX_OPEN_LIVE} "
                 f"min_lev={MIN_LEVERAGE}x margin_buf={MARGIN_BUFFER} "
-                f"exchange SL={LIVE_MIRROR_SL_PCT}% TP={LIVE_MIRROR_TP_PCT}%"
+                f"exchange SL={LIVE_MIRROR_SL_PCT}% TP=dry_sl@{SL_PCT}% "
+                f"working={ALGO_WORKING_TYPE} reconcile={LIVE_RECONCILE_SEC}s"
             )
         else:
             runner.log("  live_mirror: OFF (ALMA_ST_BINANCE_LIVE=false)")
@@ -887,11 +1006,16 @@ async def main() -> None:
     for runner in STRATEGIES:
         runner.log(f"  combined_log={COMBINED_LOG}")
     await bootstrap_history()
-    await asyncio.gather(
+    if LIVE_TRADE:
+        await bootstrap_live_mirror()
+    tasks = [
         *[ws_handler(i, c) for i, c in enumerate(chunks)],
         flush_stale_loop(),
         stats_loop(),
-    )
+    ]
+    if LIVE_TRADE:
+        tasks.append(live_reconcile_loop())
+    await asyncio.gather(*tasks)
 
 
 if __name__ == "__main__":

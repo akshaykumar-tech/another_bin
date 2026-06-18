@@ -83,9 +83,21 @@ class BinanceFuturesClient:
                 pass
             raise RuntimeError(f"HTTP {e.code}: {body[:200]}") from e
         data = json.loads(raw)
-        if isinstance(data, dict) and data.get("code"):
+        if isinstance(data, dict) and self._is_binance_error(data):
             raise RuntimeError(f"binance {data.get('code')}: {data.get('msg')}")
         return data
+
+    @staticmethod
+    def _is_binance_error(data: dict[str, Any]) -> bool:
+        code = data.get("code")
+        if code is None:
+            return False
+        try:
+            c = int(code)
+        except (TypeError, ValueError):
+            return True
+        # Binance returns code=200 on some successful cancels (e.g. algoOpenOrders).
+        return c < 0 or c >= 400
 
     def _signed_post(self, path: str, params: dict[str, str]) -> dict[str, Any]:
         out = self._http("POST", path, params, signed=True)
@@ -216,6 +228,16 @@ class BinanceFuturesClient:
                 return abs(float(row.get("positionAmt") or 0))
         return 0.0
 
+    def open_position_symbols(self) -> list[str]:
+        rows = self._signed_get("/fapi/v2/positionRisk")
+        out: list[str] = []
+        for row in rows:
+            if abs(float(row.get("positionAmt") or 0)) > 0:
+                sym = str(row.get("symbol") or "").upper()
+                if sym:
+                    out.append(sym)
+        return out
+
     def cancel_algo_order(self, algo_id: int) -> None:
         self._signed_delete("/fapi/v1/algoOrder", {"algoId": str(algo_id)})
 
@@ -224,6 +246,37 @@ class BinanceFuturesClient:
             "/fapi/v1/algoOpenOrders",
             {"symbol": symbol.upper()},
         )
+
+    def open_algo_order_symbols(self) -> list[str]:
+        data = self._signed_get("/fapi/v1/openAlgoOrders", {})
+        if isinstance(data, list):
+            rows = data
+        elif isinstance(data, dict):
+            rows = data.get("orders") or data.get("data") or []
+        else:
+            rows = []
+        syms: set[str] = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            sym = str(row.get("symbol") or "").upper()
+            if sym:
+                syms.add(sym)
+        return sorted(syms)
+
+    def cancel_orphan_algo_orders(self) -> list[str]:
+        """Cancel SL/TP algos on symbols with no open position (e.g. manual close)."""
+        open_pos = set(self.open_position_symbols())
+        cancelled: list[str] = []
+        for sym in self.open_algo_order_symbols():
+            if sym in open_pos:
+                continue
+            try:
+                self.cancel_all_algo_orders(sym)
+                cancelled.append(sym)
+            except Exception:
+                pass
+        return cancelled
 
     def cancel_order(self, symbol: str, order_id: int) -> None:
         self._signed_delete(
