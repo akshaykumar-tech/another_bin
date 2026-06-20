@@ -14,6 +14,7 @@ Logs:
 Live mirror (ALMA_ST_BINANCE_LIVE=true):
   ALMA_ST_NOTIONAL_USDT, ALMA_ST_MAX_OPEN_LIVE, ALMA_ST_MIN_LEVERAGE (default 50)
   ALMA_ST_LIVE_MIRROR_SL_PCT=8, ALMA_ST_LIVE_MIRROR_TP_PCT=3 (restart reapplies TP on open positions)
+  ALMA_ST_LIVE_MIRROR_SKIP_BINANCE_LONG=true skips live BUY when dry signal is SHORT (dry unchanged)
 """
 from __future__ import annotations
 
@@ -114,6 +115,7 @@ LIVE_RECONCILE_SEC = _env_int("ALMA_ST_LIVE_RECONCILE_SEC", "", 60)
 MAX_OPEN_LIVE = _env_int("ALMA_ST_MAX_OPEN_LIVE", "STRATEGY_DRY_MAX_OPEN_LIVE", 30)
 MIN_LEVERAGE = _env_int("ALMA_ST_MIN_LEVERAGE", "", 50)
 MARGIN_BUFFER = _env_float("ALMA_ST_MARGIN_BUFFER", "STRATEGY_DRY_MARGIN_BUFFER", 1.05)
+LIVE_MIRROR_SKIP_BINANCE_LONG = _env_bool("ALMA_ST_LIVE_MIRROR_SKIP_BINANCE_LONG", "", True)
 LIVE_MIRROR_RUNNER = "dual_flip_consensus"
 
 binance: BinanceFuturesClient | None = None
@@ -382,6 +384,13 @@ def mirror_entry_side(dry_side: str) -> str:
     return "SELL" if dry_side == "long" else "BUY"
 
 
+def live_mirror_entry_blocked(dry_side: str) -> bool:
+    """Dry SHORT → Binance LONG (BUY). Optional skip for live only."""
+    if LIVE_MIRROR_SKIP_BINANCE_LONG and dry_side == "short":
+        return True
+    return False
+
+
 def mirror_close_side(dry_side: str) -> str:
     return "BUY" if dry_side == "long" else "SELL"
 
@@ -605,6 +614,13 @@ async def live_mirror_entry(symbol: str, dry_side: str, ref_px: float) -> None:
     if not LIVE_TRADE or binance is None:
         return
     sym = symbol.upper()
+    if live_mirror_entry_blocked(dry_side):
+        live_stats["skips"] += 1
+        mirror_log(
+            f"[LIVE_MIRROR_SKIP] {sym} binance LONG blocked "
+            f"(dry={dry_side.upper()}, ALMA_ST_LIVE_MIRROR_SKIP_BINANCE_LONG=true)"
+        )
+        return
     try:
         async with live_mirror_lock:
             if sym in live_slots:
@@ -1096,6 +1112,7 @@ async def main() -> None:
                 f"min_lev={MIN_LEVERAGE}x margin_buf={MARGIN_BUFFER} "
                 f"exchange SL={LIVE_MIRROR_SL_PCT}% TP={LIVE_MIRROR_TP_PCT}% "
                 f"working={ALGO_WORKING_TYPE} reconcile={LIVE_RECONCILE_SEC}s "
+                f"skip_binance_long={LIVE_MIRROR_SKIP_BINANCE_LONG} "
                 f"(restart refreshes open TP algos)"
             )
         else:
