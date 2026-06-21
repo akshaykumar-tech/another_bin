@@ -113,6 +113,7 @@ stats = {
     "warmup_ready": 0,
     "bull_pat": 0,
     "bear_pat": 0,
+    "bars_closed": 0,
 }
 
 
@@ -435,6 +436,7 @@ def on_kline(symbol: str, k: dict) -> None:
                 close_trade(feed, ts, cl, "timeout")
 
     if k.get("x"):
+        stats["bars_closed"] += 1
         on_5m_close(symbol, feed, Bar(ts, float(k["o"]), hi, lo, cl))
 
 
@@ -484,7 +486,7 @@ async def bootstrap_all() -> None:
 
 async def ws_handler(conn_id: int, symbols: list[str]) -> None:
     streams = "/".join(f"{s.lower()}@kline_{INTERVAL}" for s in symbols)
-    url = f"{WS_ROOT}/stream?streams={streams}"
+    url = f"{WS_ROOT}/market/stream?streams={streams}"
     log(f"[ws-{conn_id}] connecting {len(symbols)} symbols ({INTERVAL})")
     while True:
         try:
@@ -511,6 +513,7 @@ async def stats_loop() -> None:
             f"[stats] warmed={stats['warmup_ready']}/{len(SYMBOLS)} signals={stats['signals']} "
             f"entries={stats['entries']} exits={exits} wr={wr:.1f}% net=${stats['net_usd']:+.4f} "
             f"tp={stats['tp']} sl={stats['sl']} timeout={stats['timeout']} open={open_n} "
+            f"bars_closed={stats['bars_closed']} "
             f"max_open_skips={stats['skipped_max_open']}"
         )
 
