@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-Dry paper: ChartPrime Support/Resistance (High Volume Boxes).
+Dry paper: ChartPrime SR + God-mode fakeout/breakout (parallel dry runs).
 
   python3 scripts/sr_chartprime_paper.py
 
-Signals on 5m bar close:
+ChartPrime signals (sr_dry.log / sr_dry_trades.csv):
   LONG  — sup_holds, break_res, res_as_sup
   SHORT — res_holds, break_sup, sup_as_res
 
-Logs:
-  data/sr_chartprime/<run_ts>/sr_dry.log
-  data/sr_chartprime/<run_ts>/sr_dry_trades.csv
+God-mode signals (godmode_dry.log / godmode_dry_trades.csv):
+  LONG  — fakeout_sup, breakout_res, retest_res
+  SHORT — fakeout_res (breakdown_sup skipped by default)
+
+No max-open cap — unlimited concurrent dry positions.
 """
 from __future__ import annotations
 
@@ -30,6 +32,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from sr_chartprime_lib import Bar, SRTracker, entry_side, signal_name
+from sr_godmode_lib import GodModeTracker
 
 try:
     import websockets
@@ -68,6 +71,11 @@ def _env_float(name: str, default: float) -> float:
     return float(_env(name, str(default)))
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    v = _env(name, "true" if default else "false").lower()
+    return v in ("1", "true", "yes", "on")
+
+
 load_dotenv()
 
 WS_ROOT = _env("SR_CHARTPRIME_WS_ROOT", "wss://fstream.binance.com").rstrip("/")
@@ -86,16 +94,24 @@ FEE_RT = _env_float("SR_CHARTPRIME_FEE_RT", 0.0008)
 SL_PCT = _env_float("SR_CHARTPRIME_SL_PCT", 8.0)
 TP_PCT = _env_float("SR_CHARTPRIME_TP_PCT", 1.5)
 MAX_HOLD_BARS = _env_int("SR_CHARTPRIME_MAX_HOLD_BARS", 96)
-MAX_OPEN = _env_int("SR_CHARTPRIME_MAX_OPEN", 50)
 STATS_INTERVAL_SEC = _env_int("SR_CHARTPRIME_STATS_INTERVAL_SEC", 1800)
 BOOTSTRAP_KLINES = _env_int("SR_CHARTPRIME_BOOTSTRAP_KLINES", 300)
 WARMUP_BARS = max(LOOKBACK * 2 + 10, 210)
+
+GODMODE_ENABLED = _env_bool("SR_GODMODE_ENABLED", True)
+GOD_LOOKBACK = _env_int("SR_GODMODE_LOOKBACK", 15)
+GOD_VOL_MA = _env_int("SR_GODMODE_VOL_MA", 20)
+GOD_VOL_SPIKE = _env_float("SR_GODMODE_VOL_SPIKE", 1.4)
+GOD_WICK_RATIO = _env_float("SR_GODMODE_WICK_RATIO", 0.55)
+GOD_SKIP_BREAKDOWN = _env_bool("SR_GODMODE_SKIP_BREAKDOWN", True)
 
 RUN_TS = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 OUT_DIR = Path(_env("SR_CHARTPRIME_OUT_DIR", str(ROOT / f"data/sr_chartprime/{RUN_TS}")))
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = OUT_DIR / "sr_dry.log"
 TRADES_CSV = OUT_DIR / "sr_dry_trades.csv"
+GOD_LOG_FILE = OUT_DIR / "godmode_dry.log"
+GOD_TRADES_CSV = OUT_DIR / "godmode_dry_trades.csv"
 
 stats = {
     "signals": 0,
@@ -107,7 +123,6 @@ stats = {
     "sl": 0,
     "timeout": 0,
     "skipped_busy": 0,
-    "skipped_max_open": 0,
     "warmup_ready": 0,
     "sup_boxes": 0,
     "res_boxes": 0,
@@ -118,6 +133,23 @@ stats = {
     "res_as_sup": 0,
     "sup_as_res": 0,
     "bars_closed": 0,
+}
+
+god_stats = {
+    "signals": 0,
+    "entries": 0,
+    "exits": 0,
+    "wins": 0,
+    "net_usd": 0.0,
+    "tp": 0,
+    "sl": 0,
+    "timeout": 0,
+    "fakeout_sup": 0,
+    "fakeout_res": 0,
+    "breakout_res": 0,
+    "breakdown_sup": 0,
+    "retest_res": 0,
+    "retest_sup": 0,
 }
 
 
@@ -139,7 +171,9 @@ class ActiveTrade:
 @dataclass
 class SymbolFeed:
     tracker: SRTracker = field(default_factory=SRTracker)
+    god: GodModeTracker = field(default_factory=GodModeTracker)
     trade: ActiveTrade | None = None
+    god_trades: list[ActiveTrade] = field(default_factory=list)
     warmed: bool = False
 
 
@@ -151,6 +185,12 @@ def log(msg: str) -> None:
     line = f"{datetime.now(timezone.utc).isoformat()} {msg}"
     print(line, flush=True)
     with LOG_FILE.open("a", encoding="utf-8") as f:
+        f.write(line + "\n")
+
+
+def god_log(msg: str) -> None:
+    line = f"{datetime.now(timezone.utc).isoformat()} {msg}"
+    with GOD_LOG_FILE.open("a", encoding="utf-8") as f:
         f.write(line + "\n")
 
 
@@ -225,8 +265,12 @@ def check_exit(side: str, hi: float, lo: float, sl: float, tp: float) -> tuple[s
     return None
 
 
-def open_count() -> int:
+def cp_open_count() -> int:
     return sum(1 for f in feeds.values() if f.trade is not None)
+
+
+def god_open_count() -> int:
+    return sum(len(f.god_trades) for f in feeds.values())
 
 
 def init_trades_csv() -> None:
@@ -235,6 +279,17 @@ def init_trades_csv() -> None:
             csv.writer(f).writerow(
                 [
                     "symbol", "side", "signal", "signal_utc", "entry_utc", "exit_utc",
+                    "entry_px", "exit_px", "reason", "net_usd", "hold_bars", "max_fav_pct", "max_adv_pct",
+                ]
+            )
+
+
+def init_god_trades_csv() -> None:
+    if not GOD_TRADES_CSV.is_file():
+        with GOD_TRADES_CSV.open("w", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerow(
+                [
+                    "symbol", "side", "setup", "signal_utc", "entry_utc", "exit_utc",
                     "entry_px", "exit_px", "reason", "net_usd", "hold_bars", "max_fav_pct", "max_adv_pct",
                 ]
             )
@@ -262,8 +317,11 @@ def prime_feed(symbol: str) -> int:
         return 0
     feed = feeds[symbol]
     feed.tracker = SRTracker(LOOKBACK, VOL_LEN, BOX_WIDTH)
+    feed.god = GodModeTracker(GOD_LOOKBACK, GOD_VOL_MA, GOD_VOL_SPIKE, GOD_WICK_RATIO, GOD_SKIP_BREAKDOWN)
     if bars:
         feed.tracker.load_history(bars)
+        if GODMODE_ENABLED:
+            feed.god.load_history(bars)
     if len(bars) >= WARMUP_BARS:
         feed.warmed = True
         stats["warmup_ready"] += 1
@@ -295,6 +353,8 @@ async def bootstrap_all() -> None:
         if feeds[s].tracker.st.support is not None or feeds[s].tracker.st.resistance is not None
     )
     log(f"[bootstrap] symbols_with_sr_levels={with_sr}/{len(SYMBOLS)}")
+    if GODMODE_ENABLED:
+        god_log(f"[bootstrap] godmode ready symbols={len(SYMBOLS)} skip_breakdown={GOD_SKIP_BREAKDOWN}")
 
 
 def update_mfe_mae(t: ActiveTrade, hi: float, lo: float) -> None:
@@ -335,6 +395,32 @@ def close_trade(feed: SymbolFeed, exit_ms: int, exit_px: float, reason: str) -> 
     feed.trade = None
 
 
+def close_god_trade(feed: SymbolFeed, t: ActiveTrade, exit_ms: int, exit_px: float, reason: str) -> None:
+    if t not in feed.god_trades:
+        return
+    net = pnl_usd(t.side, t.entry_px, exit_px)
+    god_stats["exits"] += 1
+    god_stats["net_usd"] += net
+    if net > 0:
+        god_stats["wins"] += 1
+    if reason in god_stats:
+        god_stats[reason] += 1
+    god_log(
+        f"[EXIT] {t.symbol} {t.side.upper()} setup={t.signal} reason={reason} "
+        f"entry={t.entry_px:.8f} exit={exit_px:.8f} net=${net:+.4f} hold={t.bars_held}bars "
+        f"fav={t.max_fav_pct:.2f}% adv={t.max_adv_pct:.2f}%"
+    )
+    with GOD_TRADES_CSV.open("a", newline="", encoding="utf-8") as f:
+        csv.writer(f).writerow(
+            [
+                t.symbol, t.side, t.signal, utc_iso(t.signal_ms), utc_iso(t.entry_ms), utc_iso(exit_ms),
+                f"{t.entry_px:.8f}", f"{exit_px:.8f}", reason, f"{net:.4f}",
+                t.bars_held, f"{t.max_fav_pct:.2f}", f"{t.max_adv_pct:.2f}",
+            ]
+        )
+    feed.god_trades.remove(t)
+
+
 def open_trade(symbol: str, feed: SymbolFeed, side: str, sig_name: str, signal_ms: int, entry_px: float) -> None:
     sl_px, tp_px = sl_tp_prices(side, entry_px)
     feed.trade = ActiveTrade(symbol, side, sig_name, signal_ms, signal_ms, entry_px, sl_px, tp_px)
@@ -342,6 +428,19 @@ def open_trade(symbol: str, feed: SymbolFeed, side: str, sig_name: str, signal_m
     log(
         f"[ENTRY] {symbol} {side.upper()} signal={sig_name} @ {utc_iso(signal_ms)} price={entry_px:.8f} "
         f"SL={sl_px:.8f} ({SL_PCT}%) TP={tp_px:.8f} ({TP_PCT}%)"
+    )
+
+
+def open_god_trade(symbol: str, feed: SymbolFeed, side: str, setup: str, signal_ms: int, entry_px: float) -> None:
+    sl_px, tp_px = sl_tp_prices(side, entry_px)
+    t = ActiveTrade(symbol, side, setup, signal_ms, signal_ms, entry_px, sl_px, tp_px)
+    feed.god_trades.append(t)
+    god_stats["entries"] += 1
+    if setup in god_stats:
+        god_stats[setup] += 1
+    god_log(
+        f"[ENTRY] {symbol} {side.upper()} setup={setup} @ {utc_iso(signal_ms)} price={entry_px:.8f} "
+        f"SL={sl_px:.8f} ({SL_PCT}%) TP={tp_px:.8f} ({TP_PCT}%) open={len(feed.god_trades)}"
     )
 
 
@@ -376,13 +475,23 @@ def detect_sr_on_close(symbol: str, feed: SymbolFeed, bar: Bar) -> None:
         stats["skipped_busy"] += 1
         log(f"[SIGNAL_SKIP] {symbol} {sig_name} {side.upper()} — position open ({feed.trade.side})")
         return
-    if open_count() >= MAX_OPEN:
-        stats["skipped_max_open"] += 1
-        log(f"[SIGNAL_SKIP] {symbol} {sig_name} {side.upper()} — max_open={MAX_OPEN}")
-        return
 
     log(f"[SIGNAL] {symbol} {sig_name} → {side.upper()} @ {utc_iso(bar.ts)} close={bar.c:.8f}")
     open_trade(symbol, feed, side, sig_name, bar.ts, bar.c)
+
+
+def detect_god_on_close(symbol: str, feed: SymbolFeed, bar: Bar) -> None:
+    if not GODMODE_ENABLED:
+        return
+    gsig = feed.god.on_bar(bar)
+    if gsig is None:
+        return
+    god_stats["signals"] += 1
+    god_log(
+        f"[SIGNAL] {symbol} {gsig.setup} → {gsig.side.upper()} @ {utc_iso(bar.ts)} "
+        f"entry={gsig.entry_px:.8f} close={bar.c:.8f}"
+    )
+    open_god_trade(symbol, feed, gsig.side, gsig.setup, bar.ts, gsig.entry_px)
 
 
 def on_bar_close(symbol: str, bar: Bar) -> None:
@@ -397,9 +506,12 @@ def on_bar_close(symbol: str, bar: Bar) -> None:
 
     if not feed.warmed:
         feed.tracker.on_bar(bar)
+        if GODMODE_ENABLED:
+            feed.god.on_bar(bar)
         return
 
     detect_sr_on_close(symbol, feed, bar)
+    detect_god_on_close(symbol, feed, bar)
 
 
 def on_kline(symbol: str, k: dict) -> None:
@@ -421,6 +533,16 @@ def on_kline(symbol: str, k: dict) -> None:
             t.bars_held += 1
             if t.bars_held >= MAX_HOLD_BARS:
                 close_trade(feed, ts, cl, "timeout")
+
+    for gt in list(feed.god_trades):
+        update_mfe_mae(gt, hi, lo)
+        hit = check_exit(gt.side, hi, lo, gt.sl_px, gt.tp_px)
+        if hit:
+            close_god_trade(feed, gt, ts, hit[1], hit[0])
+        elif k.get("x"):
+            gt.bars_held += 1
+            if gt.bars_held >= MAX_HOLD_BARS:
+                close_god_trade(feed, gt, ts, cl, "timeout")
 
     if k.get("x"):
         stats["bars_closed"] += 1
@@ -449,35 +571,55 @@ async def ws_handler(conn_id: int, symbols: list[str]) -> None:
 async def stats_loop() -> None:
     while True:
         await asyncio.sleep(STATS_INTERVAL_SEC)
-        open_n = open_count()
         exits = stats["exits"]
         wr = (stats["wins"] / exits * 100) if exits else 0.0
         log(
-            f"[stats] warmed={stats['warmup_ready']}/{len(SYMBOLS)} mode={SIGNAL_MODE} "
+            f"[stats] chartprime warmed={stats['warmup_ready']}/{len(SYMBOLS)} mode={SIGNAL_MODE} "
             f"signals={stats['signals']} entries={stats['entries']} exits={exits} wr={wr:.1f}% "
             f"net=${stats['net_usd']:+.4f} tp={stats['tp']} sl={stats['sl']} timeout={stats['timeout']} "
-            f"open={open_n} sup_boxes={stats['sup_boxes']} res_boxes={stats['res_boxes']} "
-            f"bars_closed={stats['bars_closed']} "
-            f"busy_skips={stats['skipped_busy']} max_open_skips={stats['skipped_max_open']}"
+            f"open={cp_open_count()} bars_closed={stats['bars_closed']} busy_skips={stats['skipped_busy']}"
         )
+        if GODMODE_ENABLED:
+            g_exits = god_stats["exits"]
+            g_wr = (god_stats["wins"] / g_exits * 100) if g_exits else 0.0
+            god_log(
+                f"[stats] godmode signals={god_stats['signals']} entries={god_stats['entries']} "
+                f"exits={g_exits} wr={g_wr:.1f}% net=${god_stats['net_usd']:+.4f} "
+                f"tp={god_stats['tp']} sl={god_stats['sl']} timeout={god_stats['timeout']} "
+                f"open={god_open_count()} fakeout_sup={god_stats['fakeout_sup']} "
+                f"breakout_res={god_stats['breakout_res']} fakeout_res={god_stats['fakeout_res']}"
+            )
 
 
 async def main() -> None:
     global SYMBOLS
     init_trades_csv()
+    if GODMODE_ENABLED:
+        init_god_trades_csv()
     SYMBOLS = resolve_symbols()
     if not SYMBOLS:
         raise SystemExit("no symbols resolved")
     for sym in SYMBOLS:
-        feeds[sym] = SymbolFeed(tracker=SRTracker(LOOKBACK, VOL_LEN, BOX_WIDTH))
+        feeds[sym] = SymbolFeed(
+            tracker=SRTracker(LOOKBACK, VOL_LEN, BOX_WIDTH),
+            god=GodModeTracker(GOD_LOOKBACK, GOD_VOL_MA, GOD_VOL_SPIKE, GOD_WICK_RATIO, GOD_SKIP_BREAKDOWN),
+        )
 
     log(
         f"sr_chartprime | TF={INTERVAL} lookback={LOOKBACK} vol_len={VOL_LEN} box_width={BOX_WIDTH} | "
         f"symbols={len(SYMBOLS)} mode={WATCHLIST_MODE} notional=${NOTIONAL} "
-        f"SL={SL_PCT}% TP={TP_PCT}% max_open={MAX_OPEN} signals={SIGNAL_MODE}"
+        f"SL={SL_PCT}% TP={TP_PCT}% signals={SIGNAL_MODE} max_open=unlimited"
     )
     log(f"  log={LOG_FILE}")
     log(f"  trades={TRADES_CSV}")
+    if GODMODE_ENABLED:
+        god_log(
+            f"godmode | TF={INTERVAL} lookback={GOD_LOOKBACK} vol_spike={GOD_VOL_SPIKE} "
+            f"wick={GOD_WICK_RATIO} skip_breakdown={GOD_SKIP_BREAKDOWN} | symbols={len(SYMBOLS)} "
+            f"notional=${NOTIONAL} SL={SL_PCT}% TP={TP_PCT}% max_open=unlimited"
+        )
+        god_log(f"  log={GOD_LOG_FILE}")
+        god_log(f"  trades={GOD_TRADES_CSV}")
 
     await bootstrap_all()
 
