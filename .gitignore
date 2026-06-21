@@ -4,7 +4,6 @@ whale-day-pnl
 data/aggtrades/
 data/klines/
 data/vol5x/
-data/strategy_dry/
 data/structure_dry/
 data/focused/
 data/analysis/trail_sim_cache/

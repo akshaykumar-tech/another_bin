@@ -94,28 +94,28 @@ def _env_bool(name: str, fallback: str, default: bool) -> bool:
 
 load_dotenv()
 
-WS_ROOT = _env("ALMA_ST_WS_ROOT", "STRATEGY_DRY_WS_ROOT", "wss://fstream.binance.com").rstrip("/")
-FAPI = _env("ALMA_ST_FAPI", "STRATEGY_DRY_FAPI", "https://fapi.binance.com").rstrip("/")
-WS_CHUNK = _env_int("ALMA_ST_WS_CHUNK", "STRATEGY_DRY_WS_CHUNK", 80)
-WATCHLIST_MODE = _env("ALMA_ST_WATCHLIST_MODE", "STRATEGY_DRY_WATCHLIST_MODE", "all_perps").lower()
-WATCHLIST_SIZE = _env_int("ALMA_ST_WATCHLIST_SIZE", "STRATEGY_DRY_WATCHLIST_SIZE", 500)
-NOTIONAL = _env_float("ALMA_ST_NOTIONAL_USDT", "STRATEGY_DRY_NOTIONAL_USDT", 6.0)
-FEE_RT = _env_float("ALMA_ST_FEE_RT", "STRATEGY_DRY_FEE_RT", 0.0008)
+WS_ROOT = _env("ALMA_ST_WS_ROOT", "", "wss://fstream.binance.com").rstrip("/")
+FAPI = _env("ALMA_ST_FAPI", "", "https://fapi.binance.com").rstrip("/")
+WS_CHUNK = _env_int("ALMA_ST_WS_CHUNK", "", 80)
+WATCHLIST_MODE = _env("ALMA_ST_WATCHLIST_MODE", "", "all_perps").lower()
+WATCHLIST_SIZE = _env_int("ALMA_ST_WATCHLIST_SIZE", "", 500)
+NOTIONAL = _env_float("ALMA_ST_NOTIONAL_USDT", "", 6.0)
+FEE_RT = _env_float("ALMA_ST_FEE_RT", "", 0.0008)
 SL_PCT = _env_float("ALMA_ST_SL_PCT", "", 3.0)
 TP_PCT = _env_float("ALMA_ST_TP_PCT", "", 8.0)
 BAR_MS = 900_000
 MAX_HOLD_SEC = 96 * 900
-STATS_INTERVAL_SEC = _env_int("ALMA_ST_STATS_INTERVAL_SEC", "STRATEGY_DRY_STATS_INTERVAL_SEC", 1800)
+STATS_INTERVAL_SEC = _env_int("ALMA_ST_STATS_INTERVAL_SEC", "", 1800)
 EXCLUDE = {s.strip().upper() for s in _env("ALMA_ST_EXCLUDE", "", "SAHARAUSDT").split(",") if s.strip()}
 
-LIVE_TRADE = _env_bool("ALMA_ST_BINANCE_LIVE", "STRATEGY_DRY_LIVE_TRADE", False)
+LIVE_TRADE = _env_bool("ALMA_ST_BINANCE_LIVE", "", False)
 LIVE_MIRROR_SL_PCT = _env_float("ALMA_ST_LIVE_MIRROR_SL_PCT", "", 8.0)
 LIVE_MIRROR_TP_PCT = _env_float("ALMA_ST_LIVE_MIRROR_TP_PCT", "", 3.0)
 ALGO_WORKING_TYPE = _env("ALMA_ST_ALGO_WORKING_TYPE", "", "CONTRACT_PRICE").upper()
 LIVE_RECONCILE_SEC = _env_int("ALMA_ST_LIVE_RECONCILE_SEC", "", 60)
-MAX_OPEN_LIVE = _env_int("ALMA_ST_MAX_OPEN_LIVE", "STRATEGY_DRY_MAX_OPEN_LIVE", 30)
+MAX_OPEN_LIVE = _env_int("ALMA_ST_MAX_OPEN_LIVE", "", 30)
 MIN_LEVERAGE = _env_int("ALMA_ST_MIN_LEVERAGE", "", 50)
-MARGIN_BUFFER = _env_float("ALMA_ST_MARGIN_BUFFER", "STRATEGY_DRY_MARGIN_BUFFER", 1.05)
+MARGIN_BUFFER = _env_float("ALMA_ST_MARGIN_BUFFER", "", 1.05)
 LIVE_MIRROR_SKIP_BINANCE_LONG = _env_bool("ALMA_ST_LIVE_MIRROR_SKIP_BINANCE_LONG", "", False)
 LIVE_MIRROR_SKIP_BINANCE_SHORT = _env_bool("ALMA_ST_LIVE_MIRROR_SKIP_BINANCE_SHORT", "", False)
 LIVE_MIRROR_RUNNER = "dual_flip_consensus"
@@ -336,7 +336,7 @@ def fetch_lowest_volume_perps(n: int) -> list[str]:
 
 
 def resolve_symbols() -> list[str]:
-    manual = _env("ALMA_ST_SYMBOLS", "STRATEGY_DRY_SYMBOLS", "")
+    manual = _env("ALMA_ST_SYMBOLS", "", "")
     if manual:
         syms = [s.strip().upper() for s in manual.split(",") if s.strip()]
     elif WATCHLIST_MODE == "lowest_volume":
@@ -355,12 +355,12 @@ feeds: dict[str, SymbolFeed] = {}
 
 def init_binance_client() -> None:
     global binance
-    api_key = _env("ALMA_ST_BINANCE_API_KEY", "STRATEGY_DRY_BINANCE_API_KEY", "")
+    api_key = _env("ALMA_ST_BINANCE_API_KEY", "BINANCE_API_KEY", "")
     if not api_key:
-        api_key = _env("BINANCE_API_KEY", "FOCUSED_BINANCE_API_KEY", "")
-    api_secret = _env("ALMA_ST_BINANCE_API_SECRET", "STRATEGY_DRY_BINANCE_API_SECRET", "")
+        api_key = _env("FOCUSED_BINANCE_API_KEY", "", "")
+    api_secret = _env("ALMA_ST_BINANCE_API_SECRET", "BINANCE_API_SECRET", "")
     if not api_secret:
-        api_secret = _env("BINANCE_API_SECRET", "FOCUSED_BINANCE_API_SECRET", "")
+        api_secret = _env("FOCUSED_BINANCE_API_SECRET", "", "")
     if not api_key or not api_secret:
         return
     binance = BinanceFuturesClient(api_key, api_secret, FAPI)
@@ -1103,7 +1103,7 @@ async def main() -> None:
     if LIVE_TRADE and (binance is None or not binance.configured()):
         raise SystemExit(
             "ALMA_ST_BINANCE_LIVE requires ALMA_ST_BINANCE_API_KEY/SECRET "
-            "(or STRATEGY_DRY_BINANCE_API_KEY/SECRET / BINANCE_API_KEY/SECRET)"
+            "(or BINANCE_API_KEY/SECRET / FOCUSED_BINANCE_API_KEY/SECRET)"
         )
     SYMBOLS = filter_symbols_by_leverage(SYMBOLS)
     if not SYMBOLS:
