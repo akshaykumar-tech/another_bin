@@ -191,7 +191,7 @@ class SRTracker:
         self.is_buy = True
         self.st = SRState()
         for b in bars:
-            self._append(b)
+            self.on_bar(b)
 
     def on_bar(self, bar: Bar) -> SRSignals:
         if self.bars and self.bars[-1].ts == bar.ts:

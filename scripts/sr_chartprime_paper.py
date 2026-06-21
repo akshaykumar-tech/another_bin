@@ -21,6 +21,7 @@ import os
 import sys
 import time
 import urllib.request
+from urllib.parse import quote
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -171,22 +172,28 @@ def _http_json(url: str, retries: int = 5) -> object:
     raise RuntimeError("http failed")
 
 
+def _filter_ascii_symbols(syms: list[str]) -> list[str]:
+    return [s for s in syms if s.isascii()]
+
+
 def resolve_symbols() -> list[str]:
     manual = _env("SR_CHARTPRIME_SYMBOLS", "")
     if manual:
-        return [s.strip().upper() for s in manual.split(",") if s.strip()]
+        return _filter_ascii_symbols([s.strip().upper() for s in manual.split(",") if s.strip()])
     if WATCHLIST_MODE == "local":
         syms = sorted(p.stem for p in KDIR.glob("*.csv"))
         if not syms:
             syms = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
-        return syms[:WATCHLIST_SIZE] if WATCHLIST_SIZE > 0 else syms
+        out = syms[:WATCHLIST_SIZE] if WATCHLIST_SIZE > 0 else syms
+        return _filter_ascii_symbols(out)
     if WATCHLIST_MODE == "all_perps":
         info = _http_json(f"{FAPI}/fapi/v1/exchangeInfo")
-        return [
+        out = [
             s["symbol"]
             for s in info["symbols"]
             if s.get("contractType") == "PERPETUAL" and s.get("quoteAsset") == "USDT" and s.get("status") == "TRADING"
         ][:WATCHLIST_SIZE]
+        return _filter_ascii_symbols(out)
     raise ValueError(f"unsupported SR_CHARTPRIME_WATCHLIST_MODE: {WATCHLIST_MODE!r}")
 
 
@@ -233,7 +240,7 @@ def init_trades_csv() -> None:
 
 
 def fetch_klines(symbol: str, limit: int) -> list[Bar]:
-    url = f"{FAPI}/fapi/v1/klines?symbol={symbol}&interval={INTERVAL}&limit={limit}"
+    url = f"{FAPI}/fapi/v1/klines?symbol={quote(symbol)}&interval={INTERVAL}&limit={limit}"
     rows = _http_json(url)
     now_period = (int(time.time() * 1000) // BAR_MS) * BAR_MS
     out: list[Bar] = []
@@ -281,6 +288,12 @@ async def bootstrap_all() -> None:
     if not SYMBOLS:
         raise SystemExit("bootstrap failed — no symbols loaded (check network / Binance API)")
     log(f"[bootstrap] warmed={stats['warmup_ready']}/{len(SYMBOLS)} skipped={skipped}")
+    with_sr = sum(
+        1
+        for s in SYMBOLS
+        if feeds[s].tracker.st.support is not None or feeds[s].tracker.st.resistance is not None
+    )
+    log(f"[bootstrap] symbols_with_sr_levels={with_sr}/{len(SYMBOLS)}")
 
 
 def update_mfe_mae(t: ActiveTrade, hi: float, lo: float) -> None:

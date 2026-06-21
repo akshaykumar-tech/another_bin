@@ -22,6 +22,7 @@ import os
 import sys
 import time
 import urllib.request
+from urllib.parse import quote
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -171,23 +172,29 @@ def _http_json(url: str, retries: int = 5) -> object:
     raise RuntimeError("http failed")
 
 
+def _filter_ascii_symbols(syms: list[str]) -> list[str]:
+    return [s for s in syms if s.isascii()]
+
+
 def resolve_symbols() -> list[str]:
     manual = _env("ZIGZAG_PA_SYMBOLS", "")
     if manual:
-        return [s.strip().upper() for s in manual.split(",") if s.strip()]
+        return _filter_ascii_symbols([s.strip().upper() for s in manual.split(",") if s.strip()])
     if WATCHLIST_MODE == "local":
         syms = sorted(p.stem for p in KDIR.glob("*.csv"))
         if not syms:
             syms = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
-        return syms[:WATCHLIST_SIZE] if WATCHLIST_SIZE > 0 else syms
+        out = syms[:WATCHLIST_SIZE] if WATCHLIST_SIZE > 0 else syms
+        return _filter_ascii_symbols(out)
     if WATCHLIST_MODE == "all_perps":
         info = _http_json(f"{FAPI}/fapi/v1/exchangeInfo")
-        return [
+        out = [
             s["symbol"]
             for s in info["symbols"]
             if s.get("contractType") == "PERPETUAL" and s.get("quoteAsset") == "USDT" and s.get("status") == "TRADING"
         ][:WATCHLIST_SIZE]
-    raise ValueError(f"unsupported ZIGZAG_PA_WATCHLIST_MODE: {WATCHLIST_MODE!r}")
+        return _filter_ascii_symbols(out)
+    raise ValueError(f"unsupported ZIGZAG_PA_WATCHLIST_MODE: {WIGZAG_PA_WATCHLIST_MODE!r}")
 
 
 def pnl_usd(side: str, entry: float, exit_px: float) -> float:
@@ -214,7 +221,7 @@ def init_trades_csv() -> None:
 
 
 def fetch_klines(symbol: str, interval: str, limit: int) -> list[Bar]:
-    url = f"{FAPI}/fapi/v1/klines?symbol={symbol}&interval={interval}&limit={limit}"
+    url = f"{FAPI}/fapi/v1/klines?symbol={quote(symbol)}&interval={interval}&limit={limit}"
     rows = _http_json(url)
     now_period = (int(time.time() * 1000) // BAR_MS) * BAR_MS
     out: list[Bar] = []
@@ -247,6 +254,24 @@ def last5_pivots(feed: SymbolFeed) -> tuple[float, float, float, float, float] |
         return None
     prices = [px for _, px in pivots[-5:]]
     return prices[0], prices[1], prices[2], prices[3], prices[4]
+
+
+def seed_cur_1h(feed: SymbolFeed) -> None:
+    """Continue building the in-progress 1h bar from bootstrap 5m history."""
+    if not feed.bars_5m:
+        return
+    last_ts = feed.bars_5m[-1].ts
+    period = (last_ts // BAR_1H) * BAR_1H
+    hour_bars = [b for b in feed.bars_5m if (b.ts // BAR_1H) * BAR_1H == period]
+    if not hour_bars:
+        return
+    feed.cur_1h = {
+        "ts": period,
+        "o": hour_bars[0].o,
+        "h": max(b.h for b in hour_bars),
+        "l": min(b.l for b in hour_bars),
+        "c": hour_bars[-1].c,
+    }
 
 
 def finalize_1h(feed: SymbolFeed, bar_5m: Bar) -> None:
@@ -330,7 +355,10 @@ def on_5m_close(symbol: str, feed: SymbolFeed, bar: Bar) -> None:
     if feed.bars_5m and feed.bars_5m[-1].ts == bar.ts:
         return
     feed.bars_5m.append(bar)
+    prev_1h = len(feed.bars_1h)
     finalize_1h(feed, bar)
+    if len(feed.bars_1h) > prev_1h:
+        log(f"[1H_BAR] {symbol} closed ts={utc_iso(feed.bars_1h[-1].ts)} count={len(feed.bars_1h)}")
 
     if len(feed.bars_1h) < WARMUP_1H and feed.cur_1h:
         if len(feed.bars_1h) >= WARMUP_1H - 1:
@@ -424,6 +452,7 @@ def prime_feed(symbol: str) -> int:
     for b in bars_1h:
         if not feed.bars_1h or feed.bars_1h[-1].ts != b.ts:
             feed.bars_1h.append(b)
+    seed_cur_1h(feed)
     if len(feed.bars_1h) >= WARMUP_1H:
         feed.warmed = True
         stats["warmup_ready"] += 1
