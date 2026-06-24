@@ -33,6 +33,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from binance_futures import BinanceFuturesClient, parse_fill
+from paper_stats_lib import TypeStatsBook, unrealized_usd
 from sr_chartprime_lib import Bar, SRTracker, entry_side, signal_name
 from sr_godmode_lib import GodModeTracker
 
@@ -179,6 +180,9 @@ god_stats = {
     "retest_sup": 0,
 }
 
+cp_type_stats = TypeStatsBook()
+god_type_stats = TypeStatsBook()
+
 
 @dataclass
 class ActiveTrade:
@@ -202,6 +206,7 @@ class SymbolFeed:
     trade: ActiveTrade | None = None
     god_trades: list[ActiveTrade] = field(default_factory=list)
     warmed: bool = False
+    last_close: float = 0.0
 
 
 feeds: dict[str, SymbolFeed] = {}
@@ -767,6 +772,7 @@ def close_trade(feed: SymbolFeed, exit_ms: int, exit_px: float, reason: str) -> 
         stats["wins"] += 1
     if reason in stats:
         stats[reason] += 1
+    cp_type_stats.get(t.signal).record_exit(reason, net)
     hold = exit_ms - t.entry_ms
     log(
         f"[EXIT] {t.symbol} {t.side.upper()} signal={t.signal} reason={reason} "
@@ -794,6 +800,7 @@ def close_god_trade(feed: SymbolFeed, t: ActiveTrade, exit_ms: int, exit_px: flo
         god_stats["wins"] += 1
     if reason in god_stats:
         god_stats[reason] += 1
+    god_type_stats.get(t.signal).record_exit(reason, net)
     god_log(
         f"[EXIT] {t.symbol} {t.side.upper()} setup={t.signal} reason={reason} "
         f"entry={t.entry_px:.8f} exit={exit_px:.8f} net=${net:+.4f} hold={t.bars_held}bars "
@@ -817,6 +824,7 @@ def open_trade(symbol: str, feed: SymbolFeed, side: str, sig_name: str, signal_m
     sl_px, tp_px = sl_tp_prices(side, entry_px)
     feed.trade = ActiveTrade(symbol, side, sig_name, signal_ms, signal_ms, entry_px, sl_px, tp_px)
     stats["entries"] += 1
+    cp_type_stats.get(sig_name).entries += 1
     log(
         f"[ENTRY] {symbol} {side.upper()} signal={sig_name} @ {utc_iso(signal_ms)} price={entry_px:.8f} "
         f"SL={sl_px:.8f} ({SL_PCT}%) TP={tp_px:.8f} ({TP_PCT}%)"
@@ -830,6 +838,7 @@ def open_god_trade(symbol: str, feed: SymbolFeed, side: str, setup: str, signal_
     god_stats["entries"] += 1
     if setup in god_stats:
         god_stats[setup] += 1
+    god_type_stats.get(setup).entries += 1
     god_log(
         f"[ENTRY] {symbol} {side.upper()} setup={setup} @ {utc_iso(signal_ms)} price={entry_px:.8f} "
         f"SL={sl_px:.8f} ({SL_PCT}%) TP={tp_px:.8f} ({TP_PCT}%) open={len(feed.god_trades)}"
@@ -864,9 +873,11 @@ def detect_sr_on_close(symbol: str, feed: SymbolFeed, bar: Bar) -> None:
     sig_name = signal_name(sig)
     bump_signal_stats(sig_name)
     stats["signals"] += 1
+    cp_type_stats.get(sig_name).signals += 1
 
     if feed.trade is not None:
         stats["skipped_busy"] += 1
+        cp_type_stats.get(sig_name).skipped += 1
         log(f"[SIGNAL_SKIP] {symbol} {sig_name} {side.upper()} — position open ({feed.trade.side})")
         return
 
@@ -881,6 +892,7 @@ def detect_god_on_close(symbol: str, feed: SymbolFeed, bar: Bar) -> None:
     if gsig is None:
         return
     god_stats["signals"] += 1
+    god_type_stats.get(gsig.setup).signals += 1
     god_log(
         f"[SIGNAL] {symbol} {gsig.setup} → {gsig.side.upper()} @ {utc_iso(bar.ts)} "
         f"entry={gsig.entry_px:.8f} close={bar.c:.8f}"
@@ -940,6 +952,7 @@ def on_kline(symbol: str, k: dict) -> None:
 
     if k.get("x"):
         stats["bars_closed"] += 1
+        feed.last_close = cl
         on_bar_close(symbol, Bar(ts, float(k["o"]), hi, lo, cl, vol))
 
 
@@ -973,6 +986,19 @@ async def stats_loop() -> None:
             f"net=${stats['net_usd']:+.4f} tp={stats['tp']} sl={stats['sl']} timeout={stats['timeout']} "
             f"open={cp_open_count()} bars_closed={stats['bars_closed']} busy_skips={stats['skipped_busy']}"
         )
+        cp_open: dict[str, int] = {}
+        cp_unrl: dict[str, float] = {}
+        for sym, feed in feeds.items():
+            if not feed.trade:
+                continue
+            key = feed.trade.signal
+            cp_open[key] = cp_open.get(key, 0) + 1
+            mark = feed.last_close or feed.trade.entry_px
+            cp_unrl[key] = cp_unrl.get(key, 0.0) + unrealized_usd(
+                feed.trade.side, feed.trade.entry_px, mark, NOTIONAL
+            )
+        for line in cp_type_stats.format_lines(cp_open, cp_unrl):
+            log(f"[stats_by_type]{line}")
         if GODMODE_ENABLED:
             g_exits = god_stats["exits"]
             g_wr = (god_stats["wins"] / g_exits * 100) if g_exits else 0.0
@@ -990,6 +1016,19 @@ async def stats_loop() -> None:
                     else ""
                 )
             )
+            god_open: dict[str, int] = {}
+            god_unrl: dict[str, float] = {}
+            for sym, feed in feeds.items():
+                mark = feed.last_close
+                for gt in feed.god_trades:
+                    key = gt.signal
+                    god_open[key] = god_open.get(key, 0) + 1
+                    px = mark or gt.entry_px
+                    god_unrl[key] = god_unrl.get(key, 0.0) + unrealized_usd(
+                        gt.side, gt.entry_px, px, NOTIONAL
+                    )
+            for line in god_type_stats.format_lines(god_open, god_unrl):
+                god_log(f"[stats_by_type]{line}")
 
 
 async def live_reconcile_loop() -> None:

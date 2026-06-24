@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from liquidity_grabs_lib import Bar, GrabState, GrabSignal, on_bar_confirmed
 from binance_futures import BinanceFuturesClient, parse_fill
+from paper_stats_lib import TypeStatsBook, unrealized_usd
 
 try:
     import websockets
@@ -144,6 +145,8 @@ stats = {
     "warmup_ready": 0,
 }
 
+type_stats = TypeStatsBook()
+
 
 @dataclass
 class ActiveTrade:
@@ -169,6 +172,7 @@ class SymbolFeed:
     trade: ActiveTrade | None = None
     warmed: bool = False
     last_closed_ts: int = 0
+    last_close: float = 0.0
 
 
 feeds: dict[str, SymbolFeed] = {}
@@ -633,6 +637,7 @@ def replay_bar(symbol: str, feed: SymbolFeed, bar: Bar, allow_trade: bool) -> No
         return
     if sig is not None:
         stats["signals"] += 1
+        type_stats.get(sig.grab_type).signals += 1
         if sig.grab_type == "buyside":
             stats["buyside"] += 1
         else:
@@ -676,12 +681,18 @@ def accept_signal(sig: GrabSignal) -> bool:
 
 
 def try_open(symbol: str, feed: SymbolFeed, sig: GrabSignal | None) -> None:
-    if sig is None or feed.trade is not None:
+    if sig is None:
+        return
+    key = sig.grab_type
+    if feed.trade is not None:
+        type_stats.get(key).skipped += 1
         return
     if not accept_signal(sig):
+        type_stats.get(key).skipped += 1
         stats["signals_skipped"] += 1
         return
     if MAX_OPEN > 0 and open_count() >= MAX_OPEN:
+        type_stats.get(key).skipped += 1
         stats["signals_skipped"] += 1
         log(f"[SIGNAL_SKIP] {symbol} {sig.side} {sig.grab_type} — max_open={MAX_OPEN}")
         return
@@ -699,6 +710,7 @@ def try_open(symbol: str, feed: SymbolFeed, sig: GrabSignal | None) -> None:
         tp_px=tp_px,
     )
     stats["entries"] += 1
+    type_stats.get(key).entries += 1
     sym = feed.trade.symbol
     log(
         f"[ENTRY] {sym} {sig.side.upper()} grab={sig.grab_type} sz={sig.grab_size} "
@@ -720,6 +732,7 @@ def close_trade(feed: SymbolFeed, exit_ms: int, exit_px: float, reason: str) -> 
         stats["wins"] += 1
     if reason in stats:
         stats[reason] += 1
+    type_stats.get(t.grab_type).record_exit(reason, net)
     log(
         f"[EXIT] {t.symbol} {t.side.upper()} grab={t.grab_type} sz={t.grab_size} reason={reason} "
         f"entry={t.entry_px:.8f} exit={exit_px:.8f} net=${net:+.4f} hold={t.bars_held}bars "
@@ -803,6 +816,7 @@ def on_kline(symbol: str, k: dict) -> None:
     if ts == feed.last_closed_ts:
         return
     feed.last_closed_ts = ts
+    feed.last_close = cl
 
     bar = Bar(ts, float(k["o"]), hi, lo, cl, float(k.get("v", 0)))
     replay_bar(symbol, feed, bar, allow_trade=True)
@@ -847,6 +861,19 @@ async def stats_loop() -> None:
                 else ""
             )
         )
+        open_counts: dict[str, int] = {}
+        unrealized_by: dict[str, float] = {}
+        for sym, feed in feeds.items():
+            if not feed.trade:
+                continue
+            key = feed.trade.grab_type
+            open_counts[key] = open_counts.get(key, 0) + 1
+            mark = feed.last_close or feed.trade.entry_px
+            unrealized_by[key] = unrealized_by.get(key, 0.0) + unrealized_usd(
+                feed.trade.side, feed.trade.entry_px, mark, NOTIONAL
+            )
+        for line in type_stats.format_lines(open_counts, unrealized_by):
+            log(f"[stats_by_type]{line}")
 
 
 async def live_reconcile_loop() -> None:
