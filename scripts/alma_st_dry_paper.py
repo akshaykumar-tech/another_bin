@@ -356,11 +356,7 @@ feeds: dict[str, SymbolFeed] = {}
 def init_binance_client() -> None:
     global binance
     api_key = _env("ALMA_ST_BINANCE_API_KEY", "BINANCE_API_KEY", "")
-    if not api_key:
-        api_key = _env("FOCUSED_BINANCE_API_KEY", "", "")
     api_secret = _env("ALMA_ST_BINANCE_API_SECRET", "BINANCE_API_SECRET", "")
-    if not api_secret:
-        api_secret = _env("FOCUSED_BINANCE_API_SECRET", "", "")
     if not api_key or not api_secret:
         return
     binance = BinanceFuturesClient(api_key, api_secret, FAPI)
@@ -1103,7 +1099,7 @@ async def main() -> None:
     if LIVE_TRADE and (binance is None or not binance.configured()):
         raise SystemExit(
             "ALMA_ST_BINANCE_LIVE requires ALMA_ST_BINANCE_API_KEY/SECRET "
-            "(or BINANCE_API_KEY/SECRET / FOCUSED_BINANCE_API_KEY/SECRET)"
+            "(or BINANCE_API_KEY/SECRET)"
         )
     SYMBOLS = filter_symbols_by_leverage(SYMBOLS)
     if not SYMBOLS:
