@@ -8,7 +8,6 @@ data/structure_dry/
 data/focused/
 data/sr_chartprime/
 data/liq_grabs/
-data/smc_sd/
 data/analysis/trail_sim_cache/
 data/analysis/trail_sim_cache_v2/
 scripts/__pycache__/
