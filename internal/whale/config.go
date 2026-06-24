@@ -16,7 +16,6 @@ const (
 	StrategyFlash    = "flash"
 	StrategyBookLead = "booklead"
 	StrategyBurst    = "burst"
-	StrategyEarly    = "early"
 )
 
 type Config struct {
@@ -33,12 +32,10 @@ type Config struct {
 	Flash    FlashConfig    `yaml:"flash"`
 	BookLead BookLeadConfig `yaml:"booklead"`
 	Burst    BurstConfig    `yaml:"burst"`
-	Early    EarlyWatchConfig `yaml:"early"`
 	Risk      Risk         `yaml:"risk"`
 	WebSocket WebSocketCfg `yaml:"websocket"`
 
 	DryRun           bool    `yaml:"dry_run"`
-	EarlyLiveTrade   bool    `yaml:"early_live_trade"` // EARLY_LIVE_TRADE: real Binance orders
 	// ReverseTrade: execute opposite of burst signal (signal BUY → trade SELL). Same detector, flipped PnL.
 	ReverseTrade     bool    `yaml:"reverse_trade"`
 	ReverseLive      bool    `yaml:"reverse_live"` // WHALE_REVERSE_LIVE: real Binance orders (opposite if reverse_trade)
@@ -59,15 +56,6 @@ type Config struct {
 	AllocationPercent float64 `yaml:"-"`
 	Leverage            int     `yaml:"-"`
 	MarginUSDT          float64 `yaml:"-"` // fixed margin per trade when > 0 (overrides alloc %)
-	// Early dry paths (EARLY_SAME_* / EARLY_REVERSE_* env); fallback to MarginUSDT/Leverage.
-	EarlySameMarginUSDT        float64 `yaml:"-"`
-	EarlySameAllocationPercent float64 `yaml:"-"`
-	EarlySameLeverage          int     `yaml:"-"`
-	EarlyReverseMarginUSDT        float64 `yaml:"-"`
-	EarlyReverseAllocationPercent float64 `yaml:"-"`
-	EarlyReverseLeverage          int     `yaml:"-"`
-	EarlyNotionalUSDT             float64 `yaml:"-"` // EARLY_NOTIONAL_USDT: fixed live order notional
-	EarlyMaxOpenLive              int     `yaml:"-"` // EARLY_MAX_OPEN_LIVE: max concurrent Binance positions (default 3)
 	CooldownSec        float64 `yaml:"cooldown_sec"`
 	FocusCooldownSec   float64 `yaml:"focus_cooldown_sec"` // pause all symbols after trade closes (default 120)
 	MaxOpenPositions   int     `yaml:"max_open_positions"`
@@ -570,7 +558,7 @@ func (c *Config) ResolveWatchlist(client *binance.FuturesClient, perps []string)
 func (c *Config) TuneForSymbolCount() {
 	n := len(c.Symbols)
 	maxPerConn := 80
-	if c.UsesBurst() || c.UsesFlash() || c.UsesEarly() {
+	if c.UsesBurst() || c.UsesFlash() {
 		maxPerConn = 80
 	} else if c.UsesBookLead() {
 		maxPerConn = 40 // depth+aggTrade = 2 streams per symbol
@@ -597,10 +585,6 @@ func (c *Config) UsesFlash() bool {
 func (c *Config) UsesBurst() bool {
 	s := strings.ToLower(strings.TrimSpace(c.Strategy))
 	return s == StrategyBurst
-}
-
-func (c *Config) UsesEarly() bool {
-	return strings.EqualFold(strings.TrimSpace(c.Strategy), StrategyEarly)
 }
 
 func (c *Config) UsesBookLead() bool {

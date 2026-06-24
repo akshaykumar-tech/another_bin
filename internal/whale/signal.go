@@ -15,7 +15,6 @@ const (
 	SignalFlash    SignalKind = "flash"
 	SignalBookLead SignalKind = "booklead"
 	SignalBurst    SignalKind = "burst"
-	SignalEarly    SignalKind = "early"
 )
 
 type Signal struct {
