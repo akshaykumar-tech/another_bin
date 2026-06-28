@@ -332,7 +332,7 @@ class BinanceFuturesClient:
         cancelled = 0
         for row in self.open_algo_orders(symbol):
             ot = str(row.get("orderType") or row.get("type") or "").upper()
-            if ot not in ("TAKE_PROFIT_MARKET", "TAKE_PROFIT"):
+            if ot not in ("TAKE_PROFIT_MARKET", "TAKE_PROFIT", "TAKE_PROFIT_LIMIT"):
                 continue
             algo_id = row.get("algoId")
             if algo_id is None:
@@ -395,24 +395,25 @@ class BinanceFuturesClient:
         trigger_price: float,
         qty: float,
         working_type: str = "MARK_PRICE",
+        limit_price: float | None = None,
     ) -> dict[str, Any]:
         sym = symbol.upper()
         rules = self.lot_rules.get(sym, LotRules())
         q = self._format_qty(sym, qty)
-        return self._signed_post(
-            "/fapi/v1/algoOrder",
-            {
-                "algoType": "CONDITIONAL",
-                "symbol": sym,
-                "side": side.upper(),
-                "type": order_type,
-                "triggerPrice": self._price_str(trigger_price, rules.tick_size),
-                "quantity": self._qty_str(q, rules.step_size),
-                "reduceOnly": "true",
-                "workingType": working_type,
-                "newOrderRespType": "RESULT",
-            },
-        )
+        params: dict[str, str] = {
+            "algoType": "CONDITIONAL",
+            "symbol": sym,
+            "side": side.upper(),
+            "type": order_type,
+            "triggerPrice": self._price_str(trigger_price, rules.tick_size),
+            "quantity": self._qty_str(q, rules.step_size),
+            "reduceOnly": "true",
+            "workingType": working_type,
+            "newOrderRespType": "RESULT",
+        }
+        if limit_price is not None:
+            params["price"] = self._price_str(limit_price, rules.tick_size)
+        return self._signed_post("/fapi/v1/algoOrder", params)
 
     def stop_market_reduce(
         self,
@@ -439,6 +440,53 @@ class BinanceFuturesClient:
         return self._algo_reduce_order(
             symbol, side, "TAKE_PROFIT_MARKET", trigger_price, qty, working_type
         )
+
+    def take_profit_limit_reduce(
+        self,
+        symbol: str,
+        side: str,
+        trigger_price: float,
+        limit_price: float,
+        qty: float,
+        working_type: str = "MARK_PRICE",
+    ) -> dict[str, Any]:
+        """Take-profit limit: trigger and fill both at limit_price (no market slippage)."""
+        return self._algo_reduce_order(
+            symbol,
+            side,
+            "TAKE_PROFIT",
+            trigger_price,
+            qty,
+            working_type,
+            limit_price=limit_price,
+        )
+
+    def stop_limit_reduce(
+        self,
+        symbol: str,
+        side: str,
+        trigger_price: float,
+        limit_price: float,
+        qty: float,
+        working_type: str = "MARK_PRICE",
+    ) -> dict[str, Any]:
+        """Stop-loss limit: trigger and fill both at limit_price."""
+        return self._algo_reduce_order(
+            symbol,
+            side,
+            "STOP",
+            trigger_price,
+            qty,
+            working_type,
+            limit_price=limit_price,
+        )
+
+    def round_price(self, symbol: str, price: float) -> float:
+        """Snap price to symbol tick size (Binance PRICE_FILTER)."""
+        sym = symbol.upper()
+        rules = self.lot_rules.get(sym, LotRules())
+        s = self._price_str(price, rules.tick_size)
+        return float(s) if s else price
 
     def last_price(self, symbol: str) -> float:
         data = self._http(
@@ -536,7 +584,7 @@ class BinanceFuturesClient:
         sym = symbol.upper()
         rules = self.lot_rules.get(sym, LotRules())
         q = self._format_qty(sym, qty, limit_price)
-        return self._signed_post(
+        out = self._signed_post(
             "/fapi/v1/order",
             {
                 "symbol": sym,
@@ -549,6 +597,8 @@ class BinanceFuturesClient:
                 "newOrderRespType": "RESULT",
             },
         )
+        self.invalidate_position_cache()
+        return out
 
     def query_order(self, symbol: str, order_id: int) -> dict[str, Any]:
         return self._signed_get(

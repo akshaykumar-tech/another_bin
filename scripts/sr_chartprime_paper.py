@@ -13,7 +13,7 @@ God-mode signals (godmode_dry.log / godmode_dry_trades.csv) — dry for all setu
   LONG  — fakeout_sup, breakout_res, retest_res
   SHORT — fakeout_res (breakdown_sup skipped by default)
 
-Live (SR_GODMODE_LIVE_ENABLED=true): fakeout_res only — SHORT on Binance, exchange SL/TP.
+Live (SR_GODMODE_LIVE_ENABLED=true): fakeout_res only — SHORT on Binance, limit SL/TP from entry fill.
 """
 from __future__ import annotations
 
@@ -267,6 +267,34 @@ def live_sl_tp(entry: float, live_side: str) -> tuple[float, float]:
     return entry * (1 + LIVE_SL_PCT / 100), entry * (1 - LIVE_TP_PCT / 100)
 
 
+def live_sl_tp_rounded(sym: str, entry: float, live_side: str) -> tuple[float, float]:
+    """SL/TP from actual entry fill, snapped to exchange tick size."""
+    sl_px, tp_px = live_sl_tp(entry, live_side)
+    if binance is None:
+        return sl_px, tp_px
+    return binance.round_price(sym, sl_px), binance.round_price(sym, tp_px)
+
+
+def _place_live_bracket_orders(
+    sym: str, live_side: str, entry: float, qty: float
+) -> tuple[float, float, dict, dict]:
+    """Exchange SL/TP limit algos at exact prices derived from entry fill."""
+    sl_px, tp_px = live_sl_tp_rounded(sym, entry, live_side)
+    close_side = close_order_side_from_live(live_side)
+    sl_resp = binance.stop_limit_reduce(
+        sym, close_side, sl_px, sl_px, qty, working_type=LIVE_ALGO_WORKING_TYPE
+    )
+    tp_resp = binance.take_profit_limit_reduce(
+        sym, close_side, tp_px, tp_px, qty, working_type=LIVE_ALGO_WORKING_TYPE
+    )
+    return sl_px, tp_px, sl_resp, tp_resp
+
+
+def _limit_close_at(sym: str, close_side: str, qty: float, limit_px: float) -> dict:
+    """Close at exact limit price (no market slippage)."""
+    return binance.limit_close_qty(sym, close_side, qty, limit_px)
+
+
 def close_order_side_from_live(live_side: str) -> str:
     return "SELL" if live_side == "long" else "BUY"
 
@@ -333,7 +361,7 @@ def _seed_live_slots_sync() -> int:
             continue
         live_side = "long" if amt > 0 else "short"
         entry = float(row.get("entryPrice") or 0)
-        sl_px, tp_px = live_sl_tp(entry, live_side) if entry > 0 else (0.0, 0.0)
+        sl_px, tp_px = live_sl_tp_rounded(sym, entry, live_side) if entry > 0 else (0.0, 0.0)
         live_slots[sym] = {
             "dry_side": "unknown",
             "qty": qty,
@@ -370,7 +398,7 @@ def _refresh_live_tp_orders_sync() -> tuple[list[tuple], list[tuple], list[tuple
             if entry <= 0:
                 failed.append((sym, "no entry price"))
                 continue
-            sl_px, tp_px = live_sl_tp(entry, live_side)
+            sl_px, tp_px = live_sl_tp_rounded(sym, entry, live_side)
             close_side = close_order_side_from_live(live_side)
             px = binance.last_price(sym)
             old_tp = float(slot.get("tp_px") or 0)
@@ -379,16 +407,17 @@ def _refresh_live_tp_orders_sync() -> tuple[list[tuple], list[tuple], list[tuple
                     binance.cancel_all_algo_orders(sym)
                 except Exception:
                     pass
-                binance.market_close_qty(sym, close_side, qty)
+                _limit_close_at(sym, close_side, qty, tp_px)
                 if binance.position_qty(sym) > 0:
-                    binance.market_close_qty(sym, close_side, binance.position_qty(sym))
+                    _limit_close_at(sym, close_side, binance.position_qty(sym), tp_px)
                 live_slots.pop(sym, None)
                 closed.append((sym, px, tp_px))
                 continue
-            binance.cancel_tp_algo_orders(sym)
-            tp_resp = binance.take_profit_market_reduce(
-                sym, close_side, tp_px, qty, working_type=LIVE_ALGO_WORKING_TYPE
-            )
+            try:
+                binance.cancel_all_algo_orders(sym)
+            except Exception:
+                pass
+            sl_px, tp_px, sl_resp, tp_resp = _place_live_bracket_orders(sym, live_side, entry, qty)
             live_slots[sym] = {
                 **slot,
                 "qty": qty,
@@ -485,14 +514,14 @@ async def live_entry(symbol: str, dry_side: str, ref_px: float) -> None:
                     qty = binance.position_qty(sym)
                 if entry <= 0:
                     entry = ref_px
+                row = binance.position_row(sym)
+                if row:
+                    ex_entry = float(row.get("entryPrice") or 0)
+                    if ex_entry > 0:
+                        entry = ex_entry
                 live_side = order_to_live_side(order_side)
-                sl_px, tp_px = live_sl_tp(entry, live_side)
-                close_side = close_order_side(dry_side)
-                sl_resp = binance.stop_market_reduce(
-                    sym, close_side, sl_px, qty, working_type=LIVE_ALGO_WORKING_TYPE
-                )
-                tp_resp = binance.take_profit_market_reduce(
-                    sym, close_side, tp_px, qty, working_type=LIVE_ALGO_WORKING_TYPE
+                sl_px, tp_px, sl_resp, tp_resp = _place_live_bracket_orders(
+                    sym, live_side, entry, qty
                 )
                 return lev, entry, qty, margin_needed, bal, live_side, sl_px, tp_px, sl_resp, tp_resp
 
@@ -514,7 +543,7 @@ async def live_entry(symbol: str, dry_side: str, ref_px: float) -> None:
                 f"[LIVE_ENTRY] {sym} setup={LIVE_SETUP} dry={dry_side.upper()} binance={order_side} "
                 f"fill={entry:.8f} qty={qty:.8f} notional=${LIVE_NOTIONAL:.2f} lev={lev}x "
                 f"margin~=${margin_needed:.2f} bal=${bal:.2f} ref={ref_px:.8f} "
-                f"SL={sl_px:.8f} ({LIVE_SL_PCT}%) TP={tp_px:.8f} ({LIVE_TP_PCT}%) "
+                f"SL={sl_px:.8f} ({LIVE_SL_PCT}%) TP={tp_px:.8f} ({LIVE_TP_PCT}%) limit_from_entry "
                 f"sl_algo={sl_resp.get('algoId', sl_resp.get('clientAlgoId', '?'))} "
                 f"tp_algo={tp_resp.get('algoId', tp_resp.get('clientAlgoId', '?'))}"
             )
@@ -540,12 +569,25 @@ async def live_exit(symbol: str, dry_side: str, reason: str) -> None:
             return 0.0, True
         slot_qty = float(slot["qty"]) if slot else pos_qty
         qty = min(pos_qty, slot_qty)
-        resp = binance.market_close_qty(sym, close_side, qty)
+        limit_px = 0.0
+        if slot:
+            if reason == "tp":
+                limit_px = float(slot.get("tp_px") or 0)
+            elif reason == "sl":
+                limit_px = float(slot.get("sl_px") or 0)
+        if limit_px > 0:
+            resp = _limit_close_at(sym, close_side, qty, limit_px)
+        else:
+            resp = binance.market_close_qty(sym, close_side, qty)
         exit_px, _ = parse_fill(resp)
         if exit_px <= 0:
-            exit_px = binance.mark_price(sym)
+            exit_px = limit_px if limit_px > 0 else binance.mark_price(sym)
         if binance.position_qty(sym) > 0:
-            binance.market_close_qty(sym, close_side, binance.position_qty(sym))
+            rem = binance.position_qty(sym)
+            if limit_px > 0:
+                _limit_close_at(sym, close_side, rem, limit_px)
+            else:
+                binance.market_close_qty(sym, close_side, rem)
         return exit_px, False
 
     try:
