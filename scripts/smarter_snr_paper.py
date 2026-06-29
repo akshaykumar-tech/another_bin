@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from smarter_snr_lib import Bar, SNRConfig, scan_signals  # noqa: E402
+from btc_corr_lib import BtcBucketBook, load_btc_corr_map, open_unrl_by_bucket  # noqa: E402
 from paper_stats_lib import unrealized_usd  # noqa: E402
 
 try:
@@ -87,6 +88,9 @@ BAR_HISTORY_MAX = _env_int("SNR_DRY_BAR_HISTORY_MAX", 400)
 STATS_INTERVAL_SEC = _env_int("SNR_DRY_STATS_INTERVAL_SEC", 1800)
 RUN_DAYS = _env_float("SNR_DRY_RUN_DAYS", 7.0)
 WARMUP_BARS = 80
+BTC_CORR_LINKED_MIN = _env_float("SNR_DRY_BTC_CORR_LINKED_MIN", 0.60)
+BTC_CORR_INDEP_MAX = _env_float("SNR_DRY_BTC_CORR_INDEP_MAX", 0.40)
+BTC_CORR_KLINES = _env_int("SNR_DRY_BTC_CORR_KLINES", 500)
 
 SNR_CFG = SNRConfig(signals="snr_cross")
 
@@ -111,6 +115,7 @@ class TypeStats:
 
 type_stats: dict[str, TypeStats] = defaultdict(TypeStats)
 stats_meta = {"bars_closed": 0, "warmup_ready": 0, "signals_seen": 0, "signals_skipped": 0}
+btc_bucket_book = BtcBucketBook(BTC_CORR_LINKED_MIN, BTC_CORR_INDEP_MAX)
 
 
 @dataclass
@@ -272,6 +277,7 @@ def close_trade(feed: SymbolFeed, exit_ms: int, exit_px: float, reason: str) -> 
     net = pnl_usd(t.side, t.entry_px, exit_px)
     st = type_stats[t.sig_type]
     st.real += net
+    btc_bucket_book.record_exit(t.symbol, reason, net)
     if reason == "tp":
         st.tp += 1
     elif reason == "sl":
@@ -311,6 +317,7 @@ def try_open(symbol: str, feed: SymbolFeed, sig) -> None:
         tp_px=tp_px,
     )
     type_stats[key].ent += 1
+    btc_bucket_book.record_entry(symbol)
     log(
         f"[ENTRY] {symbol} {key} {sig.side.upper()} @ {utc_iso(sig.ts)} "
         f"price={sig.entry:.8f} SL={sl_px:.8f} TP={tp_px:.8f} open={open_count()}"
@@ -369,6 +376,16 @@ async def bootstrap_all() -> None:
     if not SYMBOLS:
         raise SystemExit("bootstrap failed — no symbols loaded")
     log(f"[bootstrap] warmed={stats_meta['warmup_ready']}/{len(SYMBOLS)} skipped={skipped}")
+    log(f"[bootstrap] loading BTC correlation ({BTC_CORR_KLINES}×{INTERVAL})...")
+    loop = asyncio.get_running_loop()
+    corr = await loop.run_in_executor(
+        None,
+        lambda: load_btc_corr_map(SYMBOLS, FAPI, INTERVAL, BTC_CORR_KLINES),
+    )
+    btc_bucket_book.corr = corr
+    n_dep = sum(1 for c in corr.values() if c is not None and c >= BTC_CORR_LINKED_MIN)
+    n_indep = sum(1 for c in corr.values() if c is not None and c < BTC_CORR_INDEP_MAX)
+    log(f"[bootstrap] btc_dep={n_dep} btc_indep={n_indep}")
 
 
 def on_kline(symbol: str, k: dict) -> None:
@@ -451,6 +468,18 @@ def format_stats_table() -> str:
         "-" * 72,
         f"{'TOTAL':<10} {ent:>5} {tp:>5} {sl:>5} {to:>5} {opn:>5} "
         f"{real:>+8.2f} {unrl:>+8.2f} {comb:>+8.2f}",
+        "",
+    ])
+    opens: list[tuple[str, str, float, float]] = []
+    for sym, feed in feeds.items():
+        if not feed.trade:
+            continue
+        px = feed.last_close or feed.trade.entry_px
+        opens.append((sym, feed.trade.side, feed.trade.entry_px, px))
+    o_dep, o_indep, u_dep, u_indep = open_unrl_by_bucket(btc_bucket_book, opens, NOTIONAL)
+    for line in btc_bucket_book.format_lines(o_dep, o_indep, u_dep, u_indep):
+        lines.append(f"[stats_by_btc]{line}")
+    lines.extend([
         "",
         "Signals: s_co=support cross up LONG | s_cu=support cross down SHORT",
         "         r_co=resistance cross up LONG | r_cu=resistance cross down SHORT",
