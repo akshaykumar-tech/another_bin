@@ -50,6 +50,13 @@ class BtcBucketBook:
             return "btc_independent"
         return None
 
+    def is_btc_independent(self, sym: str) -> bool:
+        return self.bucket(sym) == "btc_independent"
+
+    def corr_str(self, sym: str) -> str:
+        c = self.corr.get(sym)
+        return f"{c:.2f}" if c is not None else "n/a"
+
     def _stats(self, bucket: str) -> BtcBucketStats:
         return self.dependent if bucket == "btc_dependent" else self.independent
 

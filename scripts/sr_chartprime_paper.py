@@ -26,6 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from admin_runtime_config import AdminRuntimeConfig
 from binance_futures import BinanceFuturesClient, parse_fill
 from btc_corr_lib import BtcBucketBook, load_btc_corr_map, open_unrl_by_bucket
 from paper_stats_lib import TypeStatsBook, unrealized_usd
@@ -134,10 +135,14 @@ LIVE_MIN_LEVERAGE = _env_int("SR_GODMODE_LIVE_MIN_LEVERAGE", 50)
 LIVE_MARGIN_BUFFER = _env_float("SR_GODMODE_LIVE_MARGIN_BUFFER", 1.05)
 LIVE_RECONCILE_SEC = _env_int("SR_GODMODE_LIVE_RECONCILE_SEC", 60)
 LIVE_ALGO_WORKING_TYPE = _env("SR_GODMODE_LIVE_ALGO_WORKING_TYPE", "CONTRACT_PRICE").upper()
+# all = live on every symbol | btc_independent = skip BTC-linked symbols (corr≥linked_min)
+LIVE_SYMBOL_SCOPE = _env("SR_GODMODE_LIVE_SYMBOL_SCOPE", "all").strip().lower()
+ADMIN_CONFIG_PATH = Path(_env("SR_GODMODE_ADMIN_CONFIG", str(ROOT / "data/admin/godmode_live.json")))
+admin_cfg = AdminRuntimeConfig(ADMIN_CONFIG_PATH)
 
 binance: BinanceFuturesClient | None = None
 live_slots: dict[str, dict] = {}
-live_stats = {"entries": 0, "exits": 0, "skips": 0}
+live_stats = {"entries": 0, "exits": 0, "skips": 0, "btc_scope_skips": 0}
 live_lock: asyncio.Lock | None = None
 
 RUN_TS = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -236,6 +241,25 @@ def god_log(msg: str) -> None:
     print(line, flush=True)
     with GOD_LOG_FILE.open("a", encoding="utf-8") as f:
         f.write(line + "\n")
+
+
+def current_live_symbol_scope() -> str:
+    return admin_cfg.live_symbol_scope(LIVE_SYMBOL_SCOPE)
+
+
+def live_symbol_allowed(sym: str) -> bool:
+    """Dry always trades; live gated when scope=btc_independent."""
+    if current_live_symbol_scope() == "all":
+        return True
+    return btc_bucket_book.is_btc_independent(sym)
+
+
+def log_live_scope_skip(sym: str) -> None:
+    live_stats["btc_scope_skips"] += 1
+    god_log(
+        f"[LIVE_SKIP] {sym} live_scope=btc_independent "
+        f"bucket={btc_bucket_book.bucket(sym) or 'gray'} corr={btc_bucket_book.corr_str(sym)}"
+    )
 
 
 def init_binance_client() -> None:
@@ -484,6 +508,8 @@ async def live_entry(symbol: str, dry_side: str, ref_px: float) -> None:
     if not LIVE_ENABLED or binance is None:
         return
     sym = symbol.upper()
+    if not live_symbol_allowed(sym):
+        return
     try:
         async with _live_lock():
             if sym in live_slots:
@@ -912,7 +938,10 @@ def open_god_trade(symbol: str, feed: SymbolFeed, side: str, setup: str, signal_
         f"SL={sl_px:.8f} ({SL_PCT}%) TP={tp_px:.8f} ({TP_PCT}%) open={len(feed.god_trades)}"
     )
     if LIVE_ENABLED and setup == LIVE_SETUP:
-        schedule_live_entry(symbol, side, entry_px)
+        if live_symbol_allowed(symbol):
+            schedule_live_entry(symbol, side, entry_px)
+        else:
+            log_live_scope_skip(symbol)
 
 
 def bump_signal_stats(sig_name: str) -> None:
@@ -1099,9 +1128,10 @@ async def stats_loop() -> None:
             f"tp={god_stats['tp']} sl={god_stats['sl']} timeout={god_stats['timeout']} "
             f"open={god_open_count()}"
             + (
-                f" | live_setup={LIVE_SETUP} live_open={live_open_count()} "
+                f" | live_setup={LIVE_SETUP} live_scope={current_live_symbol_scope()} "
+                f"live_open={live_open_count()} "
                 f"live_in={live_stats['entries']} live_out={live_stats['exits']} "
-                f"live_skip={live_stats['skips']}"
+                f"live_skip={live_stats['skips']} live_btc_skip={live_stats['btc_scope_skips']}"
                 if LIVE_ENABLED
                 else ""
             )
@@ -1157,8 +1187,10 @@ async def main() -> None:
         god_log(f"  log={GOD_LOG_FILE}")
         god_log(f"  trades={GOD_TRADES_CSV}")
         if LIVE_ENABLED:
+            scope = current_live_symbol_scope()
             god_log(
-                f"  live: ON setup={LIVE_SETUP} same side as dry | notional=${LIVE_NOTIONAL} "
+                f"  live: ON setup={LIVE_SETUP} scope={scope} "
+                f"(admin={ADMIN_CONFIG_PATH}) same side as dry | notional=${LIVE_NOTIONAL} "
                 f"max_open={LIVE_MAX_OPEN} min_lev={LIVE_MIN_LEVERAGE}x max_lev on entry "
                 f"SL={LIVE_SL_PCT}% TP={LIVE_TP_PCT}% working={LIVE_ALGO_WORKING_TYPE} "
                 f"reconcile={LIVE_RECONCILE_SEC}s margin_buf={LIVE_MARGIN_BUFFER}"
