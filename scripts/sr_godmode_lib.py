@@ -95,9 +95,9 @@ class GodModeTracker:
         sig: GodSignal | None = None
 
         if resistance and b.h > resistance and b.c < resistance and self._wick_up(b) >= self.wick_ratio and b.v > vma * self.vol_spike:
-            sig = GodSignal("short", "fakeout_res", resistance + zone_w * 0.3)
+            sig = GodSignal("short", "fakeout_res", b.c)
         elif support and b.l < support and b.c > support and self._wick_dn(b) >= self.wick_ratio and b.v > vma * self.vol_spike:
-            sig = GodSignal("long", "fakeout_sup", support - zone_w * 0.3)
+            sig = GodSignal("long", "fakeout_sup", b.c)
         elif resistance and prev.c <= resistance and b.c > resistance + zone_w * 0.15 and b.c > b.o and b.v > vma * self.vol_spike:
             self.st.pending = PendingRetest("long", resistance)
             sig = GodSignal("long", "breakout_res", b.c)
