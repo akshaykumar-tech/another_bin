@@ -152,7 +152,7 @@ class SymbolFeed:
 
 feeds: dict[str, SymbolFeed] = {}
 SYMBOLS: list[str] = []
-live_trader = SrLiveTrader(FAPI, lambda m: log(m), enabled=SNR_LIVE_ENABLED)
+live_trader: SrLiveTrader | None = None
 
 
 def signal_group(sig_type: str) -> str:
@@ -310,7 +310,7 @@ def close_trade(feed: SymbolFeed, exit_ms: int, exit_px: float, reason: str) -> 
     )
     sym, side, sig_type = t.symbol, t.side, t.sig_type
     feed.trade = None
-    if live_trader.enabled and is_live_group(sig_type):
+    if live_trader is not None and live_trader.enabled and is_live_group(sig_type):
         live_trader.schedule_exit(sym, side, reason, tag=f"group={LIVE_GROUP} signal={sig_type}")
     with TRADES_CSV.open("a", newline="", encoding="utf-8") as f:
         csv.writer(f).writerow(
@@ -345,7 +345,7 @@ def try_open(symbol: str, feed: SymbolFeed, sig) -> None:
         f"[ENTRY] {symbol} {key} {sig.side.upper()} @ {utc_iso(sig.ts)} "
         f"price={sig.entry:.8f} SL={sl_px:.8f} TP={tp_px:.8f} open={open_count()}"
     )
-    if live_trader.enabled and is_live_group(key):
+    if live_trader is not None and live_trader.enabled and is_live_group(key):
         live_trader.schedule_entry(symbol, sig.side, sig.entry, tag=f"group={LIVE_GROUP} signal={key}")
 
 
@@ -551,8 +551,9 @@ async def stats_loop() -> None:
 
 
 async def main() -> None:
-    global SYMBOLS
+    global SYMBOLS, live_trader
     init_trades_csv()
+    live_trader = SrLiveTrader(FAPI, log, enabled=SNR_LIVE_ENABLED)
     SYMBOLS = resolve_symbols()
     if not SYMBOLS:
         raise SystemExit("no symbols resolved")
