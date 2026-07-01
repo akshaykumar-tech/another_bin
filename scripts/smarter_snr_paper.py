@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """
-Dry paper: Smarter SnR snr_cross_tp15_sl8 — 300-symbol futures scan.
+Dry paper + optional live: Smarter SnR snr_cross_tp15_sl8 — 300-symbol futures scan.
 
   python3 scripts/smarter_snr_paper.py
 
 Every SNR_DRY_STATS_INTERVAL_SEC (default 30m) logs per-signal stats:
   signal, ent, tp, sl, to, open, real, unrl, comb
+
+Live (SNR_LIVE_ENABLED=true): r_cu group SHORT same-side on Binance;
+  sizing/SL/TP from SR_GODMODE_LIVE_NOTIONAL/SL/TP/MAX_OPEN/MIN_LEVERAGE keys.
 
 Runs for SNR_DRY_RUN_DAYS (default 7) then exits with final snapshot.
 """
@@ -30,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from smarter_snr_lib import Bar, SNRConfig, scan_signals  # noqa: E402
 from btc_corr_lib import BtcBucketBook, load_btc_corr_map, open_unrl_by_bucket  # noqa: E402
 from paper_stats_lib import unrealized_usd  # noqa: E402
+from sr_live_lib import SrLiveTrader  # noqa: E402
 
 try:
     import websockets
@@ -68,6 +72,11 @@ def _env_float(name: str, default: float) -> float:
     return float(_env(name, str(default)))
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    v = _env(name, "true" if default else "false").lower()
+    return v in ("1", "true", "yes", "on")
+
+
 load_dotenv()
 
 WS_ROOT = _env("SNR_DRY_WS_ROOT", "wss://fstream.binance.com").rstrip("/")
@@ -93,6 +102,8 @@ BTC_CORR_INDEP_MAX = _env_float("SNR_DRY_BTC_CORR_INDEP_MAX", 0.40)
 BTC_CORR_KLINES = _env_int("SNR_DRY_BTC_CORR_KLINES", 500)
 
 SNR_CFG = SNRConfig(signals="snr_cross")
+LIVE_GROUP = "r_cu"  # resistance cross down SHORT — same side live when SNR_LIVE_ENABLED=true
+SNR_LIVE_ENABLED = _env_bool("SNR_LIVE_ENABLED", False)
 
 OUT_DIR = Path(_env("SNR_DRY_OUT_DIR", str(ROOT / "data/aws/sr_chartprime/snr_dry")))
 OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -141,6 +152,15 @@ class SymbolFeed:
 
 feeds: dict[str, SymbolFeed] = {}
 SYMBOLS: list[str] = []
+live_trader = SrLiveTrader(FAPI, lambda m: log(m), enabled=SNR_LIVE_ENABLED)
+
+
+def signal_group(sig_type: str) -> str:
+    return sig_type.rsplit("_", 1)[0]
+
+
+def is_live_group(sig_type: str) -> bool:
+    return signal_group(sig_type) == LIVE_GROUP
 
 
 def log(msg: str) -> None:
@@ -288,6 +308,10 @@ def close_trade(feed: SymbolFeed, exit_ms: int, exit_px: float, reason: str) -> 
         f"[EXIT] {t.symbol} {t.sig_type} {t.side.upper()} reason={reason} "
         f"entry={t.entry_px:.8f} exit={exit_px:.8f} net=${net:+.4f} hold={t.bars_held}bars"
     )
+    sym, side, sig_type = t.symbol, t.side, t.sig_type
+    feed.trade = None
+    if live_trader.enabled and is_live_group(sig_type):
+        live_trader.schedule_exit(sym, side, reason, tag=f"group={LIVE_GROUP} signal={sig_type}")
     with TRADES_CSV.open("a", newline="", encoding="utf-8") as f:
         csv.writer(f).writerow(
             [
@@ -297,7 +321,6 @@ def close_trade(feed: SymbolFeed, exit_ms: int, exit_px: float, reason: str) -> 
                 reason, f"{net:.4f}", t.bars_held,
             ]
         )
-    feed.trade = None
 
 
 def try_open(symbol: str, feed: SymbolFeed, sig) -> None:
@@ -322,6 +345,8 @@ def try_open(symbol: str, feed: SymbolFeed, sig) -> None:
         f"[ENTRY] {symbol} {key} {sig.side.upper()} @ {utc_iso(sig.ts)} "
         f"price={sig.entry:.8f} SL={sl_px:.8f} TP={tp_px:.8f} open={open_count()}"
     )
+    if live_trader.enabled and is_live_group(key):
+        live_trader.schedule_entry(symbol, sig.side, sig.entry, tag=f"group={LIVE_GROUP} signal={key}")
 
 
 def replay_bar(symbol: str, feed: SymbolFeed, bar: Bar, allow_trade: bool) -> None:
@@ -544,12 +569,30 @@ async def main() -> None:
     log(f"  log={LOG_FILE}")
     log(f"  stats={STATS_FILE}")
     log(f"  trades={TRADES_CSV}")
+    if live_trader.enabled:
+        live_trader.init_client()
+        if not live_trader.configured():
+            raise SystemExit("SNR_LIVE_ENABLED=true but Binance API keys missing")
+        log(
+            f"  live: ON (SNR_LIVE_ENABLED=true) group={LIVE_GROUP} same side as dry | "
+            f"notional=${live_trader.notional} max_open={live_trader.max_open} "
+            f"min_lev={live_trader.min_leverage}x SL={live_trader.sl_pct}% "
+            f"TP={live_trader.tp_pct}% working={live_trader.algo_working_type} "
+            f"reconcile={live_trader.reconcile_sec}s margin_buf={live_trader.margin_buffer}"
+        )
+    else:
+        log("  live: OFF (SNR_LIVE_ENABLED=false)")
 
     await bootstrap_all()
+    if live_trader.enabled:
+        await live_trader.bootstrap("SNR_LIVE")
 
     chunks = [SYMBOLS[i : i + WS_CHUNK] for i in range(0, len(SYMBOLS), WS_CHUNK)]
     ws_tasks = [asyncio.create_task(ws_handler(i, c)) for i, c in enumerate(chunks)]
     stats_task = asyncio.create_task(stats_loop())
+    tasks: list[asyncio.Task] = [stats_task, *ws_tasks]
+    if live_trader.enabled:
+        tasks.append(asyncio.create_task(live_trader.reconcile_loop("SNR_LIVE")))
     done, pending = await asyncio.wait([stats_task], return_when=asyncio.FIRST_COMPLETED)
     for t in pending:
         t.cancel()
