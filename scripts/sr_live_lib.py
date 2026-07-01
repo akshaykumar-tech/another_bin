@@ -74,7 +74,7 @@ class SrLiveTrader:
         self.binance: BinanceFuturesClient | None = None
         self.slots: dict[str, dict] = {}
         self.stats = {"entries": 0, "exits": 0, "skips": 0}
-        self._lock: asyncio.Lock | None = None
+        self._async_lock: asyncio.Lock | None = None
 
     def configured(self) -> bool:
         return self.binance is not None and self.binance.configured()
@@ -89,10 +89,10 @@ class SrLiveTrader:
         self.binance = BinanceFuturesClient(api_key, api_secret, self.fapi)
         self.binance.warm_cache()
 
-    def _lock(self) -> asyncio.Lock:
-        if self._lock is None:
-            self._lock = asyncio.Lock()
-        return self._lock
+    def _get_lock(self) -> asyncio.Lock:
+        if self._async_lock is None:
+            self._async_lock = asyncio.Lock()
+        return self._async_lock
 
     def sl_tp(self, entry: float, live_side: str) -> tuple[float, float]:
         if live_side == "long":
@@ -278,7 +278,7 @@ class SrLiveTrader:
         sym = symbol.upper()
         tag_s = f" {tag}" if tag else ""
         try:
-            async with self._lock():
+            async with self._get_lock():
                 if sym in self.slots:
                     self.stats["skips"] += 1
                     self.log(f"[{label}_SKIP]{tag_s} {sym} already in live_slots")
@@ -394,7 +394,7 @@ class SrLiveTrader:
             return exit_px, False
 
         try:
-            async with self._lock():
+            async with self._get_lock():
                 exit_px, already_flat = await asyncio.get_running_loop().run_in_executor(None, _close)
                 self.slots.pop(sym, None)
                 self.stats["exits"] += 1
