@@ -100,6 +100,12 @@ WARMUP_BARS = 80
 BTC_CORR_LINKED_MIN = _env_float("SNR_DRY_BTC_CORR_LINKED_MIN", 0.60)
 BTC_CORR_INDEP_MAX = _env_float("SNR_DRY_BTC_CORR_INDEP_MAX", 0.40)
 BTC_CORR_KLINES = _env_int("SNR_DRY_BTC_CORR_KLINES", 500)
+BTC_REGIME_ATR_LEN = _env_int("SNR_DRY_BTC_REGIME_ATR_LEN", 14)
+BTC_REGIME_REV_ATR_MULT = _env_float("SNR_DRY_BTC_REGIME_REV_ATR_MULT", 8.0)
+BTC_REGIME_REV_MIN = _env_float("SNR_DRY_BTC_REGIME_REV_MIN", 250.0)
+BTC_REGIME_REV_MAX = _env_float("SNR_DRY_BTC_REGIME_REV_MAX", 1800.0)
+BTC_REGIME_NEUTRAL_ATR_MULT = _env_float("SNR_DRY_BTC_REGIME_NEUTRAL_ATR_MULT", 2.0)
+BTC_REGIME_NEUTRAL_MIN = _env_float("SNR_DRY_BTC_REGIME_NEUTRAL_MIN", 100.0)
 
 SNR_CFG = SNRConfig(signals="snr_cross")
 LIVE_GROUP = "r_cu"  # resistance cross down SHORT — same side live when SNR_LIVE_ENABLED=true
@@ -129,6 +135,8 @@ stats_meta = {"bars_closed": 0, "warmup_ready": 0, "signals_seen": 0, "signals_s
 btc_bucket_book = BtcBucketBook(BTC_CORR_LINKED_MIN, BTC_CORR_INDEP_MAX)
 gate_type_stats: dict[str, TypeStats] = defaultdict(TypeStats)
 gate_meta = {"signals_seen": 0, "signals_skipped_busy": 0, "signals_skipped_gate": 0}
+regime_type_stats: dict[str, TypeStats] = defaultdict(TypeStats)
+regime_meta = {"signals_seen": 0, "signals_skipped_busy": 0, "signals_skipped_gate": 0}
 
 
 @dataclass
@@ -154,6 +162,7 @@ class SymbolFeed:
 
 feeds: dict[str, SymbolFeed] = {}
 gate_trades: dict[str, ActiveTrade | None] = {}
+regime_trades: dict[str, ActiveTrade | None] = {}
 btc_day_open_by_start_ms: dict[int, float] = {}
 SYMBOLS: list[str] = []
 live_trader: SrLiveTrader | None = None
@@ -195,6 +204,76 @@ def _btc_gate_allows(sig_type: str, ts: int) -> bool:
     if btc_px > day_open:
         return grp in ("s_co", "r_co")
     if btc_px < day_open:
+        return grp in ("s_cu", "r_cu")
+    return False
+
+
+def _btc_regime(ts: int) -> str:
+    """
+    UP_STRONG / DOWN_STRONG / NEUTRAL using:
+    - day-open side
+    - reversal from day extreme
+    - 3-close momentum confirmation
+    """
+    day_start_ms = _day_start_ist_ms(ts)
+    day_open = btc_day_open_by_start_ms.get(day_start_ms)
+    btc_feed = feeds.get("BTCUSDT")
+    if day_open is None or btc_feed is None or len(btc_feed.bars) < 4:
+        return "NEUTRAL"
+    day_bars = [b for b in btc_feed.bars if day_start_ms <= b.ts <= ts]
+    if len(day_bars) < 4:
+        return "NEUTRAL"
+    cur = day_bars[-1].c
+    hi = max(b.h for b in day_bars)
+    lo = min(b.l for b in day_bars)
+    closes = [b.c for b in day_bars[-4:]]
+    down_momo = closes[-1] < closes[-2] < closes[-3]
+    up_momo = closes[-1] > closes[-2] > closes[-3]
+    pull_from_high = hi - cur
+    bounce_from_low = cur - lo
+    rev_points, neutral_band = _btc_dynamic_regime_thresholds(btc_feed)
+
+    # Reversal override: if strong pullback + momentum, flip bias.
+    if pull_from_high >= rev_points and down_momo:
+        if abs(cur - day_open) <= neutral_band:
+            return "NEUTRAL"
+        return "DOWN_STRONG"
+    if bounce_from_low >= rev_points and up_momo:
+        if abs(cur - day_open) <= neutral_band:
+            return "NEUTRAL"
+        return "UP_STRONG"
+
+    if cur > day_open + neutral_band:
+        return "UP_STRONG"
+    if cur < day_open - neutral_band:
+        return "DOWN_STRONG"
+    return "NEUTRAL"
+
+
+def _btc_dynamic_regime_thresholds(btc_feed: SymbolFeed) -> tuple[float, float]:
+    bars = btc_feed.bars
+    atr_len = max(2, BTC_REGIME_ATR_LEN)
+    if len(bars) <= atr_len:
+        return BTC_REGIME_REV_MIN, BTC_REGIME_NEUTRAL_MIN
+    trs: list[float] = []
+    start = len(bars) - atr_len
+    for i in range(start, len(bars)):
+        b = bars[i]
+        prev_close = bars[i - 1].c
+        tr = max(b.h - b.l, abs(b.h - prev_close), abs(b.l - prev_close))
+        trs.append(tr)
+    atr = sum(trs) / len(trs) if trs else 0.0
+    rev_points = max(BTC_REGIME_REV_MIN, min(BTC_REGIME_REV_MAX, BTC_REGIME_REV_ATR_MULT * atr))
+    neutral_band = max(BTC_REGIME_NEUTRAL_MIN, BTC_REGIME_NEUTRAL_ATR_MULT * atr)
+    return rev_points, neutral_band
+
+
+def _btc_regime_allows(sig_type: str, ts: int) -> bool:
+    grp = signal_group(sig_type)
+    regime = _btc_regime(ts)
+    if regime == "UP_STRONG":
+        return grp in ("s_co", "r_co")
+    if regime == "DOWN_STRONG":
         return grp in ("s_cu", "r_cu")
     return False
 
@@ -375,6 +454,22 @@ def close_gate_trade(symbol: str, exit_px: float, reason: str) -> None:
     gate_trades[symbol] = None
 
 
+def close_regime_trade(symbol: str, exit_px: float, reason: str) -> None:
+    t = regime_trades.get(symbol)
+    if t is None:
+        return
+    net = pnl_usd(t.side, t.entry_px, exit_px)
+    st = regime_type_stats[t.sig_type]
+    st.real += net
+    if reason == "tp":
+        st.tp += 1
+    elif reason == "sl":
+        st.sl += 1
+    elif reason == "timeout":
+        st.to += 1
+    regime_trades[symbol] = None
+
+
 def try_open(symbol: str, feed: SymbolFeed, sig) -> None:
     if feed.trade is not None:
         stats_meta["signals_skipped"] += 1
@@ -423,6 +518,28 @@ def try_open_gate(symbol: str, sig) -> None:
     gate_type_stats[key].ent += 1
 
 
+def try_open_regime(symbol: str, sig) -> None:
+    if regime_trades.get(symbol) is not None:
+        regime_meta["signals_skipped_busy"] += 1
+        return
+    regime_meta["signals_seen"] += 1
+    key = sig.sig_type
+    if not _btc_regime_allows(key, sig.ts):
+        regime_meta["signals_skipped_gate"] += 1
+        return
+    sl_px, tp_px = sl_tp_prices(sig.side, sig.entry)
+    regime_trades[symbol] = ActiveTrade(
+        symbol=symbol,
+        sig_type=key,
+        side=sig.side,
+        entry_ms=sig.ts,
+        entry_px=sig.entry,
+        sl_px=sl_px,
+        tp_px=tp_px,
+    )
+    regime_type_stats[key].ent += 1
+
+
 def replay_bar(symbol: str, feed: SymbolFeed, bar: Bar, allow_trade: bool) -> None:
     if feed.bars and feed.bars[-1].ts == bar.ts:
         return
@@ -441,6 +558,14 @@ def replay_bar_gate(symbol: str, feed: SymbolFeed, allow_trade: bool) -> None:
         return
     for sig in signals_on_last_bar(feed.bars):
         try_open_gate(symbol, sig)
+        break
+
+
+def replay_bar_regime(symbol: str, feed: SymbolFeed, allow_trade: bool) -> None:
+    if not allow_trade or not feed.warmed:
+        return
+    for sig in signals_on_last_bar(feed.bars):
+        try_open_regime(symbol, sig)
         break
 
 
@@ -523,6 +648,16 @@ def on_kline(symbol: str, k: dict) -> None:
             if gt.bars_held >= MAX_HOLD_BARS:
                 close_gate_trade(symbol, cl, "timeout")
 
+    rt = regime_trades.get(symbol)
+    if rt:
+        hit = check_exit(rt.side, hi, lo, rt.sl_px, rt.tp_px)
+        if hit:
+            close_regime_trade(symbol, hit[1], hit[0])
+        elif k.get("x"):
+            rt.bars_held += 1
+            if rt.bars_held >= MAX_HOLD_BARS:
+                close_regime_trade(symbol, cl, "timeout")
+
     if not k.get("x"):
         return
     if ts == feed.last_closed_ts:
@@ -535,6 +670,7 @@ def on_kline(symbol: str, k: dict) -> None:
         btc_day_open_by_start_ms[ts] = float(k["o"])
     replay_bar(symbol, feed, bar, allow_trade=True)
     replay_bar_gate(symbol, feed, allow_trade=True)
+    replay_bar_regime(symbol, feed, allow_trade=True)
     stats_meta["bars_closed"] += 1
 
 
@@ -652,6 +788,63 @@ def format_stats_table() -> str:
         f"{'TOTAL':<10} {gate_ent:>5} {gate_tp:>5} {gate_sl:>5} {gate_to:>5} {gate_open:>5} "
         f"{gate_real:>+8.2f} {gate_unrl:>+8.2f} {gate_comb:>+8.2f}",
     ])
+    regime_open_counts: dict[str, int] = defaultdict(int)
+    regime_unrl_by: dict[str, float] = defaultdict(float)
+    for sym, t in regime_trades.items():
+        if not t:
+            continue
+        regime_open_counts[t.sig_type] += 1
+        f = feeds.get(sym)
+        mark = (f.last_close if f else 0.0) or t.entry_px
+        regime_unrl_by[t.sig_type] += unrealized_usd(t.side, t.entry_px, mark, NOTIONAL)
+
+    regime_keys = sorted(set(regime_type_stats) | set(regime_open_counts) | set(regime_unrl_by))
+    regime_ent = sum(s.ent for s in regime_type_stats.values())
+    regime_tp = sum(s.tp for s in regime_type_stats.values())
+    regime_sl = sum(s.sl for s in regime_type_stats.values())
+    regime_to = sum(s.to for s in regime_type_stats.values())
+    regime_open = sum(regime_open_counts.values())
+    regime_real = sum(s.real for s in regime_type_stats.values())
+    regime_unrl = sum(regime_unrl_by.values())
+    regime_comb = regime_real + regime_unrl
+    regime_pp = regime_real / BANKROLL * 100 if BANKROLL else 0.0
+    regime_cp = regime_comb / BANKROLL * 100 if BANKROLL else 0.0
+    btc_regime_now = _btc_regime(int(time.time() * 1000))
+    btc_feed = feeds.get("BTCUSDT")
+    dyn_rev, dyn_neutral = _btc_dynamic_regime_thresholds(btc_feed) if btc_feed else (BTC_REGIME_REV_MIN, BTC_REGIME_NEUTRAL_MIN)
+    lines.extend([
+        "",
+        "Smarter SnR dry — BTC regime filter (day-open + reversal) signal breakdown",
+        f"rule: UP_STRONG=>s_co/r_co | DOWN_STRONG=>s_cu/r_cu | NEUTRAL=>skip "
+        f"(rev_pts_dyn={dyn_rev:.1f}, neutral_dyn={dyn_neutral:.1f}, atr_len={BTC_REGIME_ATR_LEN})",
+        f"meta: seen={regime_meta['signals_seen']} skip_busy={regime_meta['signals_skipped_busy']} "
+        f"skip_gate={regime_meta['signals_skipped_gate']} regime_now={btc_regime_now}",
+        "",
+        f"TOTAL  ent={regime_ent}  tp={regime_tp}  sl={regime_sl}  to={regime_to}  open={regime_open}  "
+        f"real=${regime_real:+.2f} ({regime_pp:+.1f}%)  unrl=${regime_unrl:+.2f}  comb=${regime_comb:+.2f} ({regime_cp:+.1f}%)",
+        "",
+        f"{'signal':<10} {'ent':>5} {'tp':>5} {'sl':>5} {'to':>5} {'open':>5} {'real':>8} {'unrl':>8} {'comb':>8}",
+        "-" * 72,
+    ])
+    regime_rows: list[tuple[float, str, TypeStats, int, float, float]] = []
+    for key in regime_keys:
+        s = regime_type_stats[key]
+        o = regime_open_counts.get(key, 0)
+        u = regime_unrl_by.get(key, 0.0)
+        if s.ent == 0 and o == 0 and abs(s.real) < 1e-9 and abs(u) < 1e-9:
+            continue
+        regime_rows.append((s.real + u, key, s, o, u, s.real + u))
+    regime_rows.sort(key=lambda x: -x[0])
+    for _, key, s, o, u, c in regime_rows:
+        lines.append(
+            f"{key:<10} {s.ent:>5} {s.tp:>5} {s.sl:>5} {s.to:>5} {o:>5} "
+            f"{s.real:>+8.2f} {u:>+8.2f} {c:>+8.2f}"
+        )
+    lines.extend([
+        "-" * 72,
+        f"{'TOTAL':<10} {regime_ent:>5} {regime_tp:>5} {regime_sl:>5} {regime_to:>5} {regime_open:>5} "
+        f"{regime_real:>+8.2f} {regime_unrl:>+8.2f} {regime_comb:>+8.2f}",
+    ])
     lines.extend([
         "",
         "Signals: s_co=support cross up LONG | s_cu=support cross down SHORT",
@@ -708,6 +901,7 @@ async def main() -> None:
     for sym in SYMBOLS:
         feeds[sym] = SymbolFeed()
         gate_trades[sym] = None
+        regime_trades[sym] = None
 
     log(
         f"snr_dry | snr_cross_tp15_sl8 | TF={INTERVAL} | symbols={len(SYMBOLS)} mode={WATCHLIST_MODE}"
