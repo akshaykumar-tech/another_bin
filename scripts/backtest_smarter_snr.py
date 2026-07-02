@@ -89,7 +89,7 @@ def fetch_klines(sym: str, start_ms: int, end_ms: int) -> list[Bar]:
             break
         for k in batch:
             rows.append(Bar(int(k[0]), float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])))
-        nxt = int(batch[-1][0]) + 1
+        nxt = int(batch[-1][0]) + BAR_MS
         if nxt <= cur:
             break
         cur = nxt
@@ -201,6 +201,79 @@ def run_one(bars: list[Bar], tc: TradeCfg, scan_start: int, scan_end: int, sim_e
     return stats
 
 
+def run_one_dry_parity(bars: list[Bar], tc: TradeCfg, scan_start: int, scan_end: int) -> dict[str, TypeStats]:
+    """
+    Match dry paper behavior:
+    - walk-forward on rolling BAR_HISTORY_MAX bars
+    - signals only on latest closed bar
+    - first signal only
+    - snapshot exits/open exactly at scan_end
+    """
+    history_max = 400
+    warmup_bars = 80
+    stats: dict[str, TypeStats] = defaultdict(TypeStats)
+    pos = None
+    window: list[Bar] = []
+    open_snap: list[tuple[str, str, float]] = []
+    scan_mark = 0.0
+
+    for b in bars:
+        if b.ts >= scan_end and scan_mark <= 0:
+            scan_mark = window[-1].c if window else b.c
+            if pos and scan_start <= pos["ts"] < scan_end:
+                open_snap.append((pos["key"], pos["side"], pos["entry"]))
+
+        window.append(b)
+        if len(window) > history_max:
+            window = window[-history_max:]
+
+        if pos and b.ts > pos["ts"]:
+            pos["bars"] += 1
+            hit = try_exit(pos["side"], b, pos["sl"], pos["tp"], pos["bars"], tc.max_hold)
+            if hit and pos["ts"] >= scan_start and b.ts <= scan_end:
+                st = stats[pos["key"]]
+                r, px = hit
+                st.tp += r == "tp"
+                st.sl += r == "sl"
+                st.to += r == "timeout"
+                net = pnl(pos["side"], pos["entry"], px)
+                st.real += net
+                if net > 0:
+                    st.wins += 1
+                pos = None
+
+        if scan_start <= b.ts < scan_end and not pos and len(window) >= warmup_bars:
+            latest_i = len(window) - 1
+            sigs = [s for s in scan_signals(window, tc.sd) if s.bar_i == latest_i]
+            if sigs:
+                sig = sigs[0]
+                st = stats[sig.sig_type]
+                st.sig += 1
+                entry = sig.entry
+                if sig.side == "long":
+                    sl = entry * (1 - tc.sl_pct / 100)
+                    tp = entry * (1 + tc.tp_pct / 100)
+                else:
+                    sl = entry * (1 + tc.sl_pct / 100)
+                    tp = entry * (1 - tc.tp_pct / 100)
+                st.ent += 1
+                pos = {"key": sig.sig_type, "side": sig.side, "entry": entry, "ts": b.ts, "sl": sl, "tp": tp, "bars": 0}
+
+        if b.ts >= scan_end:
+            break
+
+    if scan_mark <= 0:
+        for b in reversed(bars):
+            if b.ts < scan_end:
+                scan_mark = b.c
+                break
+    if pos and scan_start <= pos["ts"] < scan_end:
+        open_snap.append((pos["key"], pos["side"], pos["entry"]))
+    for key, side, entry in open_snap:
+        stats[key].unrl += unrealized(side, entry, scan_mark)
+    return stats
+
+
 def merge(dst: dict[str, TypeStats], src: dict[str, TypeStats]) -> None:
     for k, s in src.items():
         d = dst[k]
@@ -219,10 +292,13 @@ def summarize(st: dict[str, TypeStats]) -> tuple[int, float, float, float, float
     return ent, wr, real, unrl, real + unrl
 
 
-def process(sym: str, tcs: list[TradeCfg], scan_start: int, scan_end: int, sim_end: int, warmup: int):
-    bars = fetch_klines(sym, warmup, sim_end)
+def process(sym: str, tcs: list[TradeCfg], scan_start: int, scan_end: int, sim_end: int, warmup: int, mode: str):
+    end_ms = sim_end if mode == "classic" else scan_end + BAR_MS
+    bars = fetch_klines(sym, warmup, end_ms)
     if len(bars) < 200:
         return sym, None
+    if mode == "dry-parity":
+        return sym, {tc.name: run_one_dry_parity(bars, tc, scan_start, scan_end) for tc in tcs}
     return sym, {tc.name: run_one(bars, tc, scan_start, scan_end, sim_end) for tc in tcs}
 
 
@@ -233,10 +309,13 @@ def main() -> None:
     ap.add_argument("--timeout-hours", type=float, default=24.0)
     ap.add_argument("--symbols", type=int, default=20)
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--mode", choices=["classic", "dry-parity"], default="classic")
     ap.add_argument("--out", type=Path, default=Path("data/aws/sr_chartprime/smarter_snr_snr_cross.txt"))
     args = ap.parse_args()
 
     syms = SYMS20[: args.symbols] if args.symbols <= len(SYMS20) else list_symbols(args.symbols)
+    if args.mode == "dry-parity":
+        syms = sorted(syms)
     start = datetime.fromisoformat(args.start)
     end = start + timedelta(hours=args.hours)
     scan_start = int(start.timestamp() * 1000)
@@ -250,7 +329,7 @@ def main() -> None:
     merged = {tc.name: defaultdict(TypeStats) for tc in TRADE_CONFIGS}
     ok = 0
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futs = {ex.submit(process, s, TRADE_CONFIGS, scan_start, scan_end, sim_end, warmup): s for s in syms}
+        futs = {ex.submit(process, s, TRADE_CONFIGS, scan_start, scan_end, sim_end, warmup, args.mode): s for s in syms}
         for fut in as_completed(futs):
             sym, res = fut.result()
             if not res:
@@ -267,6 +346,7 @@ def main() -> None:
 
     lines = [
         "Smarter SnR — snr_cross_tp15_sl8 signal breakdown",
+        f"mode={args.mode}",
         f"symbols={ok}/{len(syms)} | notional=${NOTIONAL} bankroll=${BANKROLL}",
         f"TP=1.5% SL=8% | scan={args.hours}h hold={args.timeout_hours}h",
         f"scan_utc: {start:%Y-%m-%d %H:%M} → {end:%Y-%m-%d %H:%M}",

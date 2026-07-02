@@ -127,6 +127,8 @@ class TypeStats:
 type_stats: dict[str, TypeStats] = defaultdict(TypeStats)
 stats_meta = {"bars_closed": 0, "warmup_ready": 0, "signals_seen": 0, "signals_skipped": 0}
 btc_bucket_book = BtcBucketBook(BTC_CORR_LINKED_MIN, BTC_CORR_INDEP_MAX)
+gate_type_stats: dict[str, TypeStats] = defaultdict(TypeStats)
+gate_meta = {"signals_seen": 0, "signals_skipped_busy": 0, "signals_skipped_gate": 0}
 
 
 @dataclass
@@ -151,6 +153,8 @@ class SymbolFeed:
 
 
 feeds: dict[str, SymbolFeed] = {}
+gate_trades: dict[str, ActiveTrade | None] = {}
+btc_day_open_by_start_ms: dict[int, float] = {}
 SYMBOLS: list[str] = []
 live_trader: SrLiveTrader | None = None
 
@@ -161,6 +165,38 @@ def signal_group(sig_type: str) -> str:
 
 def is_live_group(sig_type: str) -> bool:
     return signal_group(sig_type) == LIVE_GROUP
+
+
+def _day_start_ist_ms(ts: int) -> int:
+    dt = datetime.fromtimestamp(ts / 1000, tz=IST)
+    if (dt.hour, dt.minute) < (5, 30):
+        dt = dt - timedelta(days=1)
+    day_start = dt.replace(hour=5, minute=30, second=0, microsecond=0)
+    return int(day_start.timestamp() * 1000)
+
+
+def _seed_btc_day_opens_from_bootstrap() -> None:
+    btc_feed = feeds.get("BTCUSDT")
+    if btc_feed is None:
+        return
+    for b in btc_feed.bars:
+        if b.ts == _day_start_ist_ms(b.ts):
+            btc_day_open_by_start_ms[b.ts] = b.o
+
+
+def _btc_gate_allows(sig_type: str, ts: int) -> bool:
+    day_start_ms = _day_start_ist_ms(ts)
+    day_open = btc_day_open_by_start_ms.get(day_start_ms)
+    btc_feed = feeds.get("BTCUSDT")
+    btc_px = btc_feed.last_close if btc_feed else 0.0
+    if day_open is None or btc_px <= 0:
+        return False
+    grp = signal_group(sig_type)
+    if btc_px > day_open:
+        return grp in ("s_co", "r_co")
+    if btc_px < day_open:
+        return grp in ("s_cu", "r_cu")
+    return False
 
 
 def log(msg: str) -> None:
@@ -323,6 +359,22 @@ def close_trade(feed: SymbolFeed, exit_ms: int, exit_px: float, reason: str) -> 
         )
 
 
+def close_gate_trade(symbol: str, exit_px: float, reason: str) -> None:
+    t = gate_trades.get(symbol)
+    if t is None:
+        return
+    net = pnl_usd(t.side, t.entry_px, exit_px)
+    st = gate_type_stats[t.sig_type]
+    st.real += net
+    if reason == "tp":
+        st.tp += 1
+    elif reason == "sl":
+        st.sl += 1
+    elif reason == "timeout":
+        st.to += 1
+    gate_trades[symbol] = None
+
+
 def try_open(symbol: str, feed: SymbolFeed, sig) -> None:
     if feed.trade is not None:
         stats_meta["signals_skipped"] += 1
@@ -349,6 +401,28 @@ def try_open(symbol: str, feed: SymbolFeed, sig) -> None:
         live_trader.schedule_entry(symbol, sig.side, sig.entry, tag=f"group={LIVE_GROUP} signal={key}")
 
 
+def try_open_gate(symbol: str, sig) -> None:
+    if gate_trades.get(symbol) is not None:
+        gate_meta["signals_skipped_busy"] += 1
+        return
+    gate_meta["signals_seen"] += 1
+    key = sig.sig_type
+    if not _btc_gate_allows(key, sig.ts):
+        gate_meta["signals_skipped_gate"] += 1
+        return
+    sl_px, tp_px = sl_tp_prices(sig.side, sig.entry)
+    gate_trades[symbol] = ActiveTrade(
+        symbol=symbol,
+        sig_type=key,
+        side=sig.side,
+        entry_ms=sig.ts,
+        entry_px=sig.entry,
+        sl_px=sl_px,
+        tp_px=tp_px,
+    )
+    gate_type_stats[key].ent += 1
+
+
 def replay_bar(symbol: str, feed: SymbolFeed, bar: Bar, allow_trade: bool) -> None:
     if feed.bars and feed.bars[-1].ts == bar.ts:
         return
@@ -359,6 +433,14 @@ def replay_bar(symbol: str, feed: SymbolFeed, bar: Bar, allow_trade: bool) -> No
         return
     for sig in signals_on_last_bar(feed.bars):
         try_open(symbol, feed, sig)
+        break
+
+
+def replay_bar_gate(symbol: str, feed: SymbolFeed, allow_trade: bool) -> None:
+    if not allow_trade or not feed.warmed:
+        return
+    for sig in signals_on_last_bar(feed.bars):
+        try_open_gate(symbol, sig)
         break
 
 
@@ -411,6 +493,7 @@ async def bootstrap_all() -> None:
     n_dep = sum(1 for c in corr.values() if c is not None and c >= BTC_CORR_LINKED_MIN)
     n_indep = sum(1 for c in corr.values() if c is not None and c < BTC_CORR_INDEP_MAX)
     log(f"[bootstrap] btc_dep={n_dep} btc_indep={n_indep}")
+    _seed_btc_day_opens_from_bootstrap()
 
 
 def on_kline(symbol: str, k: dict) -> None:
@@ -430,6 +513,16 @@ def on_kline(symbol: str, k: dict) -> None:
             if t.bars_held >= MAX_HOLD_BARS:
                 close_trade(feed, ts, cl, "timeout")
 
+    gt = gate_trades.get(symbol)
+    if gt:
+        hit = check_exit(gt.side, hi, lo, gt.sl_px, gt.tp_px)
+        if hit:
+            close_gate_trade(symbol, hit[1], hit[0])
+        elif k.get("x"):
+            gt.bars_held += 1
+            if gt.bars_held >= MAX_HOLD_BARS:
+                close_gate_trade(symbol, cl, "timeout")
+
     if not k.get("x"):
         return
     if ts == feed.last_closed_ts:
@@ -438,7 +531,10 @@ def on_kline(symbol: str, k: dict) -> None:
     feed.last_close = cl
 
     bar = Bar(ts, float(k["o"]), hi, lo, cl, float(k.get("v", 0)))
+    if symbol == "BTCUSDT" and ts == _day_start_ist_ms(ts):
+        btc_day_open_by_start_ms[ts] = float(k["o"])
     replay_bar(symbol, feed, bar, allow_trade=True)
+    replay_bar_gate(symbol, feed, allow_trade=True)
     stats_meta["bars_closed"] += 1
 
 
@@ -504,6 +600,58 @@ def format_stats_table() -> str:
     o_dep, o_indep, u_dep, u_indep = open_unrl_by_bucket(btc_bucket_book, opens, NOTIONAL)
     for line in btc_bucket_book.format_lines(o_dep, o_indep, u_dep, u_indep):
         lines.append(f"[stats_by_btc]{line}")
+    gate_open_counts: dict[str, int] = defaultdict(int)
+    gate_unrl_by: dict[str, float] = defaultdict(float)
+    for sym, t in gate_trades.items():
+        if not t:
+            continue
+        gate_open_counts[t.sig_type] += 1
+        f = feeds.get(sym)
+        mark = (f.last_close if f else 0.0) or t.entry_px
+        gate_unrl_by[t.sig_type] += unrealized_usd(t.side, t.entry_px, mark, NOTIONAL)
+
+    gate_keys = sorted(set(gate_type_stats) | set(gate_open_counts) | set(gate_unrl_by))
+    gate_ent = sum(s.ent for s in gate_type_stats.values())
+    gate_tp = sum(s.tp for s in gate_type_stats.values())
+    gate_sl = sum(s.sl for s in gate_type_stats.values())
+    gate_to = sum(s.to for s in gate_type_stats.values())
+    gate_open = sum(gate_open_counts.values())
+    gate_real = sum(s.real for s in gate_type_stats.values())
+    gate_unrl = sum(gate_unrl_by.values())
+    gate_comb = gate_real + gate_unrl
+    gate_pp = gate_real / BANKROLL * 100 if BANKROLL else 0.0
+    gate_cp = gate_comb / BANKROLL * 100 if BANKROLL else 0.0
+    lines.extend([
+        "",
+        "Smarter SnR dry — BTC day-open filter (05:30 IST) signal breakdown",
+        "rule: BTC > day_open => allow s_co/r_co | BTC < day_open => allow s_cu/r_cu",
+        f"meta: seen={gate_meta['signals_seen']} skip_busy={gate_meta['signals_skipped_busy']} skip_gate={gate_meta['signals_skipped_gate']}",
+        "",
+        f"TOTAL  ent={gate_ent}  tp={gate_tp}  sl={gate_sl}  to={gate_to}  open={gate_open}  "
+        f"real=${gate_real:+.2f} ({gate_pp:+.1f}%)  unrl=${gate_unrl:+.2f}  comb=${gate_comb:+.2f} ({gate_cp:+.1f}%)",
+        "",
+        f"{'signal':<10} {'ent':>5} {'tp':>5} {'sl':>5} {'to':>5} {'open':>5} {'real':>8} {'unrl':>8} {'comb':>8}",
+        "-" * 72,
+    ])
+    gate_rows: list[tuple[float, str, TypeStats, int, float, float]] = []
+    for key in gate_keys:
+        s = gate_type_stats[key]
+        o = gate_open_counts.get(key, 0)
+        u = gate_unrl_by.get(key, 0.0)
+        if s.ent == 0 and o == 0 and abs(s.real) < 1e-9 and abs(u) < 1e-9:
+            continue
+        gate_rows.append((s.real + u, key, s, o, u, s.real + u))
+    gate_rows.sort(key=lambda x: -x[0])
+    for _, key, s, o, u, c in gate_rows:
+        lines.append(
+            f"{key:<10} {s.ent:>5} {s.tp:>5} {s.sl:>5} {s.to:>5} {o:>5} "
+            f"{s.real:>+8.2f} {u:>+8.2f} {c:>+8.2f}"
+        )
+    lines.extend([
+        "-" * 72,
+        f"{'TOTAL':<10} {gate_ent:>5} {gate_tp:>5} {gate_sl:>5} {gate_to:>5} {gate_open:>5} "
+        f"{gate_real:>+8.2f} {gate_unrl:>+8.2f} {gate_comb:>+8.2f}",
+    ])
     lines.extend([
         "",
         "Signals: s_co=support cross up LONG | s_cu=support cross down SHORT",
@@ -559,6 +707,7 @@ async def main() -> None:
         raise SystemExit("no symbols resolved")
     for sym in SYMBOLS:
         feeds[sym] = SymbolFeed()
+        gate_trades[sym] = None
 
     log(
         f"snr_dry | snr_cross_tp15_sl8 | TF={INTERVAL} | symbols={len(SYMBOLS)} mode={WATCHLIST_MODE}"
