@@ -562,7 +562,7 @@ def emit_stats(label: str = "stats") -> None:
 
 async def ws_handler(conn_id: int, symbols: list[str]) -> None:
     streams = "/".join(f"{s.lower()}@kline_{INTERVAL}" for s in symbols)
-    url = f"{WS_ROOT}/stream?streams={streams}"
+    url = f"{WS_ROOT}/market/stream?streams={streams}"
     log(f"[ws-{conn_id}] connecting {len(symbols)} symbols ({INTERVAL})")
     while True:
         try:
