@@ -1,38 +1,24 @@
-"""Shared Binance futures live bracket orders (SR_GODMODE_LIVE_* env)."""
+"""Shared Binance futures live bracket orders (global LIVE_* env)."""
 
 from __future__ import annotations
 
 import asyncio
-import os
 import traceback
 from typing import Callable
 
 from binance_futures import BinanceFuturesClient, parse_fill
-
-
-def _env(name: str, default: str) -> str:
-    return os.environ.get(name, "").strip() or default
-
-
-def _env_int(name: str, default: int) -> int:
-    return int(_env(name, str(default)))
-
-
-def _env_float(name: str, default: float) -> float:
-    return float(_env(name, str(default)))
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    v = _env(name, "true" if default else "false").lower()
-    return v in ("1", "true", "yes", "on")
-
-
-def _env_alt(primary: str, fallback: str, default: str) -> str:
-    v = os.environ.get(primary, "").strip()
-    if v:
-        return v
-    v2 = os.environ.get(fallback, "").strip()
-    return v2 or default
+from live_config_lib import (
+    binance_api_key,
+    binance_api_secret,
+    live_algo_working_type,
+    live_margin_buffer,
+    live_max_open,
+    live_min_leverage,
+    live_notional_usdt,
+    live_reconcile_sec,
+    live_sl_pct,
+    live_tp_pct,
+)
 
 
 def entry_order_side(dry_side: str) -> str:
@@ -52,7 +38,7 @@ def close_order_side_from_live(live_side: str) -> str:
 
 
 class SrLiveTrader:
-    """Market entry + limit SL/TP algos from fill price (same as godmode fakeout_res live)."""
+    """Market entry + limit SL/TP algos from fill price."""
 
     def __init__(
         self,
@@ -63,15 +49,15 @@ class SrLiveTrader:
     ) -> None:
         self.log = log
         self.fapi = fapi.rstrip("/")
-        self.enabled = _env_bool("SR_GODMODE_LIVE_ENABLED", False) if enabled is None else enabled
-        self.notional = _env_float("SR_GODMODE_LIVE_NOTIONAL_USDT", 6.0)
-        self.sl_pct = _env_float("SR_GODMODE_LIVE_SL_PCT", 8.0)
-        self.tp_pct = _env_float("SR_GODMODE_LIVE_TP_PCT", 1.5)
-        self.max_open = _env_int("SR_GODMODE_LIVE_MAX_OPEN", 25)
-        self.min_leverage = _env_int("SR_GODMODE_LIVE_MIN_LEVERAGE", 50)
-        self.margin_buffer = _env_float("SR_GODMODE_LIVE_MARGIN_BUFFER", 1.05)
-        self.reconcile_sec = _env_int("SR_GODMODE_LIVE_RECONCILE_SEC", 60)
-        self.algo_working_type = _env("SR_GODMODE_LIVE_ALGO_WORKING_TYPE", "CONTRACT_PRICE").upper()
+        self.enabled = False if enabled is None else enabled
+        self.notional = live_notional_usdt(6.0)
+        self.sl_pct = live_sl_pct(8.0)
+        self.tp_pct = live_tp_pct(1.5)
+        self.max_open = live_max_open(40)
+        self.min_leverage = live_min_leverage(10)
+        self.margin_buffer = live_margin_buffer(1.05)
+        self.reconcile_sec = live_reconcile_sec(60)
+        self.algo_working_type = live_algo_working_type("CONTRACT_PRICE")
         self.binance: BinanceFuturesClient | None = None
         self.slots: dict[str, dict] = {}
         self.stats = {"entries": 0, "exits": 0, "skips": 0}
@@ -83,8 +69,8 @@ class SrLiveTrader:
     def init_client(self) -> None:
         if not self.enabled:
             return
-        api_key = _env_alt("SR_GODMODE_BINANCE_API_KEY", "BINANCE_API_KEY", "")
-        api_secret = _env_alt("SR_GODMODE_BINANCE_API_SECRET", "BINANCE_API_SECRET", "")
+        api_key = binance_api_key()
+        api_secret = binance_api_secret()
         if not api_key or not api_secret:
             return
         self.binance = BinanceFuturesClient(api_key, api_secret, self.fapi)

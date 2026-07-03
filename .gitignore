@@ -1,6 +1,4 @@
 bin/
-whale-trades.log
-whale-day-pnl
 data/aggtrades/
 data/klines/
 data/vol5x/

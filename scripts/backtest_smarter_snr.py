@@ -310,7 +310,7 @@ def main() -> None:
     ap.add_argument("--symbols", type=int, default=20)
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--mode", choices=["classic", "dry-parity"], default="classic")
-    ap.add_argument("--out", type=Path, default=Path("data/aws/sr_chartprime/smarter_snr_snr_cross.txt"))
+    ap.add_argument("--out", type=Path, default=Path("data/aws/snr_dry/smarter_snr_snr_cross.txt"))
     args = ap.parse_args()
 
     syms = SYMS20[: args.symbols] if args.symbols <= len(SYMS20) else list_symbols(args.symbols)

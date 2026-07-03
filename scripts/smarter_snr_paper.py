@@ -8,7 +8,7 @@ Every SNR_DRY_STATS_INTERVAL_SEC (default 30m) logs per-signal stats:
   signal, ent, tp, sl, to, open, real, unrl, comb
 
 Live (SNR_LIVE_ENABLED=true): r_cu group SHORT same-side on Binance;
-  sizing/SL/TP from SR_GODMODE_LIVE_NOTIONAL/SL/TP/MAX_OPEN/MIN_LEVERAGE keys.
+  sizing/SL/TP from global LIVE_* env.
 
 Runs for SNR_DRY_RUN_DAYS (default 7) then exits with final snapshot.
 """
@@ -111,7 +111,7 @@ SNR_CFG = SNRConfig(signals="snr_cross")
 LIVE_GROUP = "r_cu"  # resistance cross down SHORT — same side live when SNR_LIVE_ENABLED=true
 SNR_LIVE_ENABLED = _env_bool("SNR_LIVE_ENABLED", False)
 
-OUT_DIR = Path(_env("SNR_DRY_OUT_DIR", str(ROOT / "data/aws/sr_chartprime/snr_dry")))
+OUT_DIR = Path(_env("SNR_DRY_OUT_DIR", str(ROOT / "data/aws/snr_dry")))
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = OUT_DIR / "snr_dry.log"
 STATS_FILE = OUT_DIR / "snr_dry_stats.log"

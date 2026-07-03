@@ -12,6 +12,7 @@ import csv
 import io
 import json
 import os
+import sys
 import time
 import urllib.request
 import zipfile
@@ -23,6 +24,7 @@ from urllib.parse import quote
 import websockets
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 IST = timezone(timedelta(hours=5, minutes=30))
 VISION = "https://data.binance.vision/data/futures/um/daily/klines"
 
@@ -62,6 +64,8 @@ def _env_bool(name: str, default: bool) -> bool:
 
 load_dotenv()
 
+from ifvg_h1_live_lib import IfvgH1LiveTrader  # noqa: E402
+
 WS_ROOT = _env("IFVG_DRY_WS_ROOT", "wss://fstream.binance.com").rstrip("/")
 FAPI = _env("IFVG_DRY_FAPI", "https://fapi.binance.com").rstrip("/")
 INTERVAL = _env("IFVG_DRY_INTERVAL", "5m")
@@ -71,6 +75,7 @@ BAR_MS = 300_000
 BAR_MS_H1 = 3_600_000
 BAR_MS_1M = 60_000
 H1_ENABLED = _env_bool("IFVG_DRY_H1_ENABLED", True)
+H1_LIVE_ENABLED = _env_bool("IFVG_H1_LIVE_ENABLED", False)
 WS_CHUNK = _env_int("IFVG_DRY_WS_CHUNK", 40)
 WATCHLIST_MODE = _env("IFVG_DRY_WATCHLIST_MODE", "all_perps").lower()
 WATCHLIST_SIZE = _env_int("IFVG_DRY_WATCHLIST_SIZE", 300)
@@ -97,7 +102,7 @@ STATS_INTERVAL_SEC = _env_int("IFVG_DRY_STATS_INTERVAL_SEC", 1800)
 RUN_DAYS = _env_float("IFVG_DRY_RUN_DAYS", 7.0)
 WARMUP_BARS = max(ATR_LEN + 4, 20)
 
-OUT_DIR = Path(_env("IFVG_DRY_OUT_DIR", str(ROOT / "data/aws/sr_chartprime/ifvg_dry")))
+OUT_DIR = Path(_env("IFVG_DRY_OUT_DIR", str(ROOT / "data/aws/ifvg_dry")))
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = OUT_DIR / "ifvg_dry.log"
 STATS_FILE = OUT_DIR / "ifvg_dry_stats.log"
@@ -164,6 +169,7 @@ SYMBOLS: list[str] = []
 stats = Stats()
 stats_h1 = Stats()
 meta = {"bars_closed": 0, "warmup_ready": 0, "bars_1h_closed": 0, "h1_warmup_ready": 0}
+live_h1_trader: IfvgH1LiveTrader | None = None
 
 
 def log(msg: str) -> None:
@@ -355,6 +361,11 @@ def close_trade(
         f"[EXIT/{strategy}] {t.symbol} {side_s} reason={reason} entry={t.entry_px:.8f} "
         f"exit={exit_px:.8f} net=${net:+.4f}"
     )
+    if strategy == "1h" and live_h1_trader is not None and live_h1_trader.enabled:
+        live_reason = "hour_close" if reason == "hour_close" else "sl"
+        live_h1_trader.schedule_exit(
+            t.symbol, "long" if t.side == 1 else "short", live_reason
+        )
     sym = t.symbol
     with TRADES_CSV.open("a", newline="", encoding="utf-8") as f:
         csv.writer(f).writerow(
@@ -550,6 +561,8 @@ def try_open_h1(symbol: str, feed: SymbolFeed, sig: tuple[float, float, int, flo
         f"[ENTRY/1h] {symbol} {side_s} @ {utc_iso(ts)} price={entry:.8f} "
         f"SL=entry TP=hour_close open_h1={open_count_h1()}"
     )
+    if live_h1_trader is not None and live_h1_trader.enabled:
+        live_h1_trader.schedule_entry(symbol, "long" if direction == 1 else "short", entry, hstart)
 
 
 def open_count_h1() -> int:
@@ -853,7 +866,7 @@ async def stats_loop() -> None:
 
 
 async def main() -> None:
-    global SYMBOLS
+    global SYMBOLS, live_h1_trader
     init_trades_csv()
     SYMBOLS, ticks = resolve_symbols_and_ticks()
     if not SYMBOLS:
@@ -861,12 +874,25 @@ async def main() -> None:
     for sym in SYMBOLS:
         feeds[sym] = SymbolFeed(mintick=ticks.get(sym, 0.0))
 
+    live_h1_trader = IfvgH1LiveTrader(FAPI, log, enabled=H1_LIVE_ENABLED)
+
     log(f"ifvg_dry | 5m={INTERVAL} h1_first1m={H1_ENABLED} | symbols={len(SYMBOLS)} mode={WATCHLIST_MODE}")
     log(
         f"  5m: notional=${NOTIONAL} SL={SL_ATR_MULT}xATR TP={TP_RR}RR atr_len={ATR_LEN} max_fvg_age={MAX_FVG_AGE}"
     )
     if H1_ENABLED:
         log("  1h: first-1min entry | SL=entry | TP=hour close")
+        if live_h1_trader.enabled:
+            live_h1_trader.init_client()
+            if not live_h1_trader.configured():
+                raise SystemExit("IFVG_H1_LIVE_ENABLED=true but BINANCE_API_KEY/SECRET missing")
+            log(
+                f"  1h live: ON | notional=${live_h1_trader.notional} max_open={live_h1_trader.max_open} "
+                f"min_lev={live_h1_trader.min_leverage}x SL=entry TP=hour_close "
+                f"working={live_h1_trader.algo_working_type} reconcile={live_h1_trader.reconcile_sec}s"
+            )
+        else:
+            log("  1h live: OFF (IFVG_H1_LIVE_ENABLED=false)")
     log(
         f"  bankroll=${BANKROLL} slip={SLIPPAGE_BPS}bps "
         f"stats_every={STATS_INTERVAL_SEC}s run_days={RUN_DAYS}"
@@ -877,11 +903,16 @@ async def main() -> None:
 
     await bootstrap_all()
 
+    if live_h1_trader.enabled:
+        await live_h1_trader.bootstrap()
+
     chunks = [SYMBOLS[i : i + WS_CHUNK] for i in range(0, len(SYMBOLS), WS_CHUNK)]
     ws_tasks = [asyncio.create_task(ws_handler_5m(i, c)) for i, c in enumerate(chunks)]
     if H1_ENABLED:
         ws_tasks.extend(asyncio.create_task(ws_handler_1h(i, c)) for i, c in enumerate(chunks))
         ws_tasks.extend(asyncio.create_task(ws_handler_1m(i, c)) for i, c in enumerate(chunks))
+    if live_h1_trader.enabled:
+        ws_tasks.append(asyncio.create_task(live_h1_trader.reconcile_loop()))
     stats_task = asyncio.create_task(stats_loop())
     _done, pending = await asyncio.wait([stats_task], return_when=asyncio.FIRST_COMPLETED)
     for t in pending:
