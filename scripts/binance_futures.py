@@ -375,6 +375,13 @@ class BinanceFuturesClient:
                 pass
         return cancelled
 
+    def has_reduce_stop_algo(self, symbol: str) -> bool:
+        for row in self.open_algo_orders(symbol):
+            ot = str(row.get("orderType") or row.get("type") or "").upper()
+            if "STOP" in ot:
+                return True
+        return False
+
     def cancel_order(self, symbol: str, order_id: int) -> None:
         self._signed_delete(
             "/fapi/v1/order",
@@ -487,6 +494,40 @@ class BinanceFuturesClient:
         rules = self.lot_rules.get(sym, LotRules())
         s = self._price_str(price, rules.tick_size)
         return float(s) if s else price
+
+    def trigger_reference_price(self, symbol: str, working_type: str = "MARK_PRICE") -> float:
+        """Price used to validate conditional stops (matches algo workingType)."""
+        if working_type.upper() == "CONTRACT_PRICE":
+            return self.last_price(symbol)
+        return self.mark_price(symbol)
+
+    def breakeven_stop_price(
+        self,
+        symbol: str,
+        live_side: str,
+        entry: float,
+        working_type: str = "MARK_PRICE",
+    ) -> float:
+        """SL at entry when valid; else nudge 1+ ticks so Binance won't reject (-2021)."""
+        sym = symbol.upper()
+        rules = self.lot_rules.get(sym, LotRules())
+        tick = rules.tick_size if rules.tick_size > 0 else 1e-8
+        ref = self.trigger_reference_price(sym, working_type)
+        sl = self.round_price(sym, entry)
+
+        if live_side == "long":
+            # SELL STOP_MARKET: trigger must stay below reference price.
+            n = 0
+            while sl >= ref and n < 20:
+                sl = self.round_price(sym, ref - tick * (n + 1))
+                n += 1
+        else:
+            # BUY STOP_MARKET: trigger must stay above reference price.
+            n = 0
+            while sl <= ref and n < 20:
+                sl = self.round_price(sym, ref + tick * (n + 1))
+                n += 1
+        return sl
 
     def last_price(self, symbol: str) -> float:
         data = self._http(
