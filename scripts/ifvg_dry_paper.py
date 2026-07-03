@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""IFVG dry paper bot — 5m parity dry run + 1h first-1min (SL=entry, TP=hour close).
+"""IFVG dry paper bot — 5m + 1h Pine Sniper parity (trading1.log / IFVG Sniper Engine).
 
-Runs IFVG (inversion FVG) on 300 USDT perps: 5m ATR SL + 3R TP, and optionally
-1h first-minute entry with breakeven SL and exit at hour candle close.
-Periodic stats (default every 30m) show 5m totals first, then 1h totals below.
+Runs IFVG inversion FVG on 300 USDT perps. Both timeframes use the same Pine
+logic: hidden FVG memory, Balanced filter, tradeActive blocking (one open trade
+per symbol), entry on confirmed 1h/5m close, SL=1.5×ATR, TP=3R.
 """
 from __future__ import annotations
 
@@ -64,18 +64,16 @@ def _env_bool(name: str, default: bool) -> bool:
 
 load_dotenv()
 
-from ifvg_h1_live_lib import IfvgH1LiveTrader  # noqa: E402
-
 WS_ROOT = _env("IFVG_DRY_WS_ROOT", "wss://fstream.binance.com").rstrip("/")
 FAPI = _env("IFVG_DRY_FAPI", "https://fapi.binance.com").rstrip("/")
 INTERVAL = _env("IFVG_DRY_INTERVAL", "5m")
 INTERVAL_H1 = _env("IFVG_DRY_H1_INTERVAL", "1h")
-INTERVAL_1M = _env("IFVG_DRY_1M_INTERVAL", "1m")
 BAR_MS = 300_000
 BAR_MS_H1 = 3_600_000
-BAR_MS_1M = 60_000
 H1_ENABLED = _env_bool("IFVG_DRY_H1_ENABLED", True)
-H1_LIVE_ENABLED = _env_bool("IFVG_H1_LIVE_ENABLED", False)
+# Pine entryMode: "IFVG Line" (broken boundary) or "Confirmation Close"
+M5_ENTRY_MODE = _env("IFVG_5M_ENTRY_MODE", "ifvg_line").lower()
+H1_ENTRY_MODE = _env("IFVG_H1_ENTRY_MODE", "ifvg_line").lower()
 WS_CHUNK = _env_int("IFVG_DRY_WS_CHUNK", 40)
 WATCHLIST_MODE = _env("IFVG_DRY_WATCHLIST_MODE", "all_perps").lower()
 WATCHLIST_SIZE = _env_int("IFVG_DRY_WATCHLIST_SIZE", 300)
@@ -130,7 +128,6 @@ class ActiveTrade:
     entry_px: float
     sl_px: float
     tp_px: float
-    hour_start_ms: int = 0  # 1h strategy: hour slot of entry
 
 
 @dataclass
@@ -142,14 +139,13 @@ class SymbolFeed:
     mintick: float = 0.0
     last_closed_ts: int = 0
     last_close: float = 0.0
-    # 1h first-1min strategy (SL=entry, TP=hour close)
+    # 1h Pine IFVG Sniper (same engine as 5m, different timeframe)
     bars_1h: list[Bar] = field(default_factory=list)
     raw_1h: list[dict] = field(default_factory=list)
     trade_1h: ActiveTrade | None = None
     h1_warmed: bool = False
     last_1h_closed_ts: int = 0
     last_1h_close: float = 0.0
-    h1_hour_entered: int = -1  # hour slot ms where we already signaled/entered
 
 
 @dataclass
@@ -169,7 +165,6 @@ SYMBOLS: list[str] = []
 stats = Stats()
 stats_h1 = Stats()
 meta = {"bars_closed": 0, "warmup_ready": 0, "bars_1h_closed": 0, "h1_warmup_ready": 0}
-live_h1_trader: IfvgH1LiveTrader | None = None
 
 
 def log(msg: str) -> None:
@@ -230,16 +225,21 @@ def round_to_tick(px: float, tick: float) -> float:
     return round(px / tick) * tick
 
 
-def atr_last(bars: list[Bar], n: int) -> float | None:
-    i = len(bars) - 1
-    if i < n:
+def atr_wilder_at(bars: list[Bar], end_idx: int, n: int) -> float | None:
+    """Pine ta.atr — Wilder RMA of true range through end_idx."""
+    if end_idx < n:
         return None
-    tr = []
-    for j in range(i - n + 1, i + 1):
+    trs: list[float] = []
+    for j in range(1, end_idx + 1):
         prev = bars[j - 1].c
         b = bars[j]
-        tr.append(max(b.h - b.l, abs(b.h - prev), abs(b.l - prev)))
-    return sum(tr) / len(tr)
+        trs.append(max(b.h - b.l, abs(b.h - prev), abs(b.l - prev)))
+    if len(trs) < n:
+        return None
+    rma = sum(trs[:n]) / n
+    for tr in trs[n:]:
+        rma = (rma * (n - 1) + tr) / n
+    return rma
 
 
 def quality_pass(gap_atr: float, body_ratio: float, range_atr: float) -> bool:
@@ -273,7 +273,7 @@ def init_trades_csv() -> None:
 
 
 def _fetch_klines_fapi(symbol: str, limit: int, interval: str) -> list[Bar]:
-    bar_ms = BAR_MS if interval == INTERVAL else (BAR_MS_H1 if interval == INTERVAL_H1 else BAR_MS_1M)
+    bar_ms = BAR_MS if interval == INTERVAL else BAR_MS_H1
     url = f"{FAPI}/fapi/v1/klines?symbol={quote(symbol)}&interval={interval}&limit={limit}"
     rows = _http_json(url, retries=2)
     now_period = (int(time.time() * 1000) // bar_ms) * bar_ms
@@ -302,7 +302,7 @@ def _fetch_day_vision(symbol: str, day, interval: str) -> list[Bar]:
 
 
 def _fetch_klines_vision(symbol: str, limit: int, interval: str) -> list[Bar]:
-    bar_ms = BAR_MS if interval == INTERVAL else (BAR_MS_H1 if interval == INTERVAL_H1 else BAR_MS_1M)
+    bar_ms = BAR_MS if interval == INTERVAL else BAR_MS_H1
     now_period = (int(time.time() * 1000) // bar_ms) * bar_ms
     need_ms = (limit + 1) * bar_ms
     d0 = datetime.fromtimestamp((now_period - need_ms) / 1000, timezone.utc).date()
@@ -354,18 +354,11 @@ def close_trade(
         st.tp += 1
     elif reason in ("sl", "sl_entry"):
         st.sl += 1
-    elif reason == "hour_close":
-        st.tp += 1
     side_s = "LONG" if t.side == 1 else "SHORT"
     log(
         f"[EXIT/{strategy}] {t.symbol} {side_s} reason={reason} entry={t.entry_px:.8f} "
         f"exit={exit_px:.8f} net=${net:+.4f}"
     )
-    if strategy == "1h" and live_h1_trader is not None and live_h1_trader.enabled:
-        live_reason = "hour_close" if reason == "hour_close" else "sl"
-        live_h1_trader.schedule_exit(
-            t.symbol, "long" if t.side == 1 else "short", live_reason
-        )
     sym = t.symbol
     with TRADES_CSV.open("a", newline="", encoding="utf-8") as f:
         csv.writer(f).writerow(
@@ -399,7 +392,7 @@ def _detect_signal_on(
         r["age"] += 1
     raw[:] = [r for r in raw if r["age"] <= MAX_FVG_AGE]
 
-    a = atr_last(bars, ATR_LEN)
+    a = atr_wilder_at(bars, i, ATR_LEN)
     safe_atr = a if (a and a > 0) else mt
     c_range = max(b.h - b.l, mt)
     body_ratio = abs(b.c - b.o) / c_range
@@ -436,88 +429,52 @@ def _detect_signal_on(
     return new_sig
 
 
-def update_1h_fvg_state(feed: SymbolFeed) -> None:
-    """Update hidden FVG state from the just-closed 1h bar (no entry on close)."""
-    bars = feed.bars_1h
-    raw = feed.raw_1h
-    n = len(bars)
-    if n < 4:
-        return
-    i = n - 1
-    b = bars[i]
-    mt = feed.mintick or 1e-8
-
-    for r in raw:
-        r["age"] += 1
-    raw[:] = [r for r in raw if r["age"] <= MAX_FVG_AGE]
-
-    a = atr_last(bars, ATR_LEN)
-    safe_atr = a if (a and a > 0) else mt
-    c_range = max(b.h - b.l, mt)
-    body_ratio = abs(b.c - b.o) / c_range
-    range_atr = c_range / safe_atr
-
-    if b.l > bars[i - 2].h:
-        raw.append({
-            "top": b.l, "bot": bars[i - 2].h, "dir": 1, "age": 0,
-            "gap_atr": (b.l - bars[i - 2].h) / safe_atr,
-            "body_ratio": body_ratio, "range_atr": range_atr,
-        })
-    if b.h < bars[i - 2].l:
-        raw.append({
-            "top": bars[i - 2].l, "bot": b.h, "dir": -1, "age": 0,
-            "gap_atr": (bars[i - 2].l - b.h) / safe_atr,
-            "body_ratio": body_ratio, "range_atr": range_atr,
-        })
-    if len(raw) > MAX_HIDDEN_FVG:
-        raw[:] = raw[-MAX_HIDDEN_FVG:]
+def detect_signal_h1(feed: SymbolFeed) -> tuple[float, float, int, float] | None:
+    """Pine IFVG Sniper on 1h just-closed bar."""
+    return _detect_signal_on(feed.bars_1h, feed.raw_1h, feed.mintick, stats_h1)
 
 
-def hour_slot_start(ts_ms: int) -> int:
-    return ts_ms - (ts_ms % BAR_MS_H1)
+def _pine_entry_px(
+    top: float,
+    bot: float,
+    direction: int,
+    confirm_close: float,
+    mintick: float,
+    *,
+    use_confirm_close: bool,
+) -> float:
+    if use_confirm_close:
+        base = confirm_close
+    else:
+        base = top if direction == 1 else bot
+    slip = base * (SLIPPAGE_BPS / 10000.0)
+    entry = base + slip if direction == 1 else base - slip
+    return round_to_tick(entry, mintick)
 
 
-def detect_h1_first_minute(feed: SymbolFeed, close_px: float) -> tuple[float, float, int, float] | None:
-    """IFVG inversion on 1m close using 1h FVG state (first minute of hour only)."""
-    bars = feed.bars_1h
-    raw = feed.raw_1h
-    if len(bars) < ATR_LEN:
-        return None
-    mt = feed.mintick or 1e-8
-    a = atr_last(bars, ATR_LEN)
-    safe_atr = a if (a and a > 0) else mt
-    buf = safe_atr * INV_BUF_ATR
-    for idx in range(len(raw) - 1, -1, -1):
-        r = raw[idx]
-        bull_inv = r["dir"] == -1 and close_px > r["top"] + buf
-        bear_inv = r["dir"] == 1 and close_px < r["bot"] - buf
-        if bull_inv or bear_inv:
-            if quality_pass(r["gap_atr"], r["body_ratio"], r["range_atr"]):
-                sig = (r["top"], r["bot"], 1 if bull_inv else -1, safe_atr)
-            else:
-                stats_h1.filtered += 1
-                sig = None
-            raw.pop(idx)
-            return sig
-    return None
-
-
-def try_open(symbol: str, feed: SymbolFeed, sig: tuple[float, float, int, float], ts: int) -> None:
+def _open_trade(
+    symbol: str,
+    feed: SymbolFeed,
+    sig: tuple[float, float, int, float],
+    ts: int,
+    confirm_close: float,
+    *,
+    strategy: str,
+    use_confirm_close: bool,
+) -> None:
     top, bot, direction, safe_atr = sig
-    stats.signals += 1
-    if feed.trade is not None:
-        stats.blocked += 1
+    st = stats if strategy == "5m" else stats_h1
+    st.signals += 1
+    slot = feed.trade if strategy == "5m" else feed.trade_1h
+    if slot is not None:
+        st.blocked += 1
         return
     mintick = feed.mintick or 1e-8
-    # Broken-boundary entry (Pine default): top for long, bot for short.
-    entry = top if direction == 1 else bot
-    slip = entry * (SLIPPAGE_BPS / 10000.0)
-    entry = entry + slip if direction == 1 else entry - slip
-    entry = round_to_tick(entry, mintick)
+    entry = _pine_entry_px(top, bot, direction, confirm_close, mintick, use_confirm_close=use_confirm_close)
     risk = safe_atr * SL_ATR_MULT
     sl = entry - risk if direction == 1 else entry + risk
     tp = entry + risk * TP_RR if direction == 1 else entry - risk * TP_RR
-    feed.trade = ActiveTrade(
+    trade = ActiveTrade(
         symbol=symbol,
         side=direction,
         entry_ms=ts,
@@ -525,44 +482,38 @@ def try_open(symbol: str, feed: SymbolFeed, sig: tuple[float, float, int, float]
         sl_px=round_to_tick(sl, mintick),
         tp_px=round_to_tick(tp, mintick),
     )
-    stats.ent += 1
+    if strategy == "5m":
+        feed.trade = trade
+        open_n = open_count()
+    else:
+        feed.trade_1h = trade
+        open_n = open_count_h1()
+    st.ent += 1
     side_s = "LONG" if direction == 1 else "SHORT"
+    mode = "confirm_close" if use_confirm_close else "ifvg_line"
     log(
-        f"[ENTRY/5m] {symbol} {side_s} @ {utc_iso(ts)} price={feed.trade.entry_px:.8f} "
-        f"SL={feed.trade.sl_px:.8f} TP={feed.trade.tp_px:.8f} open={open_count()}"
+        f"[ENTRY/{strategy}] {symbol} {side_s} @ {utc_iso(ts)} price={trade.entry_px:.8f} "
+        f"({mode} slip={SLIPPAGE_BPS}bps) SL={trade.sl_px:.8f} TP={trade.tp_px:.8f} open={open_n}"
     )
 
 
-def try_open_h1(symbol: str, feed: SymbolFeed, sig: tuple[float, float, int, float], ts: int) -> None:
-    top, bot, direction, _safe_atr = sig
-    stats_h1.signals += 1
-    if feed.trade_1h is not None:
-        stats_h1.blocked += 1
-        return
-    mintick = feed.mintick or 1e-8
-    entry = top if direction == 1 else bot
-    slip = entry * (SLIPPAGE_BPS / 10000.0)
-    entry = entry + slip if direction == 1 else entry - slip
-    entry = round_to_tick(entry, mintick)
-    hstart = hour_slot_start(ts)
-    feed.trade_1h = ActiveTrade(
-        symbol=symbol,
-        side=direction,
-        entry_ms=ts,
-        entry_px=entry,
-        sl_px=entry,
-        tp_px=entry,
-        hour_start_ms=hstart,
+def try_open(symbol: str, feed: SymbolFeed, sig: tuple[float, float, int, float], ts: int) -> None:
+    use_confirm = M5_ENTRY_MODE in ("confirm_close", "confirmation_close")
+    _open_trade(
+        symbol, feed, sig, ts, feed.bars[-1].c,
+        strategy="5m", use_confirm_close=use_confirm,
     )
-    feed.h1_hour_entered = hstart
-    stats_h1.ent += 1
-    side_s = "LONG" if direction == 1 else "SHORT"
-    log(
-        f"[ENTRY/1h] {symbol} {side_s} @ {utc_iso(ts)} price={entry:.8f} "
-        f"SL=entry TP=hour_close open_h1={open_count_h1()}"
-    )
-    if live_h1_trader is not None and live_h1_trader.enabled:
-        live_h1_trader.schedule_entry(symbol, "long" if direction == 1 else "short", entry, hstart)
+
+
+def try_open_h1(
+    symbol: str,
+    feed: SymbolFeed,
+    sig: tuple[float, float, int, float],
+    ts: int,
+    confirm_close: float,
+) -> None:
+    use_confirm = H1_ENTRY_MODE in ("confirm_close", "confirmation_close")
+    _open_trade(symbol, feed, sig, ts, confirm_close, strategy="1h", use_confirm_close=use_confirm)
 
 
 def open_count_h1() -> int:
@@ -579,13 +530,12 @@ def replay_1h_closed_bar(symbol: str, feed: SymbolFeed, bar: Bar, allow_trade: b
     feed.bars_1h.append(bar)
     if len(feed.bars_1h) > BAR_HISTORY_MAX:
         feed.bars_1h = feed.bars_1h[-BAR_HISTORY_MAX:]
-    update_1h_fvg_state(feed)
     feed.last_1h_closed_ts = bar.ts
     feed.last_1h_close = bar.c
-    t = feed.trade_1h
-    if allow_trade and feed.h1_warmed and t is not None and t.hour_start_ms == bar.ts:
-        close_trade(feed, bar.ts + BAR_MS_H1, bar.c, "hour_close", strategy="1h")
-    feed.h1_hour_entered = -1
+    sig = detect_signal_h1(feed)
+    if not allow_trade or not feed.h1_warmed or sig is None:
+        return
+    try_open_h1(symbol, feed, sig, bar.ts, bar.c)
 
 
 def replay_closed_bar(symbol: str, feed: SymbolFeed, bar: Bar, allow_trade: bool) -> None:
@@ -662,7 +612,7 @@ def on_kline_5m(symbol: str, k: dict) -> None:
     ts = int(k["t"])
 
     t = feed.trade
-    if t:
+    if t and ts > t.entry_ms:
         if t.side == 1:
             hit_sl = lo <= t.sl_px
             hit_tp = hi >= t.tp_px
@@ -691,23 +641,6 @@ def on_kline_1h(symbol: str, k: dict) -> None:
     feed = feeds.get(symbol)
     if feed is None or not feed.h1_warmed:
         return
-    if not k.get("x"):
-        return
-    ts = int(k["t"])
-    if ts == feed.last_1h_closed_ts:
-        return
-    hi, lo, cl = float(k["h"]), float(k["l"]), float(k["c"])
-    bar = Bar(ts, float(k["o"]), hi, lo, cl, float(k.get("v", 0)))
-    replay_1h_closed_bar(symbol, feed, bar, allow_trade=True)
-    meta["bars_1h_closed"] += 1
-
-
-def on_kline_1m(symbol: str, k: dict) -> None:
-    if not H1_ENABLED:
-        return
-    feed = feeds.get(symbol)
-    if feed is None or not feed.h1_warmed:
-        return
     hi, lo, cl = float(k["h"]), float(k["l"]), float(k["c"])
     ts = int(k["t"])
 
@@ -715,25 +648,24 @@ def on_kline_1m(symbol: str, k: dict) -> None:
     if t and ts > t.entry_ms:
         if t.side == 1:
             hit_sl = lo <= t.sl_px
+            hit_tp = hi >= t.tp_px
         else:
             hit_sl = hi >= t.sl_px
+            hit_tp = lo <= t.tp_px
         if hit_sl:
-            close_trade(feed, ts, t.sl_px, "sl_entry", strategy="1h")
+            close_trade(feed, ts, t.sl_px, "sl", strategy="1h")
+        elif hit_tp:
+            close_trade(feed, ts, t.tp_px, "tp", strategy="1h")
 
     if not k.get("x"):
         return
-
-    hstart = hour_slot_start(ts)
-    if (ts - hstart) // BAR_MS_1M != 0:
+    if ts == feed.last_1h_closed_ts:
         return
-    if feed.h1_hour_entered == hstart:
-        return
-
-    sig = detect_h1_first_minute(feed, cl)
-    if sig is None:
-        return
-    feed.h1_hour_entered = hstart
-    try_open_h1(symbol, feed, sig, ts)
+    feed.last_1h_closed_ts = ts
+    feed.last_1h_close = cl
+    bar = Bar(ts, float(k["o"]), hi, lo, cl, float(k.get("v", 0)))
+    replay_1h_closed_bar(symbol, feed, bar, allow_trade=True)
+    meta["bars_1h_closed"] += 1
 
 
 def _stats_block(title: str, st: Stats, opn: int, unrl: float, extra_meta: str) -> list[str]:
@@ -762,9 +694,9 @@ def format_stats_table() -> str:
 
     now = datetime.now(timezone.utc)
     lines = [
-        "IFVG dry — 5m inversion FVG (Balanced) parity bot",
+        f"IFVG dry — 5m Pine Sniper (Balanced) | entry={M5_ENTRY_MODE} | SL={SL_ATR_MULT}×ATR TP={TP_RR}R",
         f"symbols={meta['warmup_ready']}/{len(SYMBOLS)} | notional=${NOTIONAL} bankroll=${BANKROLL}",
-        f"TF={INTERVAL} ATR_len={ATR_LEN} SL={SL_ATR_MULT}xATR TP={TP_RR}RR max_fvg_age={MAX_FVG_AGE} slip={SLIPPAGE_BPS}bps",
+        f"TF={INTERVAL} ATR_len={ATR_LEN} max_fvg_age={MAX_FVG_AGE} slip={SLIPPAGE_BPS}bps tradeActive=1/symbol",
         f"run_utc: {RUN_START:%Y-%m-%d %H:%M} → {RUN_END:%Y-%m-%d %H:%M} (now {now:%Y-%m-%d %H:%M})",
         f"run_ist: {RUN_START.astimezone(IST):%Y-%m-%d %H:%M} → {RUN_END.astimezone(IST):%Y-%m-%d %H:%M}",
         "",
@@ -781,8 +713,8 @@ def format_stats_table() -> str:
                 unrl1 += unrealized(t.side, t.entry_px, mark)
         lines.extend([
             "",
-            "IFVG dry — 1h first-1min entry | SL=entry | TP=hour close",
-            f"h1_symbols={meta['h1_warmup_ready']}/{len(SYMBOLS)} | notional=${NOTIONAL}",
+            f"IFVG dry — 1h Pine Sniper (Balanced) | entry={H1_ENTRY_MODE} | SL={SL_ATR_MULT}×ATR TP={TP_RR}R",
+            f"h1_symbols={meta['h1_warmup_ready']}/{len(SYMBOLS)} | notional=${NOTIONAL} tradeActive=1/symbol",
             "",
             *_stats_block("", stats_h1, opn1, unrl1, f"bars_1h_closed={meta['bars_1h_closed']}"),
         ])
@@ -835,25 +767,6 @@ async def ws_handler_1h(conn_id: int, symbols: list[str]) -> None:
             await asyncio.sleep(3)
 
 
-async def ws_handler_1m(conn_id: int, symbols: list[str]) -> None:
-    streams = "/".join(f"{s.lower()}@kline_{INTERVAL_1M}" for s in symbols)
-    url = f"{WS_ROOT}/market/stream?streams={streams}"
-    log(f"[ws-1m-{conn_id}] connecting {len(symbols)} symbols")
-    while True:
-        try:
-            async with websockets.connect(url, ping_interval=20, max_size=2**22) as ws:
-                log(f"[ws-1m-{conn_id}] connected")
-                async for msg in ws:
-                    wrap = json.loads(msg)
-                    data = wrap.get("data") or wrap
-                    if data.get("e") != "kline":
-                        continue
-                    on_kline_1m(data["s"], data["k"])
-        except Exception as e:
-            log(f"[ws-1m-{conn_id}] reconnect ({e})")
-            await asyncio.sleep(3)
-
-
 async def stats_loop() -> None:
     emit_stats("startup")
     while datetime.now(timezone.utc) < RUN_END:
@@ -866,7 +779,7 @@ async def stats_loop() -> None:
 
 
 async def main() -> None:
-    global SYMBOLS, live_h1_trader
+    global SYMBOLS
     init_trades_csv()
     SYMBOLS, ticks = resolve_symbols_and_ticks()
     if not SYMBOLS:
@@ -874,25 +787,16 @@ async def main() -> None:
     for sym in SYMBOLS:
         feeds[sym] = SymbolFeed(mintick=ticks.get(sym, 0.0))
 
-    live_h1_trader = IfvgH1LiveTrader(FAPI, log, enabled=H1_LIVE_ENABLED)
-
-    log(f"ifvg_dry | 5m={INTERVAL} h1_first1m={H1_ENABLED} | symbols={len(SYMBOLS)} mode={WATCHLIST_MODE}")
+    log(f"ifvg_dry | 5m={INTERVAL} h1_pine={H1_ENABLED} | symbols={len(SYMBOLS)} mode={WATCHLIST_MODE}")
     log(
-        f"  5m: notional=${NOTIONAL} SL={SL_ATR_MULT}xATR TP={TP_RR}RR atr_len={ATR_LEN} max_fvg_age={MAX_FVG_AGE}"
+        f"  5m Pine Sniper: entry={M5_ENTRY_MODE} SL={SL_ATR_MULT}xATR TP={TP_RR}RR "
+        f"atr_len={ATR_LEN} max_fvg_age={MAX_FVG_AGE} tradeActive=1/symbol"
     )
     if H1_ENABLED:
-        log("  1h: first-1min entry | SL=entry | TP=hour close")
-        if live_h1_trader.enabled:
-            live_h1_trader.init_client()
-            if not live_h1_trader.configured():
-                raise SystemExit("IFVG_H1_LIVE_ENABLED=true but BINANCE_API_KEY/SECRET missing")
-            log(
-                f"  1h live: ON | notional=${live_h1_trader.notional} max_open={live_h1_trader.max_open} "
-                f"min_lev={live_h1_trader.min_leverage}x SL=entry TP=hour_close "
-                f"working={live_h1_trader.algo_working_type} reconcile={live_h1_trader.reconcile_sec}s"
-            )
-        else:
-            log("  1h live: OFF (IFVG_H1_LIVE_ENABLED=false)")
+        log(
+            f"  1h Pine Sniper: entry={H1_ENTRY_MODE} SL={SL_ATR_MULT}xATR TP={TP_RR}RR "
+            f"filter=Balanced tradeActive=1/symbol"
+        )
     log(
         f"  bankroll=${BANKROLL} slip={SLIPPAGE_BPS}bps "
         f"stats_every={STATS_INTERVAL_SEC}s run_days={RUN_DAYS}"
@@ -903,16 +807,10 @@ async def main() -> None:
 
     await bootstrap_all()
 
-    if live_h1_trader.enabled:
-        await live_h1_trader.bootstrap()
-
     chunks = [SYMBOLS[i : i + WS_CHUNK] for i in range(0, len(SYMBOLS), WS_CHUNK)]
     ws_tasks = [asyncio.create_task(ws_handler_5m(i, c)) for i, c in enumerate(chunks)]
     if H1_ENABLED:
         ws_tasks.extend(asyncio.create_task(ws_handler_1h(i, c)) for i, c in enumerate(chunks))
-        ws_tasks.extend(asyncio.create_task(ws_handler_1m(i, c)) for i, c in enumerate(chunks))
-    if live_h1_trader.enabled:
-        ws_tasks.append(asyncio.create_task(live_h1_trader.reconcile_loop()))
     stats_task = asyncio.create_task(stats_loop())
     _done, pending = await asyncio.wait([stats_task], return_when=asyncio.FIRST_COMPLETED)
     for t in pending:

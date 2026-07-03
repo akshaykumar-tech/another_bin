@@ -501,19 +501,19 @@ class BinanceFuturesClient:
             return self.last_price(symbol)
         return self.mark_price(symbol)
 
-    def breakeven_stop_price(
+    def safe_stop_price(
         self,
         symbol: str,
         live_side: str,
-        entry: float,
+        sl_px: float,
         working_type: str = "MARK_PRICE",
     ) -> float:
-        """SL at entry when valid; else nudge 1+ ticks so Binance won't reject (-2021)."""
+        """Nudge stop trigger so Binance won't reject (-2021 immediately trigger)."""
         sym = symbol.upper()
         rules = self.lot_rules.get(sym, LotRules())
         tick = rules.tick_size if rules.tick_size > 0 else 1e-8
         ref = self.trigger_reference_price(sym, working_type)
-        sl = self.round_price(sym, entry)
+        sl = self.round_price(sym, sl_px)
 
         if live_side == "long":
             # SELL STOP_MARKET: trigger must stay below reference price.
@@ -528,6 +528,16 @@ class BinanceFuturesClient:
                 sl = self.round_price(sym, ref + tick * (n + 1))
                 n += 1
         return sl
+
+    def breakeven_stop_price(
+        self,
+        symbol: str,
+        live_side: str,
+        entry: float,
+        working_type: str = "MARK_PRICE",
+    ) -> float:
+        """SL at entry when valid; else nudge 1+ ticks so Binance won't reject (-2021)."""
+        return self.safe_stop_price(symbol, live_side, entry, working_type)
 
     def last_price(self, symbol: str) -> float:
         data = self._http(

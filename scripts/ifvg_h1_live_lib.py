@@ -1,4 +1,4 @@
-"""Binance live orders for IFVG 1h first-1min: SL=entry, TP=hour candle close."""
+"""Binance live orders for IFVG 1h first-1min: SL=hour open, TP=hour candle close."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 class IfvgH1LiveTrader:
-    """Market entry + stop at fill price; exit at hour close (no fixed TP algo)."""
+    """Market entry at signal + stop at hour open; exit at hour close (no fixed TP algo."""
 
     def __init__(
         self,
@@ -65,8 +65,8 @@ class IfvgH1LiveTrader:
         self.binance = BinanceFuturesClient(api_key, api_secret, self.fapi)
         self.binance.warm_cache()
 
-    def _place_entry_stop(self, sym: str, live_side: str, entry: float, qty: float) -> tuple[float, dict]:
-        sl_px = self.binance.breakeven_stop_price(sym, live_side, entry, self.algo_working_type)
+    def _place_entry_stop(self, sym: str, live_side: str, sl_px: float, qty: float) -> tuple[float, dict]:
+        sl_px = self.binance.safe_stop_price(sym, live_side, sl_px, self.algo_working_type)
         close_side = close_order_side_from_live(live_side)
         sl_resp = self.binance.stop_market_reduce(
             sym, close_side, sl_px, qty, working_type=self.algo_working_type
@@ -110,7 +110,7 @@ class IfvgH1LiveTrader:
         return removed
 
     def _repair_missing_stops_sync(self) -> list[tuple[str, str, float]]:
-        """Place breakeven SL on open positions missing a stop (e.g. old -2021 failures)."""
+        """Place hour-open SL on open positions missing a stop."""
         if self.binance is None:
             return []
         out: list[tuple[str, str, float]] = []
@@ -143,7 +143,9 @@ class IfvgH1LiveTrader:
                 out.append((sym, "skip_no_entry", 0.0))
                 continue
             close_side = close_order_side_from_live(live_side)
-            sl_px = self.binance.breakeven_stop_price(sym, live_side, entry, self.algo_working_type)
+            sl_px = float(slot.get("sl_px") or 0) if (slot := self.slots.get(sym)) else 0.0
+            if sl_px <= 0:
+                sl_px = self.binance.breakeven_stop_price(sym, live_side, entry, self.algo_working_type)
             try:
                 self.binance.stop_market_reduce(
                     sym, close_side, sl_px, qty, working_type=self.algo_working_type
@@ -178,7 +180,7 @@ class IfvgH1LiveTrader:
         repaired = await loop.run_in_executor(None, self._repair_missing_stops_sync)
         self.log(
             f"[IFVG_H1_LIVE_BOOT] exchange_positions={n_pos} max_open={self.max_open} "
-            f"notional=${self.notional:.2f} SL=entry TP=hour_close (no new entry orders on startup)"
+            f"notional=${self.notional:.2f} SL=hour_open TP=hour_close (no new entry orders on startup)"
         )
         for sym, action, px in repaired:
             if action == "sl_placed":
@@ -211,6 +213,7 @@ class IfvgH1LiveTrader:
         dry_side: str,
         ref_px: float,
         hour_start_ms: int,
+        sl_px: float,
     ) -> None:
         if not self.enabled or self.binance is None:
             return
@@ -243,6 +246,8 @@ class IfvgH1LiveTrader:
 
                 order_side = entry_order_side(dry_side)
 
+                ref_sl = sl_px
+
                 def _place():
                     lev = self.binance.set_max_leverage(sym)
                     margin_needed = (self.notional / lev) * self.margin_buffer
@@ -266,17 +271,17 @@ class IfvgH1LiveTrader:
                     live_side = order_to_live_side(order_side)
                     close_side = close_order_side_from_live(live_side)
                     try:
-                        sl_px, sl_resp = self._place_entry_stop(sym, live_side, entry, qty)
+                        placed_sl, sl_resp = self._place_entry_stop(sym, live_side, ref_sl, qty)
                     except RuntimeError as e:
                         if "-2021" not in str(e) and "immediately trigger" not in str(e).lower():
                             raise
                         ref = self.binance.trigger_reference_price(sym, self.algo_working_type)
                         exit_px = self._cancel_and_close(sym, close_side, qty)
                         raise RuntimeError(
-                            f"breakeven stop rejected (entry={entry:.8f} ref={ref:.8f}); "
+                            f"hour-open stop rejected (sl={ref_sl:.8f} ref={ref:.8f}); "
                             f"closed immediately @ {exit_px:.8f}"
                         ) from e
-                    return lev, entry, qty, margin_needed, bal, live_side, sl_px, sl_resp
+                    return lev, entry, qty, margin_needed, bal, live_side, placed_sl, sl_resp
 
                 lev, entry, qty, margin_needed, bal, live_side, sl_px, sl_resp = await asyncio.get_running_loop().run_in_executor(
                     None, _place
@@ -293,12 +298,12 @@ class IfvgH1LiveTrader:
                 self.stats["entries"] += 1
                 ref_px_log = self.binance.trigger_reference_price(sym, self.algo_working_type)
                 sl_note = ""
-                if abs(sl_px - entry) > 1e-12:
-                    sl_note = f" (nudged from entry={entry:.8f} ref={ref_px_log:.8f})"
+                if abs(sl_px - ref_sl) > 1e-12:
+                    sl_note = f" (nudged from hour_open={ref_sl:.8f} ref={ref_px_log:.8f})"
                 self.log(
                     f"[IFVG_H1_LIVE_ENTRY] {sym} dry={dry_side.upper()} binance={order_side} "
                     f"fill={entry:.8f} qty={qty:.8f} notional=${self.notional:.2f} lev={lev}x "
-                    f"margin~=${margin_needed:.2f} bal=${bal:.2f} SL@entry={sl_px:.8f}{sl_note} "
+                    f"margin~=${margin_needed:.2f} bal=${bal:.2f} SL@hour_open={sl_px:.8f}{sl_note} "
                     f"hour_start={hour_start_ms} sl_algo={sl_resp.get('algoId', sl_resp.get('clientAlgoId', '?'))}"
                 )
         except Exception as e:
@@ -348,10 +353,12 @@ class IfvgH1LiveTrader:
             except Exception:
                 pass
 
-    def schedule_entry(self, symbol: str, dry_side: str, ref_px: float, hour_start_ms: int) -> None:
+    def schedule_entry(
+        self, symbol: str, dry_side: str, ref_px: float, hour_start_ms: int, sl_px: float
+    ) -> None:
         try:
             asyncio.get_running_loop().create_task(
-                self.entry(symbol, dry_side, ref_px, hour_start_ms)
+                self.entry(symbol, dry_side, ref_px, hour_start_ms, sl_px)
             )
         except RuntimeError:
             pass
