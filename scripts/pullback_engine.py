@@ -199,15 +199,16 @@ def on_closed_bar(st: SymbolState, bar: Bar, *, allow_entry: bool) -> EntrySigna
 
     is_long = sig_dir == 1
     side = 1 if is_long else -1
-    fill_px = min(b.o, limit_px) if is_long else max(b.o, limit_px)
+    # Dry/live-at-log: entry = signal candle close (market fill when bar confirms).
+    entry_px = b.c
     raw_stop = st.swing_ext - a * SL_BUF if is_long else st.swing_ext + a * SL_BUF
-    risk0 = abs(fill_px - raw_stop)
+    risk0 = abs(entry_px - raw_stop)
     risk = min(max(risk0, a * MIN_RISK_ATR), a * MAX_RISK_ATR)
-    stopv = fill_px - risk if is_long else fill_px + risk
-    t1 = fill_px + risk * TP1_R if is_long else fill_px - risk * TP1_R
-    t2 = fill_px + risk * TP2_R if is_long else fill_px - risk * TP2_R
-    t3 = fill_px + risk * TP3_R if is_long else fill_px - risk * TP3_R
+    stopv = entry_px - risk if is_long else entry_px + risk
+    t1 = entry_px + risk * TP1_R if is_long else entry_px - risk * TP1_R
+    t2 = entry_px + risk * TP2_R if is_long else entry_px - risk * TP2_R
+    t3 = entry_px + risk * TP3_R if is_long else entry_px - risk * TP3_R
 
     st.last_sig_i = i
-    st.trade = ActiveTrade(side, b.ts, fill_px, stopv, t1, t2, t3, risk)
-    return EntrySignal(side, fill_px, stopv, t1, t2, t3, risk, b.ts)
+    st.trade = ActiveTrade(side, b.ts, entry_px, stopv, t1, t2, t3, risk)
+    return EntrySignal(side, entry_px, stopv, t1, t2, t3, risk, b.ts)

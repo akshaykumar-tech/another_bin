@@ -2,6 +2,7 @@
 """Strong Pullback Signals dry paper bot — 1h Pine parity (trading1.log).
 
 Breakout → arm → limit pullback fill on confirmed 1h close.
+Entry at signal candle close (market fill at log time).
 HTF 4h EMA50 filter; SL swing+buffer; TP1/2/3 at 1R/2R/3R.
 Exits checked on 1h kline hi/lo (intrabar updates).
 """
@@ -338,7 +339,7 @@ def replay_closed_bar(symbol: str, feed: SymbolFeed, bar: Bar, *, allow_trade: b
         stats.ent += 1
         side_s = "LONG" if sig.side == 1 else "SHORT"
         log(
-            f"[ENTRY] {symbol} {side_s} entry={sig.entry:.8f} sl={sig.sl:.8f} "
+            f"[ENTRY] {symbol} {side_s} entry={sig.entry:.8f} (signal_close) sl={sig.sl:.8f} "
             f"tp1={sig.tp1:.8f} tp2={sig.tp2:.8f} tp3={sig.tp3:.8f} ts={utc_iso(sig.ts)}"
         )
 
@@ -419,7 +420,7 @@ def format_stats_table() -> str:
     return "\n".join([
         "Strong Pullback dry — 1h Pine (trading1.log)",
         f"symbols={meta['warmup_ready']}/{len(SYMBOLS)} | notional=${NOTIONAL} bankroll=${BANKROLL}",
-        f"TF={INTERVAL} HTF={INTERVAL_H4} EMA50 | tradeActive=1/symbol",
+        f"TF={INTERVAL} HTF={INTERVAL_H4} EMA50 | entry=signal_close | tradeActive=1/symbol",
         f"run_utc: {RUN_START:%Y-%m-%d %H:%M} → {RUN_END:%Y-%m-%d %H:%M} (now {now:%Y-%m-%d %H:%M})",
         f"run_ist: {RUN_START.astimezone(IST):%Y-%m-%d %H:%M} → {RUN_END.astimezone(IST):%Y-%m-%d %H:%M}",
         "",

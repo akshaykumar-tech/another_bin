@@ -3,7 +3,8 @@
 
 Runs IFVG inversion FVG on 300 USDT perps. Both timeframes use the same Pine
 logic: hidden FVG memory, Balanced filter, tradeActive blocking (one open trade
-per symbol), entry on confirmed 1h/5m close, SL=1.5×ATR, TP=3R.
+per symbol). Dry entry = signal candle close (+ slip) at log time (market parity).
+SL=1.5×ATR, TP=3R.
 """
 from __future__ import annotations
 
@@ -490,7 +491,7 @@ def _open_trade(
         open_n = open_count_h1()
     st.ent += 1
     side_s = "LONG" if direction == 1 else "SHORT"
-    mode = "confirm_close" if use_confirm_close else "ifvg_line"
+    mode = "signal_close"
     log(
         f"[ENTRY/{strategy}] {symbol} {side_s} @ {utc_iso(ts)} price={trade.entry_px:.8f} "
         f"({mode} slip={SLIPPAGE_BPS}bps) SL={trade.sl_px:.8f} TP={trade.tp_px:.8f} open={open_n}"
@@ -498,10 +499,10 @@ def _open_trade(
 
 
 def try_open(symbol: str, feed: SymbolFeed, sig: tuple[float, float, int, float], ts: int) -> None:
-    use_confirm = M5_ENTRY_MODE in ("confirm_close", "confirmation_close")
+    # Dry paper: entry at signal candle close (+ slip) = market fill at log time.
     _open_trade(
         symbol, feed, sig, ts, feed.bars[-1].c,
-        strategy="5m", use_confirm_close=use_confirm,
+        strategy="5m", use_confirm_close=True,
     )
 
 
@@ -512,8 +513,7 @@ def try_open_h1(
     ts: int,
     confirm_close: float,
 ) -> None:
-    use_confirm = H1_ENTRY_MODE in ("confirm_close", "confirmation_close")
-    _open_trade(symbol, feed, sig, ts, confirm_close, strategy="1h", use_confirm_close=use_confirm)
+    _open_trade(symbol, feed, sig, ts, confirm_close, strategy="1h", use_confirm_close=True)
 
 
 def open_count_h1() -> int:
@@ -694,7 +694,7 @@ def format_stats_table() -> str:
 
     now = datetime.now(timezone.utc)
     lines = [
-        f"IFVG dry — 5m Pine Sniper (Balanced) | entry={M5_ENTRY_MODE} | SL={SL_ATR_MULT}×ATR TP={TP_RR}R",
+        f"IFVG dry — 5m Pine Sniper (Balanced) | entry=signal_close | SL={SL_ATR_MULT}×ATR TP={TP_RR}R",
         f"symbols={meta['warmup_ready']}/{len(SYMBOLS)} | notional=${NOTIONAL} bankroll=${BANKROLL}",
         f"TF={INTERVAL} ATR_len={ATR_LEN} max_fvg_age={MAX_FVG_AGE} slip={SLIPPAGE_BPS}bps tradeActive=1/symbol",
         f"run_utc: {RUN_START:%Y-%m-%d %H:%M} → {RUN_END:%Y-%m-%d %H:%M} (now {now:%Y-%m-%d %H:%M})",
@@ -713,7 +713,7 @@ def format_stats_table() -> str:
                 unrl1 += unrealized(t.side, t.entry_px, mark)
         lines.extend([
             "",
-            f"IFVG dry — 1h Pine Sniper (Balanced) | entry={H1_ENTRY_MODE} | SL={SL_ATR_MULT}×ATR TP={TP_RR}R",
+            f"IFVG dry — 1h Pine Sniper (Balanced) | entry=signal_close | SL={SL_ATR_MULT}×ATR TP={TP_RR}R",
             f"h1_symbols={meta['h1_warmup_ready']}/{len(SYMBOLS)} | notional=${NOTIONAL} tradeActive=1/symbol",
             "",
             *_stats_block("", stats_h1, opn1, unrl1, f"bars_1h_closed={meta['bars_1h_closed']}"),
@@ -789,12 +789,12 @@ async def main() -> None:
 
     log(f"ifvg_dry | 5m={INTERVAL} h1_pine={H1_ENABLED} | symbols={len(SYMBOLS)} mode={WATCHLIST_MODE}")
     log(
-        f"  5m Pine Sniper: entry={M5_ENTRY_MODE} SL={SL_ATR_MULT}xATR TP={TP_RR}RR "
+        f"  5m Pine Sniper: entry=signal_close SL={SL_ATR_MULT}xATR TP={TP_RR}RR "
         f"atr_len={ATR_LEN} max_fvg_age={MAX_FVG_AGE} tradeActive=1/symbol"
     )
     if H1_ENABLED:
         log(
-            f"  1h Pine Sniper: entry={H1_ENTRY_MODE} SL={SL_ATR_MULT}xATR TP={TP_RR}RR "
+            f"  1h Pine Sniper: entry=signal_close SL={SL_ATR_MULT}xATR TP={TP_RR}RR "
             f"filter=Balanced tradeActive=1/symbol"
         )
     log(
