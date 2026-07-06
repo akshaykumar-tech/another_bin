@@ -130,7 +130,7 @@ class DryPos:
     sl: float
     tp: float
     entry_ts: int
-    bars_held: int = 0
+    hold_deadline_ms: int = 0
 
 
 open_dry: dict[str, DryPos] = {}
@@ -206,6 +206,9 @@ def load_state() -> None:
     try:
         rows = json.loads(STATE_FILE.read_text())
         open_dry = {r["sym"]: DryPos(**r) for r in rows}
+        for pos in open_dry.values():
+            if pos.hold_deadline_ms <= 0:
+                pos.hold_deadline_ms = pos.entry_ts + (MAX_HOLD_BARS + 1) * BAR_MS
     except Exception as e:
         log(f"[STATE] load failed: {e}")
 
@@ -321,6 +324,7 @@ def on_signal(sig: Signal) -> None:
         sl=sig.sl,
         tp=sig.tp,
         entry_ts=sig.bar_ts,
+        hold_deadline_ms=int(time.time() * 1000) + MAX_HOLD_BARS * BAR_MS,
     )
     stats["dry_entries"] += 1
     save_state()
@@ -370,8 +374,7 @@ def check_bar_close(sym: str) -> None:
 
     if sym in open_dry:
         pos = open_dry[sym]
-        pos.bars_held += 1
-        if pos.bars_held >= MAX_HOLD_BARS:
+        if int(time.time() * 1000) >= pos.hold_deadline_ms:
             try:
                 px = fetch_mark(sym)
             except Exception:
