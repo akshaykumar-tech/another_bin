@@ -82,6 +82,7 @@ WS_ROOT = _env("TPB_WS_ROOT", "wss://fstream.binance.com").rstrip("/")
 OUT_DIR = Path(_env("TPB_DRY_OUT_DIR", str(ROOT / "data/aws/trend_pullback")))
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = OUT_DIR / "trend_pullback.log"
+STATS_FILE = OUT_DIR / "trend_pullback_stats.log"
 TRADES_CSV = OUT_DIR / "trend_pullback_dry_trades.csv"
 STATE_FILE = OUT_DIR / "trend_pullback_open.json"
 
@@ -97,12 +98,26 @@ MAX_TRADES_DAY = _env_int("TPB_MAX_TRADES_DAY", 5)
 BOOTSTRAP = _env_int("TPB_BOOTSTRAP_BARS", 250)
 LIVE_ENABLED = _env_bool("TPB_LIVE_ENABLED", False)
 POLL_SEC = _env_int("TPB_MARK_POLL_SEC", 45)
+STATS_INTERVAL_SEC = _env_int("TPB_STATS_INTERVAL_SEC", 1800)
+BANKROLL = _env_float("TPB_BANKROLL_USDT", 100.0)
+
+RUN_START = datetime.now(timezone.utc)
 
 live_trader: TrendPullbackMirrorLive | None = None
 bars: dict[str, list[Bar]] = {}
 last_closed_ts: dict[str, int] = {}
 day_trades: dict[str, int] = {}
-stats = {"signals": 0, "dry_entries": 0, "dry_exits": 0, "dry_pnl": 0.0}
+stats = {
+    "signals": 0,
+    "skipped": 0,
+    "dry_entries": 0,
+    "dry_exits": 0,
+    "dry_pnl": 0.0,
+    "tp": 0,
+    "sl": 0,
+    "timeout": 0,
+    "bars_closed": 0,
+}
 
 
 @dataclass
@@ -204,6 +219,71 @@ def init_trades_csv() -> None:
             ])
 
 
+def load_realized_from_csv() -> None:
+    """Restore realized PnL and exit counts after restart."""
+    if not TRADES_CSV.is_file():
+        return
+    try:
+        with TRADES_CSV.open(newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                pnl = float(row.get("pnl_usd") or 0)
+                stats["dry_pnl"] += pnl
+                stats["dry_exits"] += 1
+                reason = (row.get("exit_reason") or "").lower()
+                if reason == "tp2r":
+                    stats["tp"] += 1
+                elif reason == "sl":
+                    stats["sl"] += 1
+                elif reason == "timeout":
+                    stats["timeout"] += 1
+    except Exception as e:
+        log(f"[STATS] csv reload failed: {e}")
+
+
+def unrealized(side: str, entry: float, mark: float) -> float:
+    if entry <= 0:
+        return 0.0
+    move = ((mark - entry) / entry * 100) if side == "long" else ((entry - mark) / entry * 100)
+    return NOTIONAL * move / 100
+
+
+def format_stats_table() -> str:
+    unrl = 0.0
+    for sym, pos in open_dry.items():
+        bl = bars.get(sym, [])
+        mark = bl[-1].c if bl else pos.entry_px
+        unrl += unrealized(pos.side, pos.entry_px, mark)
+    real = stats["dry_pnl"]
+    comb = real + unrl
+    closed = stats["tp"] + stats["sl"] + stats["timeout"]
+    wr = (stats["tp"] / closed * 100) if closed else 0.0
+    pp = real / BANKROLL * 100 if BANKROLL else 0.0
+    cp = comb / BANKROLL * 100 if BANKROLL else 0.0
+    now = datetime.now(timezone.utc)
+    day = today_ist()
+    return "\n".join([
+        "Trend + Pullback dry — 4H 200/21 EMA + RSI (original side)",
+        f"symbols={len(WATCHLIST)} mode={WATCHLIST_MODE} | notional=${NOTIONAL} bankroll=${BANKROLL}",
+        f"max/day={MAX_TRADES_DAY} fee_rt={FEE_RT} slip_bps={SLIP_BPS} live={'on' if LIVE_ENABLED else 'off'}",
+        f"started_utc: {RUN_START:%Y-%m-%d %H:%M} (now {now:%Y-%m-%d %H:%M})",
+        f"started_ist: {RUN_START.astimezone(IST):%Y-%m-%d %H:%M} (now {now.astimezone(IST):%Y-%m-%d %H:%M})",
+        f"ist_day={day} entries_today={day_trades.get(day, 0)}",
+        "",
+        f"signals={stats['signals']} skipped={stats['skipped']} bars_closed={stats['bars_closed']}",
+        f"TOTAL  ent={stats['dry_entries']}  tp={stats['tp']}  sl={stats['sl']}  "
+        f"to={stats['timeout']}  open={len(open_dry)}  wr={wr:.1f}%",
+        f"real=${real:+.2f} ({pp:+.1f}%)  unrl=${unrl:+.2f}  comb=${comb:+.2f} ({cp:+.1f}%)",
+    ])
+
+
+def emit_stats(label: str = "stats") -> None:
+    text = format_stats_table()
+    block = f"\n--- {label} {datetime.now(timezone.utc).isoformat()} ---\n{text}\n"
+    log(block)
+    with STATS_FILE.open("a", encoding="utf-8") as f:
+        f.write(block)
+
+
 def bootstrap() -> None:
     for sym in WATCHLIST:
         bars[sym] = fetch_klines(sym, BOOTSTRAP)
@@ -218,9 +298,11 @@ def on_signal(sig: Signal) -> None:
     global stats
     day = today_ist()
     if day_trades.get(day, 0) >= MAX_TRADES_DAY:
+        stats["skipped"] += 1
         log(f"[SKIP] max_trades/day={MAX_TRADES_DAY}")
         return
     if sig.sym in open_dry:
+        stats["skipped"] += 1
         log(f"[SKIP] {sig.sym} dry already open")
         return
 
@@ -260,6 +342,12 @@ def close_dry(sym: str, exit_px: float, reason: str) -> None:
     pnl = pnl_usd(pos.side, pos.entry_px, exit_px, NOTIONAL, FEE_RT, SLIP_BPS)
     stats["dry_exits"] += 1
     stats["dry_pnl"] += pnl
+    if reason == "tp2r":
+        stats["tp"] += 1
+    elif reason == "sl":
+        stats["sl"] += 1
+    elif reason == "timeout":
+        stats["timeout"] += 1
     save_state()
     with TRADES_CSV.open("a", newline="", encoding="utf-8") as f:
         csv.writer(f).writerow([
@@ -278,6 +366,7 @@ def check_bar_close(sym: str) -> None:
     if b[i].ts == last_closed_ts.get(sym):
         return
     last_closed_ts[sym] = b[i].ts
+    stats["bars_closed"] += 1
     sig = signal_on_closed_bar(sym, b, i)
     if not sig:
         return
@@ -345,6 +434,13 @@ async def mark_poll_loop() -> None:
                     close_dry(sym, px, "timeout")
 
 
+async def stats_loop() -> None:
+    emit_stats("startup")
+    while True:
+        await asyncio.sleep(STATS_INTERVAL_SEC)
+        emit_stats("periodic")
+
+
 async def scan_last_closed() -> None:
     """Evaluate the latest fully closed 4h bar once (REST bootstrap path)."""
     n = 0
@@ -388,6 +484,7 @@ async def main_loop(run_once: bool = False) -> None:
     global live_trader, WATCHLIST, WATCHLIST_SET
     init_trades_csv()
     load_state()
+    load_realized_from_csv()
     WATCHLIST = resolve_symbols()
     if not WATCHLIST:
         raise SystemExit("no symbols resolved")
@@ -407,15 +504,21 @@ async def main_loop(run_once: bool = False) -> None:
 
     log(
         f"[CONFIG] symbols={len(WATCHLIST)} mode={WATCHLIST_MODE} notional=${NOTIONAL} "
-        f"max/day={MAX_TRADES_DAY} fee={FEE_RT} open_dry={len(open_dry)}"
+        f"max/day={MAX_TRADES_DAY} fee={FEE_RT} open_dry={len(open_dry)} "
+        f"stats_every={STATS_INTERVAL_SEC}s"
     )
+    log(f"  log={LOG_FILE}")
+    log(f"  stats={STATS_FILE}")
+    log(f"  trades={TRADES_CSV}")
 
     if run_once:
         await scan_once()
+        emit_stats("once")
         return
 
     await scan_last_closed()
     asyncio.create_task(mark_poll_loop())
+    asyncio.create_task(stats_loop())
     chunks = [WATCHLIST[i : i + WS_CHUNK] for i in range(0, len(WATCHLIST), WS_CHUNK)]
     ws_tasks = [asyncio.create_task(ws_handler(i, c)) for i, c in enumerate(chunks)]
     await asyncio.gather(*ws_tasks)
