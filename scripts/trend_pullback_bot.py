@@ -85,9 +85,11 @@ LOG_FILE = OUT_DIR / "trend_pullback.log"
 TRADES_CSV = OUT_DIR / "trend_pullback_dry_trades.csv"
 STATE_FILE = OUT_DIR / "trend_pullback_open.json"
 
-WATCHLIST = [s.strip().upper() for s in _env(
-    "TPB_WATCHLIST", "BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT"
-).split(",") if s.strip()]
+WATCHLIST_MODE = _env("TPB_WATCHLIST_MODE", "all_perps").lower()
+WATCHLIST_SIZE = _env_int("TPB_WATCHLIST_SIZE", 300)
+WS_CHUNK = _env_int("TPB_WS_CHUNK", 40)
+WATCHLIST: list[str] = []
+WATCHLIST_SET: set[str] = set()
 NOTIONAL = _env_float("TPB_DRY_NOTIONAL_USDT", live_notional_usdt(6.0))
 FEE_RT = _env_float("TPB_FEE_RT", 0.0008)
 SLIP_BPS = _env_float("TPB_SLIP_BPS", 1.0)
@@ -128,6 +130,39 @@ def log(msg: str) -> None:
 
 def today_ist() -> str:
     return datetime.now(timezone.utc).astimezone(IST).strftime("%Y-%m-%d")
+
+
+def _http_json(url: str, retries: int = 3) -> object:
+    last_err: Exception | None = None
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "tpb"})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return json.loads(r.read())
+        except Exception as e:
+            last_err = e
+            time.sleep(min(2 ** attempt, 8) + 0.2)
+    if last_err is not None:
+        raise last_err
+    raise RuntimeError("http failed")
+
+
+def resolve_symbols() -> list[str]:
+    manual = _env("TPB_SYMBOLS", "") or _env("TPB_WATCHLIST", "")
+    if manual:
+        return sorted(s.strip().upper() for s in manual.split(",") if s.strip())
+    if WATCHLIST_MODE == "all_perps":
+        info = _http_json(f"{FAPI}/fapi/v1/exchangeInfo")
+        out = [
+            s["symbol"]
+            for s in info["symbols"]
+            if s.get("contractType") == "PERPETUAL"
+            and s.get("quoteAsset") == "USDT"
+            and s.get("status") == "TRADING"
+            and s["symbol"].isascii()
+        ]
+        return sorted(out[:WATCHLIST_SIZE] if WATCHLIST_SIZE > 0 else out)
+    raise ValueError(f"unsupported TPB_WATCHLIST_MODE: {WATCHLIST_MODE!r}")
 
 
 def fetch_klines(sym: str, limit: int = 250) -> list[Bar]:
@@ -268,13 +303,13 @@ def apply_kline(sym: str, k: dict) -> None:
         check_bar_close(sym)
 
 
-async def ws_loop() -> None:
-    streams = "/".join(f"{s.lower()}@kline_4h" for s in WATCHLIST)
+async def ws_handler(conn_id: int, symbols: list[str]) -> None:
+    streams = "/".join(f"{s.lower()}@kline_4h" for s in symbols)
     url = f"{WS_ROOT}/stream?streams={streams}"
     while True:
         try:
-            async with websockets.connect(url, ping_interval=20, ping_timeout=60) as ws:
-                log(f"[WS] connected {len(WATCHLIST)} streams 4h")
+            async with websockets.connect(url, ping_interval=20, ping_timeout=60, max_size=2**22) as ws:
+                log(f"[WS-{conn_id}] connected {len(symbols)} streams 4h")
                 async for raw in ws:
                     msg = json.loads(raw)
                     data = msg.get("data", msg)
@@ -282,10 +317,10 @@ async def ws_loop() -> None:
                     if not k:
                         continue
                     sym = data.get("s", k.get("s", "")).upper()
-                    if sym in WATCHLIST:
+                    if sym in WATCHLIST_SET:
                         apply_kline(sym, k)
         except Exception as e:
-            log(f"[WS] reconnect after {e}")
+            log(f"[WS-{conn_id}] reconnect after {e}")
             await asyncio.sleep(5)
 
 
@@ -322,9 +357,13 @@ async def scan_once() -> None:
 
 
 async def main_loop(run_once: bool = False) -> None:
-    global live_trader
+    global live_trader, WATCHLIST, WATCHLIST_SET
     init_trades_csv()
     load_state()
+    WATCHLIST = resolve_symbols()
+    if not WATCHLIST:
+        raise SystemExit("no symbols resolved")
+    WATCHLIST_SET = set(WATCHLIST)
     bootstrap()
 
     live_trader = TrendPullbackMirrorLive(FAPI, log, enabled=LIVE_ENABLED)
@@ -339,8 +378,8 @@ async def main_loop(run_once: bool = False) -> None:
         log("[DRY] live disabled — original paper only")
 
     log(
-        f"[CONFIG] watchlist={WATCHLIST} notional=${NOTIONAL} max/day={MAX_TRADES_DAY} "
-        f"fee={FEE_RT} open_dry={len(open_dry)}"
+        f"[CONFIG] symbols={len(WATCHLIST)} mode={WATCHLIST_MODE} notional=${NOTIONAL} "
+        f"max/day={MAX_TRADES_DAY} fee={FEE_RT} open_dry={len(open_dry)}"
     )
 
     if run_once:
@@ -348,7 +387,9 @@ async def main_loop(run_once: bool = False) -> None:
         return
 
     asyncio.create_task(mark_poll_loop())
-    await ws_loop()
+    chunks = [WATCHLIST[i : i + WS_CHUNK] for i in range(0, len(WATCHLIST), WS_CHUNK)]
+    ws_tasks = [asyncio.create_task(ws_handler(i, c)) for i, c in enumerate(chunks)]
+    await asyncio.gather(*ws_tasks)
 
 
 def main() -> None:
