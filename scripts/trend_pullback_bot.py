@@ -367,6 +367,17 @@ def check_bar_close(sym: str) -> None:
         return
     last_closed_ts[sym] = b[i].ts
     stats["bars_closed"] += 1
+
+    if sym in open_dry:
+        pos = open_dry[sym]
+        pos.bars_held += 1
+        if pos.bars_held >= MAX_HOLD_BARS:
+            try:
+                px = fetch_mark(sym)
+            except Exception:
+                px = b[i].c
+            close_dry(sym, px, "timeout")
+
     sig = signal_on_closed_bar(sym, b, i)
     if not sig:
         return
@@ -428,10 +439,6 @@ async def mark_poll_loop() -> None:
             hit = dry_check_exit(pos.side, pos.sl, pos.tp, px, px)
             if hit:
                 close_dry(sym, hit[0], hit[1])
-            else:
-                pos.bars_held += 1
-                if pos.bars_held >= MAX_HOLD_BARS:
-                    close_dry(sym, px, "timeout")
 
 
 async def stats_loop() -> None:
