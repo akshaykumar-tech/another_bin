@@ -87,7 +87,7 @@ def mirror_side(signal_side: str) -> str:
 
 
 def signal_on_closed_bar(sym: str, bars: list[Bar], i: int) -> Signal | None:
-    if i < max(EMA_SLOW, RSI_LEN, ATR_LEN) + 2 or i >= len(bars) - 1:
+    if i < max(EMA_SLOW, RSI_LEN, ATR_LEN) + 2 or i >= len(bars):
         return None
     closes = [b.c for b in bars]
     e21 = ema_series(closes, EMA_FAST)

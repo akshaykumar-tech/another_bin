@@ -208,7 +208,8 @@ def bootstrap() -> None:
     for sym in WATCHLIST:
         bars[sym] = fetch_klines(sym, BOOTSTRAP)
         if bars[sym]:
-            last_closed_ts[sym] = bars[sym][-1].ts
+            # REST last kline is the forming candle — mark last fully closed bar
+            last_closed_ts[sym] = bars[sym][-2].ts if len(bars[sym]) >= 2 else bars[sym][-1].ts
         time.sleep(0.05)
     log(f"[BOOT] {len(WATCHLIST)} symbols × {BOOTSTRAP} 4h bars")
 
@@ -278,15 +279,16 @@ def check_bar_close(sym: str) -> None:
         return
     last_closed_ts[sym] = b[i].ts
     sig = signal_on_closed_bar(sym, b, i)
-    if sig:
-        try:
-            sig.entry = fetch_mark(sym)
-        except Exception:
-            pass
-        lv = levels(sig.signal_side, sig.entry, sig.pull_low, sig.pull_high, sig.atr_val)
-        if lv:
-            sig.sl, sig.tp, sig.risk = lv
-        on_signal(sig)
+    if not sig:
+        return
+    try:
+        sig.entry = fetch_mark(sym)
+    except Exception:
+        pass
+    lv = levels(sig.signal_side, sig.entry, sig.pull_low, sig.pull_high, sig.atr_val)
+    if lv:
+        sig.sl, sig.tp, sig.risk = lv
+    on_signal(sig)
 
 
 def apply_kline(sym: str, k: dict) -> None:
@@ -305,7 +307,7 @@ def apply_kline(sym: str, k: dict) -> None:
 
 async def ws_handler(conn_id: int, symbols: list[str]) -> None:
     streams = "/".join(f"{s.lower()}@kline_4h" for s in symbols)
-    url = f"{WS_ROOT}/stream?streams={streams}"
+    url = f"{WS_ROOT}/market/stream?streams={streams}"
     while True:
         try:
             async with websockets.connect(url, ping_interval=20, ping_timeout=60, max_size=2**22) as ws:
@@ -341,6 +343,32 @@ async def mark_poll_loop() -> None:
                 pos.bars_held += 1
                 if pos.bars_held >= MAX_HOLD_BARS:
                     close_dry(sym, px, "timeout")
+
+
+async def scan_last_closed() -> None:
+    """Evaluate the latest fully closed 4h bar once (REST bootstrap path)."""
+    n = 0
+    for sym in WATCHLIST:
+        b = bars.get(sym, [])
+        if len(b) < 220:
+            continue
+        i = len(b) - 2
+        sig = signal_on_closed_bar(sym, b, i)
+        if sig:
+            n += 1
+            try:
+                sig.entry = fetch_mark(sym)
+            except Exception:
+                pass
+            lv = levels(sig.signal_side, sig.entry, sig.pull_low, sig.pull_high, sig.atr_val)
+            if lv:
+                sig.sl, sig.tp, sig.risk = lv
+            on_signal(sig)
+        time.sleep(0.01)
+    if n:
+        log(f"[SCAN] last closed 4h bar → {n} signal(s)")
+    else:
+        log("[SCAN] last closed 4h bar → no signals")
 
 
 async def scan_once() -> None:
@@ -386,6 +414,7 @@ async def main_loop(run_once: bool = False) -> None:
         await scan_once()
         return
 
+    await scan_last_closed()
     asyncio.create_task(mark_poll_loop())
     chunks = [WATCHLIST[i : i + WS_CHUNK] for i in range(0, len(WATCHLIST), WS_CHUNK)]
     ws_tasks = [asyncio.create_task(ws_handler(i, c)) for i, c in enumerate(chunks)]
