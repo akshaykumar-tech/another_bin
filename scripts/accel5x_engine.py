@@ -74,13 +74,34 @@ def mirror_side(side: str) -> str:
     return "short" if side == "long" else "long"
 
 
-def exec_side(signal_side: str, btc_prev_green: bool | None, *, live_mode: bool) -> str:
-    """Dry/backtest: same as signal. Live: mirror when BTC prev red; doji -> same."""
-    if not live_mode or btc_prev_green is None:
+def exec_side(signal_side: str, btc_prev_green: bool | None, *, live_mode: bool = True) -> str:
+    """BTC twist (dry + live): green=same, red=mirror, doji=same. live_mode kept for compat."""
+    if btc_prev_green is None:
         return signal_side
     if btc_prev_green:
         return signal_side
     return mirror_side(signal_side)
+
+
+def adverse_trigger_px(ref: float, side: str, adverse_pct: float) -> float:
+    if side == "short":
+        return ref * (1 + adverse_pct / 100.0)
+    return ref * (1 - adverse_pct / 100.0)
+
+
+def adverse_hit(mark: float, ref: float, side: str, adverse_pct: float) -> bool:
+    if ref <= 0:
+        return False
+    if side == "short":
+        return mark >= adverse_trigger_px(ref, side, adverse_pct)
+    return mark <= adverse_trigger_px(ref, side, adverse_pct)
+
+
+def hyb_entry_raw_px(mark: float, ref: float, side: str, adverse_pct: float) -> tuple[float, str]:
+    """HYB: adverse trigger fill if hit, else open ref. Returns (raw_px, tag)."""
+    if adverse_hit(mark, ref, side, adverse_pct):
+        return adverse_trigger_px(ref, side, adverse_pct), "HYB_ADV"
+    return ref, "HYB_OPEN"
 
 
 def list_all_syms(fapi: str = FAPI) -> list[str]:

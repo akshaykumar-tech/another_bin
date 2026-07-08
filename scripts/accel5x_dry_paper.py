@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""5x acceleration dry paper bot — ALL mix (same direction as backtest).
+"""5x acceleration dry paper + optional live.
 
 Daily at IST 05:30 (UTC 00:00):
   - Exit yesterday's positions @ market
-  - Scan 5x signals across all USDT perps, top 30 by multiplier
-  - DRY: enter same direction as signal (backtest parity)
-  - LIVE (optional): BTC prev GREEN -> same | BTC prev RED -> mirror
-  - No SL/TP on live (market in / market out at day close)
-
-Uses LIVE_NOTIONAL_USDT, LIVE_MAX_OPEN, LIVE_MIN_LEVERAGE,
-LIVE_MARGIN_BUFFER, LIVE_RECONCILE_SEC from .env when live enabled.
+  - Scan 5x signals, top 30 by multiplier
+  - BTC twist (dry + live): prev GREEN=same | prev RED=mirror
+  - Entry: HYB5 (default) or immediate open
+    HYB5: if price moves adverse% against exec side first -> enter @ trigger;
+          else enter @ day open ref after open_after_sec
+  - No SL/TP — exit next day @ market
 """
 from __future__ import annotations
 
@@ -28,8 +27,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from accel5x_engine import (
-    exec_side,
+    adverse_trigger_px,
     entry_px,
+    exec_side,
     exit_px,
     list_all_syms,
     next_utc_midnight_ms,
@@ -37,6 +37,7 @@ from accel5x_engine import (
     scan_universe,
     today_ist,
 )
+from accel5x_hyb import HybEntryWatcher, PendingHyb
 from accel5x_live_lib import Accel5xLiveTrader
 from live_config_lib import live_max_open, live_notional_usdt
 
@@ -84,6 +85,7 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = OUT_DIR / "accel5x_dry.log"
 TRADES_CSV = OUT_DIR / "accel5x_dry_trades.csv"
 STATE_FILE = OUT_DIR / "accel5x_open.json"
+HYB_STATE = OUT_DIR / "accel5x_hyb_pending.json"
 
 NOTIONAL = live_notional_usdt(_env_float("ACCEL5X_DRY_NOTIONAL_USDT", live_notional_usdt(6.0)))
 MAX_TRADES = min(_env_int("ACCEL5X_MAX_TRADES", 30), live_max_open(30))
@@ -93,6 +95,10 @@ FEE_RT = _env_float("ACCEL5X_FEE_RT", 0.0008)
 SLIP_BPS = _env_float("ACCEL5X_SLIP_BPS", 1.0)
 LIVE_ENABLED = _env_bool("ACCEL5X_LIVE_ENABLED", False)
 SCAN_SLEEP = _env_float("ACCEL5X_SCAN_SLEEP", 0.006)
+ENTRY_MODE = _env("ACCEL5X_ENTRY_MODE", "hyb5").lower()
+HYB_PCT = _env_float("ACCEL5X_HYB_ADVERSE_PCT", 5.0)
+HYB_POLL = _env_float("ACCEL5X_HYB_POLL_SEC", 30.0)
+HYB_OPEN_AFTER = _env_float("ACCEL5X_HYB_OPEN_AFTER_SEC", 0.0)
 
 
 @dataclass
@@ -106,11 +112,13 @@ class OpenPosition:
     base_pct: float
     prev_pct: float
     btc_prev_green: bool | None
+    entry_tag: str = "OPEN"
 
 
 stats = {"entries": 0, "exits": 0, "day_pnl": 0.0, "total_pnl": 0.0}
 open_positions: dict[str, OpenPosition] = {}
 live_trader: Accel5xLiveTrader | None = None
+hyb_watcher: HybEntryWatcher | None = None
 
 
 def log(msg: str) -> None:
@@ -126,7 +134,7 @@ def init_trades_csv() -> None:
             csv.writer(f).writerow([
                 "entry_day", "exit_day", "symbol", "signal_side", "exec_side",
                 "btc_prev", "mult", "base_pct", "prev_pct",
-                "entry_px", "exit_px", "pnl_usd", "mode",
+                "entry_px", "exit_px", "pnl_usd", "entry_tag", "mode",
             ])
 
 
@@ -140,7 +148,11 @@ def load_state() -> None:
         return
     try:
         rows = json.loads(STATE_FILE.read_text())
-        open_positions = {r["sym"]: OpenPosition(**r) for r in rows}
+        open_positions = {}
+        for r in rows:
+            if "entry_tag" not in r:
+                r["entry_tag"] = "OPEN"
+            open_positions[r["sym"]] = OpenPosition(**r)
     except Exception as e:
         log(f"[STATE] load failed: {e}")
 
@@ -172,9 +184,12 @@ def close_dry_positions(exit_day: str) -> float:
             csv.writer(f).writerow([
                 pos.entry_day, exit_day, sym, pos.signal_side, pos.side,
                 btc_tag, f"{pos.mult:.1f}", f"{pos.base_pct:.2f}", f"{pos.prev_pct:.2f}",
-                f"{pos.entry_px:.8f}", f"{ex:.8f}", f"{pnl:.4f}", "dry",
+                f"{pos.entry_px:.8f}", f"{ex:.8f}", f"{pnl:.4f}", pos.entry_tag, "dry",
             ])
-        log(f"[DRY_EXIT] {sym} {pos.side.upper()} entry={pos.entry_px:.6f} exit={ex:.6f} pnl=${pnl:+.3f}")
+        log(
+            f"[DRY_EXIT] {sym} {pos.side.upper()} {pos.entry_tag} "
+            f"entry={pos.entry_px:.6f} exit={ex:.6f} pnl=${pnl:+.3f}"
+        )
         del open_positions[sym]
     save_state()
     return day_pnl
@@ -185,15 +200,83 @@ async def close_live_positions() -> None:
         await live_trader.exit_all(reason="day_close")
 
 
+def _open_count() -> int:
+    n = len(open_positions)
+    if hyb_watcher:
+        n += len(hyb_watcher.pending)
+    return n
+
+
+def record_entry(
+    sym: str,
+    side: str,
+    signal_side: str,
+    entry_day: str,
+    ent: float,
+    mult: float,
+    base_pct: float,
+    prev_pct: float,
+    btc_green: bool | None,
+    entry_tag: str,
+    ref: float,
+) -> bool:
+    if len(open_positions) >= MAX_TRADES:
+        return False
+    if sym in open_positions:
+        return False
+    open_positions[sym] = OpenPosition(
+        sym=sym,
+        side=side,
+        signal_side=signal_side,
+        entry_day=entry_day,
+        entry_px=ent,
+        mult=mult,
+        base_pct=base_pct,
+        prev_pct=prev_pct,
+        btc_prev_green=btc_green,
+        entry_tag=entry_tag,
+    )
+    stats["entries"] += 1
+    save_state()
+    log(
+        f"[DRY_ENTRY] {sym} signal={signal_side.upper()} exec={side.upper()} "
+        f"{entry_tag} {mult:.1f}x base={base_pct:+.1f}% prev={prev_pct:+.1f}% "
+        f"ref={ref:.6f} @ {ent:.6f}"
+    )
+    if live_trader and live_trader.enabled:
+        live_trader.schedule_entry(
+            sym, side, ent,
+            tag=f"sig={signal_side} exec={side} {entry_tag} mult={mult:.1f}x ref={ref:.4f}",
+        )
+    return True
+
+
+def on_hyb_fill(p: PendingHyb, ent: float, tag: str) -> None:
+    if len(open_positions) >= MAX_TRADES:
+        log(f"[HYB_SKIP] {p.sym} max_trades={MAX_TRADES}")
+        return
+    record_entry(
+        p.sym, p.side, p.signal_side, p.entry_day, ent,
+        p.mult, p.base_pct, p.prev_pct, p.btc_prev_green, tag, p.ref,
+    )
+
+
 async def run_day_open(entry_day: str) -> None:
-    global stats
+    global stats, hyb_watcher
     log(f"[DAY_OPEN] entry_day={entry_day} IST — closing prior positions")
+    if hyb_watcher:
+        skipped = len(hyb_watcher.pending)
+        if skipped:
+            log(f"[HYB] cancel {skipped} unfilled pending from prior day")
+        await hyb_watcher.stop()
+        hyb_watcher.clear()
+
     day_pnl = close_dry_positions(entry_day)
     await close_live_positions()
     if day_pnl != 0:
         log(f"[DAY_CLOSE_PNL] prior book pnl=${day_pnl:+.2f} total=${stats['total_pnl']:+.2f}")
 
-    log(f"[SCAN] loading universe...")
+    log("[SCAN] loading universe...")
     syms = list_all_syms(FAPI)
     sigs, btc_green, btc_body = scan_universe(
         syms, entry_day,
@@ -204,47 +287,76 @@ async def run_day_open(entry_day: str) -> None:
     body_s = f"{btc_body:+.2f}%" if btc_body is not None else "n/a"
     log(
         f"[SCAN] {len(sigs)} signals | BTC prev {btc_tag} {body_s} "
-        f"| dry=same_dir live={'same' if btc_green else 'mirror' if btc_green is False else 'same'}"
+        f"| twist=green:same red:mirror | entry={ENTRY_MODE}"
     )
 
+    day_start_ms = day_ms_utc(entry_day)
     n_ent = 0
+    use_hyb = ENTRY_MODE in ("hyb5", "hyb", "hybrid5", "hybrid")
+
+    if use_hyb:
+        hyb_watcher = HybEntryWatcher(
+            FAPI,
+            adverse_pct=HYB_PCT,
+            poll_sec=HYB_POLL,
+            open_after_sec=HYB_OPEN_AFTER,
+            slip_bps=SLIP_BPS,
+            log=log,
+            on_fill=on_hyb_fill,
+            state_file=HYB_STATE,
+        )
+        hyb_watcher.clear()
+
     for sig in sigs:
-        if len(open_positions) >= MAX_TRADES:
+        if _open_count() >= MAX_TRADES:
             break
-        dry_side = exec_side(sig.signal_side, btc_green, live_mode=False)
-        live_side = exec_side(sig.signal_side, btc_green, live_mode=True)
+        side = exec_side(sig.signal_side, btc_green, live_mode=True)
         ref = sig.entry_open if sig.entry_open > 0 else fetch_mark_price(sig.sym)
-        ent = entry_px(ref, dry_side, SLIP_BPS)
 
-        open_positions[sig.sym] = OpenPosition(
-            sym=sig.sym,
-            side=dry_side,
-            signal_side=sig.signal_side,
-            entry_day=entry_day,
-            entry_px=ent,
-            mult=sig.mult,
-            base_pct=sig.base_pct,
-            prev_pct=sig.prev_pct,
-            btc_prev_green=btc_green,
-        )
-        stats["entries"] += 1
-        n_ent += 1
-        log(
-            f"[DRY_ENTRY] {sig.sym} signal={sig.signal_side.upper()} exec={dry_side.upper()} "
-            f"{sig.mult:.1f}x base={sig.base_pct:+.1f}% prev={sig.prev_pct:+.1f}% @ {ent:.6f}"
-        )
-        if live_trader and live_trader.enabled:
-            live_trader.schedule_entry(
-                sig.sym, live_side, ref,
-                tag=f"sig={sig.signal_side} live={live_side} mult={sig.mult:.1f}x",
+        if use_hyb:
+            if sig.sym in open_positions:
+                continue
+            hyb_watcher.add(PendingHyb(
+                sym=sig.sym,
+                side=side,
+                signal_side=sig.signal_side,
+                ref=ref,
+                entry_day=entry_day,
+                mult=sig.mult,
+                base_pct=sig.base_pct,
+                prev_pct=sig.prev_pct,
+                btc_prev_green=btc_green,
+                day_start_ms=day_start_ms,
+            ))
+            n_ent += 1
+            log(
+                f"[HYB_PENDING] {sig.sym} signal={sig.signal_side.upper()} exec={side.upper()} "
+                f"{sig.mult:.1f}x ref={ref:.6f} adv={HYB_PCT}%"
             )
+        else:
+            ent = entry_px(ref, side, SLIP_BPS)
+            if record_entry(
+                sig.sym, side, sig.signal_side, entry_day, ent,
+                sig.mult, sig.base_pct, sig.prev_pct, btc_green, "OPEN", ref,
+            ):
+                n_ent += 1
 
-    save_state()
-    log(f"[DAY_OPEN] opened {n_ent} positions | open={len(open_positions)}")
+    if use_hyb and hyb_watcher and hyb_watcher.pending:
+        hyb_watcher.start()
+
+    log(
+        f"[DAY_OPEN] queued/opened {n_ent} | open_pos={len(open_positions)} "
+        f"hyb_pending={len(hyb_watcher.pending) if hyb_watcher else 0}"
+    )
+
+
+def day_ms_utc(day: str) -> int:
+    y, m, d = map(int, day.split("-"))
+    return int(datetime(y, m, d, tzinfo=timezone.utc).timestamp() * 1000)
 
 
 async def main_loop(run_once: bool = False) -> None:
-    global live_trader
+    global live_trader, hyb_watcher
     init_trades_csv()
     load_state()
 
@@ -253,19 +365,39 @@ async def main_loop(run_once: bool = False) -> None:
     if live_trader.enabled and live_trader.configured():
         await live_trader.bootstrap()
         asyncio.create_task(live_trader.reconcile_loop())
-        log("[LIVE] enabled — BTC green=same, BTC red=mirror, no SL/TP")
+        log("[LIVE] enabled — BTC twist + HYB5, no SL/TP")
     elif LIVE_ENABLED:
         log("[LIVE] ACCEL5X_LIVE_ENABLED=true but API keys missing — dry only")
     else:
-        log("[DRY] live disabled — same direction as backtest (ALL mix)")
+        log("[DRY] live disabled — BTC twist + HYB5 dry only")
+
+    if ENTRY_MODE in ("hyb5", "hyb", "hybrid5", "hybrid") and HYB_STATE.is_file():
+        hyb_watcher = HybEntryWatcher(
+            FAPI,
+            adverse_pct=HYB_PCT,
+            poll_sec=HYB_POLL,
+            open_after_sec=HYB_OPEN_AFTER,
+            slip_bps=SLIP_BPS,
+            log=log,
+            on_fill=on_hyb_fill,
+            state_file=HYB_STATE,
+        )
+        hyb_watcher.load()
+        if hyb_watcher.pending:
+            log(f"[HYB] resume {len(hyb_watcher.pending)} pending from state")
+            hyb_watcher.start()
 
     log(
-        f"[CONFIG] notional=${NOTIONAL} max_trades={MAX_TRADES} min_mult={MIN_MULT}x "
-        f"min_base={MIN_BASE_PCT}% fee={FEE_RT} slip={SLIP_BPS}bps"
+        f"[CONFIG] notional=${NOTIONAL} max_trades={MAX_TRADES} entry={ENTRY_MODE} "
+        f"hyb_adv={HYB_PCT}% hyb_poll={HYB_POLL}s open_after={HYB_OPEN_AFTER}s "
+        f"min_mult={MIN_MULT}x fee={FEE_RT}"
     )
 
     if run_once:
         await run_day_open(today_ist())
+        if hyb_watcher and hyb_watcher.pending:
+            log("[HYB] --once: waiting up to 120s for pending fills...")
+            await asyncio.sleep(120)
         return
 
     while True:
@@ -278,7 +410,7 @@ async def main_loop(run_once: bool = False) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="5x accel dry paper + optional live")
+    ap = argparse.ArgumentParser(description="5x accel dry paper + optional live (HYB5)")
     ap.add_argument("--once", action="store_true", help="scan and enter now (test)")
     args = ap.parse_args()
     asyncio.run(main_loop(run_once=args.once))
