@@ -25,14 +25,18 @@ from binance_futures import BinanceFuturesClient, parse_fill
 from live_config_lib import binance_api_key, binance_api_secret
 from orb30_engine import (
     ORB_MS,
+    ORB_5M_BARS,
     Bracket,
     MoverSignal,
+    bars_5m_day,
     bracket_prices,
     day_start_ms_now,
+    inside_orb,
     mark_price,
     orb_from_5m,
     pnl_pct,
     pnl_usd,
+    replay_orb_state,
     scan_yesterday_signals,
     utc_today,
 )
@@ -91,6 +95,7 @@ MAX_DAILY_LOSS = _env_float("ORB30_MAX_DAILY_LOSS_USDT", 10.0)
 
 LOG_FILE = OUT_DIR / ("orb30_live.log" if LIVE else "orb30_dry.log")
 TRADES_CSV = OUT_DIR / ("orb30_live_trades.csv" if LIVE else "orb30_dry_trades.csv")
+DAILY_CSV = OUT_DIR / ("orb30_live_daily.csv" if LIVE else "orb30_dry_daily.csv")
 
 MODE = "LIVE" if LIVE else "DRY"
 
@@ -115,6 +120,8 @@ class SymState:
     orb_low: float = 0.0
     day_open: float = 0.0
     orb_locked: bool = False
+    catchup_done: bool = False
+    prev_inside_orb: bool = True
     trades_today: int = 0
     pos: Position | None = None
 
@@ -156,6 +163,9 @@ class Orb30Bot:
         self.day_start_ms = 0
         self.watch: dict[str, SymState] = {}
         self.session_pnl = 0.0
+        self.day_pnl = 0.0
+        self.day_trades = 0
+        self.day_wins = 0
         self._lock = asyncio.Lock()
         self._scanned = False
 
@@ -189,11 +199,41 @@ class Orb30Bot:
             return
         if self.trade_date:
             await self._flatten_all("DAY_ROLLOVER")
+            self._log_day_end()
         self.trade_date = today
         self.day_start_ms = day_start_ms_now()
         self.watch = {}
         self._scanned = False
+        self.session_pnl = 0.0
+        self.day_pnl = 0.0
+        self.day_trades = 0
+        self.day_wins = 0
         log(f"[NEW_DAY] {today} (05:30 IST open)")
+
+    def _log_day_end(self) -> None:
+        if not self.trade_date:
+            return
+        log(
+            f"[DAY_END] {self.trade_date} | trades={self.day_trades} "
+            f"wins={self.day_wins} losses={self.day_trades - self.day_wins} "
+            f"pnl=${self.day_pnl:+.4f}"
+        )
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        new = not DAILY_CSV.is_file()
+        with DAILY_CSV.open("a", newline="") as f:
+            w = csv.DictWriter(
+                f,
+                fieldnames=["trade_date", "trades", "wins", "losses", "pnl_usd"],
+            )
+            if new:
+                w.writeheader()
+            w.writerow({
+                "trade_date": self.trade_date,
+                "trades": self.day_trades,
+                "wins": self.day_wins,
+                "losses": self.day_trades - self.day_wins,
+                "pnl_usd": round(self.day_pnl, 4),
+            })
 
     async def _poll_once(self) -> None:
         now_ms = int(time.time() * 1000)
@@ -271,8 +311,36 @@ class Orb30Bot:
                     f"[ORB] {st.sym} hi={st.orb_high:.8g} lo={st.orb_low:.8g} "
                     f"open={st.day_open:.8g}"
                 )
+                await self._catchup_symbol(st)
             except Exception as e:
                 log(f"[ORB_ERR] {st.sym} {e}")
+
+    async def _catchup_symbol(self, st: SymState) -> None:
+        """Sync trades_today from today's 5m replay — skip stale breakouts on late start."""
+        if st.catchup_done:
+            return
+        loop = asyncio.get_running_loop()
+        try:
+            bars = await loop.run_in_executor(
+                None, bars_5m_day, st.sym, self.trade_date, FAPI
+            )
+            replay = replay_orb_state(
+                bars, ORB_5M_BARS, TP_PCT, SL_PCT, MAX_TRADES_SYM
+            )
+            st.trades_today = replay.trades_done
+            try:
+                px = await loop.run_in_executor(None, mark_price, st.sym, FAPI)
+            except Exception:
+                px = bars[-1].c if bars else st.day_open
+            st.prev_inside_orb = inside_orb(px, st.orb_high, st.orb_low)
+            st.catchup_done = True
+            log(
+                f"[CATCHUP] {st.sym} replay trades={st.trades_today}/{MAX_TRADES_SYM} "
+                f"px={px:.8g} inside_orb={st.prev_inside_orb}"
+            )
+        except Exception as e:
+            log(f"[CATCHUP_ERR] {st.sym} {e}")
+            st.catchup_done = True
 
     def _open_count(self) -> int:
         return sum(1 for st in self.watch.values() if st.pos is not None)
@@ -285,18 +353,24 @@ class Orb30Bot:
                 await self._try_entry(st)
 
     async def _try_entry(self, st: SymState) -> None:
+        if not st.catchup_done:
+            return
         loop = asyncio.get_running_loop()
         try:
             px = await loop.run_in_executor(None, mark_price, st.sym, FAPI)
         except Exception:
             return
+        inside = inside_orb(px, st.orb_high, st.orb_low)
         side = ""
         entry = 0.0
-        if px >= st.orb_high:
-            side, entry = "long", st.orb_high
-        elif px <= st.orb_low:
-            side, entry = "short", st.orb_low
-        else:
+        # Fresh breakout only: price was inside ORB, now breaks hi/lo (matches backtest).
+        if st.prev_inside_orb:
+            if px >= st.orb_high:
+                side, entry = "long", st.orb_high
+            elif px <= st.orb_low:
+                side, entry = "short", st.orb_low
+        st.prev_inside_orb = inside
+        if not side:
             return
 
         br = bracket_prices(side, entry, TP_PCT, SL_PCT)
@@ -404,6 +478,10 @@ class Orb30Bot:
 
         pnl = pnl_usd(pos.side, pos.entry, exit_px, NOTIONAL, FEE_RT)
         self.session_pnl += pnl
+        self.day_pnl += pnl
+        self.day_trades += 1
+        if pnl > 0:
+            self.day_wins += 1
         st.trades_today += 1
         st.pos = None
         append_trade(
@@ -440,7 +518,11 @@ class Orb30Bot:
 
 async def main() -> None:
     bot = Orb30Bot()
-    await bot.run()
+    try:
+        await bot.run()
+    finally:
+        if bot.trade_date and bot.day_trades > 0:
+            bot._log_day_end()
 
 
 if __name__ == "__main__":

@@ -12,6 +12,25 @@ from datetime import datetime, timedelta, timezone
 FAPI_DEFAULT = "https://fapi.binance.com"
 DAY_MS = 86_400_000
 ORB_MS = 30 * 60 * 1000
+ORB_5M_BARS = 6
+
+
+@dataclass
+class Bar5:
+    ts: int
+    o: float
+    h: float
+    l: float
+    c: float
+
+
+@dataclass
+class OrbReplayState:
+    trades_done: int
+    open_side: str | None = None
+    open_entry: float = 0.0
+    open_tp: float = 0.0
+    open_sl: float = 0.0
 
 
 @dataclass
@@ -237,13 +256,87 @@ def orb_from_5m(sym: str, trade_date: str, fapi: str = FAPI_DEFAULT) -> tuple[fl
         f"&startTime={start}&endTime={end}&limit=10"
     )
     rows = req_json(url)
-    if len(rows) < 6:
+    if len(rows) < ORB_5M_BARS:
         return None
-    orb = rows[:6]
+    orb = rows[:ORB_5M_BARS]
     day_open = float(orb[0][1])
     hi = max(float(k[2]) for k in orb)
     lo = min(float(k[3]) for k in orb)
     return day_open, hi, lo
+
+
+def bars_5m_day(sym: str, trade_date: str, fapi: str = FAPI_DEFAULT) -> list[Bar5]:
+    start = day_ms(trade_date)
+    end = start + DAY_MS - 1
+    url = (
+        f"{fapi}/fapi/v1/klines?symbol={sym}&interval=5m"
+        f"&startTime={start}&endTime={end}&limit=300"
+    )
+    return [
+        Bar5(int(k[0]), float(k[1]), float(k[2]), float(k[3]), float(k[4]))
+        for k in req_json(url)
+    ]
+
+
+def replay_orb_state(
+    bars: list[Bar5],
+    orb_bars: int,
+    tp_pct: float,
+    sl_pct: float,
+    max_trades: int,
+) -> OrbReplayState:
+    """Replay ORB breakout logic on 5m bars — same rules as backtest sim_orb."""
+    if len(bars) < orb_bars + 1:
+        return OrbReplayState(0)
+    hi = max(b.h for b in bars[:orb_bars])
+    lo = min(b.l for b in bars[:orb_bars])
+    rest = bars[orb_bars:]
+    trades_done = 0
+    pos, entry = None, 0.0
+    tp_px = sl_px = 0.0
+
+    def flat(px: float) -> None:
+        nonlocal pos, entry, tp_px, sl_px, trades_done
+        if not pos:
+            return
+        trades_done += 1
+        pos = None
+        entry = tp_px = sl_px = 0.0
+
+    for b in rest:
+        if trades_done >= max_trades and not pos:
+            break
+        if pos:
+            if pos == "long":
+                if b.l <= sl_px:
+                    flat(sl_px)
+                elif b.h >= tp_px:
+                    flat(tp_px)
+            else:
+                if b.h >= sl_px:
+                    flat(sl_px)
+                elif b.l <= tp_px:
+                    flat(tp_px)
+            continue
+        if trades_done >= max_trades:
+            continue
+        if b.h >= hi:
+            pos, entry = "long", hi
+            tp_px = entry * (1 + tp_pct / 100)
+            sl_px = entry * (1 - sl_pct / 100)
+        elif b.l <= lo:
+            pos, entry = "short", lo
+            tp_px = entry * (1 - tp_pct / 100)
+            sl_px = entry * (1 + sl_pct / 100)
+
+    if pos:
+        flat(rest[-1].c)
+
+    return OrbReplayState(trades_done)
+
+
+def inside_orb(px: float, hi: float, lo: float) -> bool:
+    return lo < px < hi
 
 
 def mark_price(sym: str, fapi: str = FAPI_DEFAULT) -> float:
