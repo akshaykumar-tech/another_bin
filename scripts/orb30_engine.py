@@ -125,6 +125,21 @@ def fetch_daily(sym: str, limit: int, fapi: str = FAPI_DEFAULT) -> list[DayBar]:
     ]
 
 
+def fetch_daily_range(sym: str, start: str, end: str, fapi: str = FAPI_DEFAULT) -> list[DayBar]:
+    """Daily candles from start through end (inclusive), by UTC date."""
+    start_ms = day_ms(start)
+    end_ms = day_ms(end) + DAY_MS - 1
+    url = (
+        f"{fapi}/fapi/v1/klines?symbol={sym}&interval=1d"
+        f"&startTime={start_ms}&endTime={end_ms}&limit=1000"
+    )
+    rows = req_json(url)
+    return [
+        DayBar(utc_date(int(k[0])), float(k[1]), float(k[2]), float(k[3]), float(k[4]))
+        for k in rows
+    ]
+
+
 def build_chg_table(
     sym_bars: dict[str, dict[str, DayBar]],
     dates: list[str],
