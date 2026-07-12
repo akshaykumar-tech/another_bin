@@ -97,11 +97,36 @@ def adverse_hit(mark: float, ref: float, side: str, adverse_pct: float) -> bool:
     return mark <= adverse_trigger_px(ref, side, adverse_pct)
 
 
-def hyb_entry_raw_px(mark: float, ref: float, side: str, adverse_pct: float) -> tuple[float, str]:
-    """HYB: adverse trigger fill if hit, else open ref. Returns (raw_px, tag)."""
-    if adverse_hit(mark, ref, side, adverse_pct):
+def adverse_touched(
+    day_high: float,
+    day_low: float,
+    ref: float,
+    side: str,
+    adverse_pct: float,
+) -> bool:
+    """Backtest parity: did today's range touch adverse trigger since day open?"""
+    if ref <= 0:
+        return False
+    trig = adverse_trigger_px(ref, side, adverse_pct)
+    if side == "short":
+        return day_high >= trig
+    return day_low <= trig
+
+
+def hyb_entry_raw_px(
+    ref: float,
+    side: str,
+    adverse_pct: float,
+    *,
+    day_high: float,
+    day_low: float,
+    fallback_px: float | None = None,
+) -> tuple[float, str]:
+    """HYB backtest rule: first adverse touch -> trigger, else fallback (open/mark)."""
+    if adverse_touched(day_high, day_low, ref, side, adverse_pct):
         return adverse_trigger_px(ref, side, adverse_pct), "HYB_ADV"
-    return ref, "HYB_OPEN"
+    fb = ref if fallback_px is None else fallback_px
+    return fb, "HYB_OPEN"
 
 
 def list_all_syms(fapi: str = FAPI) -> list[str]:

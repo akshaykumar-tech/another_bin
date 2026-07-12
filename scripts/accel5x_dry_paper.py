@@ -6,8 +6,8 @@ Daily at IST 05:30 (UTC 00:00):
   - Scan 5x signals, top 30 by multiplier
   - BTC twist (dry + live): prev GREEN=same | prev RED=mirror
   - Entry: HYB5 (default) or immediate open
-    HYB5: if price moves adverse% against exec side first -> enter @ trigger;
-          else enter @ day open ref after open_after_sec
+    HYB5: first adverse% touch since day open -> enter @ trigger (latched);
+          else after OPEN_AFTER sec -> enter @ current market
   - No SL/TP — exit next day @ market
 """
 from __future__ import annotations
