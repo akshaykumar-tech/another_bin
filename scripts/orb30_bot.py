@@ -84,7 +84,9 @@ NOTIONAL = _env_float("ORB30_NOTIONAL_USDT", 10.0)
 TP_PCT = _env_float("ORB30_TP_PCT", 10.0)
 SL_PCT = _env_float("ORB30_SL_PCT", 10.0)
 MAX_TRADES_SYM = _env_int("ORB30_MAX_TRADES_PER_SYM", 3)
-MAX_OPEN = _env_int("ORB30_MAX_OPEN_POSITIONS", 3)
+MAX_OPEN = _env_int("ORB30_MAX_OPEN_POSITIONS", 15)
+# false = paper sim_orb parity (re-entry on ORB touch without needing inside-first)
+FRESH_BREAKOUT = _env_bool("ORB30_FRESH_BREAKOUT", False)
 LOOKBACK = _env_int("ORB30_LOOKBACK_DAYS", 7)
 POLL_SEC = _env_float("ORB30_POLL_SEC", 3.0)
 SCAN_DELAY_SEC = _env_float("ORB30_SCAN_DELAY_SEC", 120.0)
@@ -182,7 +184,8 @@ class Orb30Bot:
         self.init_live()
         log(
             f"start | ${NOTIONAL} tp={TP_PCT}% sl={SL_PCT}% "
-            f"max_trades/sym={MAX_TRADES_SYM} max_open={MAX_OPEN} orb=30m"
+            f"max_trades/sym={MAX_TRADES_SYM} max_open={MAX_OPEN} "
+            f"fresh_breakout={FRESH_BREAKOUT} orb=30m"
         )
         while True:
             if self.session_pnl <= -MAX_DAILY_LOSS:
@@ -363,8 +366,10 @@ class Orb30Bot:
         inside = inside_orb(px, st.orb_high, st.orb_low)
         side = ""
         entry = 0.0
-        # Fresh breakout only: price was inside ORB, now breaks hi/lo (matches backtest).
-        if st.prev_inside_orb:
+        # Paper parity (FRESH_BREAKOUT=false): enter whenever mark is beyond ORB.
+        # Fresh mode: only enter if previous poll was inside ORB (anti mid-day spam).
+        allow = (not FRESH_BREAKOUT) or st.prev_inside_orb
+        if allow:
             if px >= st.orb_high:
                 side, entry = "long", st.orb_high
             elif px <= st.orb_low:
