@@ -637,17 +637,39 @@ class Orb30Bot:
                         except Exception as e:
                             log(f"[AUDIT_CANCEL_ERR] {st.sym} oid={oid} {e}")
 
-            # Paper wants position we don't have
+            # Hard sync: if live state diverges from paper, force-align.
+            live_side = ""
             has_live = False
             try:
-                qty = await loop.run_in_executor(
-                    None, self.client.position_qty, st.sym
-                )
-                has_live = qty > 0
+                row = await loop.run_in_executor(None, self.client.position_row, st.sym)
             except Exception:
-                pass
+                row = None
+            if row:
+                amt = float(row.get("positionAmt") or 0)
+                if abs(amt) > 0:
+                    has_live = True
+                    live_side = "long" if amt > 0 else "short"
             if has_live and st.pos is None:
                 await self._adopt_exchange_pos(st)
+            if st.pos is not None:
+                live_side = st.pos.side
+
+            # Case A: paper flat but live still open -> close immediately.
+            if live_side and not want_side:
+                log(f"[AUDIT_SYNC] {st.sym} live {live_side.upper()} but paper FLAT -> force close")
+                await self._force_close_symbol(st.sym, "AUDIT_PAPER_FLAT")
+                st.pos = None
+                live_side = ""
+
+            # Case B: paper side changed and live is opposite -> close old, then re-enter.
+            if live_side and want_side and live_side != want_side:
+                log(
+                    f"[AUDIT_SYNC] {st.sym} live {live_side.upper()} vs paper {want_side.upper()} "
+                    f"-> close and rotate"
+                )
+                await self._force_close_symbol(st.sym, "AUDIT_SIDE_MISMATCH")
+                st.pos = None
+                live_side = ""
 
             if st.pos is None and st.pending_order_id <= 0 and want_side:
                 if replay.open_side:
