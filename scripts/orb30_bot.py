@@ -7,10 +7,11 @@ Day (05:30 IST = 00:00 UTC):
   3. Breakout long/short, TP 10% / SL 10%, max 3 trades/symbol/day
 
 Live paper-parity:
-  - Entry always at ORB hi/lo (like sim). Market only if mark within slip band;
-    otherwise GTC limit at ORB (no chase fills deep beyond the range).
-  - TP/SL brackets computed from ORB entry price; also placed as exchange algos.
-  - Day rollover / startup flattens residuals so leftover qty cannot leak.
+  - Paper DECIDES on 5m bar H/L touch (not candle close). Entry PRICE is always ORB hi/lo.
+  - Bar wick touched ORB → market fill (same as paper). Mark-only beyond ORB → limit @ ORB.
+  - Re-entries after TP/SL when next bar touches ORB again (like paper stacks).
+  - Periodic paper sync + open-order audit every 10m (cancel/replace wrong limits).
+  - TP/SL brackets from ORB entry; exchange algos placed after fill.
 """
 from __future__ import annotations
 
@@ -102,6 +103,8 @@ EXCHANGE_BRACKETS = _env_bool("ORB30_EXCHANGE_BRACKETS", True)
 WORKING_TYPE = _env("ORB30_WORKING_TYPE", "MARK_PRICE")
 # Live only enters a side if today's 5m paper replay agrees (blocks BANK-style opposite).
 PAPER_GATE = _env_bool("ORB30_PAPER_GATE", True)
+# Re-sync paper path + audit resting limits (cancel/replace if wrong).
+ORDER_AUDIT_SEC = _env_float("ORB30_ORDER_AUDIT_SEC", 600.0)
 LOOKBACK = _env_int("ORB30_LOOKBACK_DAYS", 7)
 POLL_SEC = _env_float("ORB30_POLL_SEC", 3.0)
 SCAN_DELAY_SEC = _env_float("ORB30_SCAN_DELAY_SEC", 120.0)
@@ -146,6 +149,7 @@ class SymState:
     pending_side: str = ""
     pending_order_id: int = 0
     pending_orb_entry: float = 0.0
+    last_entry_bar_ts: int = 0  # one entry per 5m bar (paper parity)
 
 
 def utc_now() -> str:
@@ -190,6 +194,7 @@ class Orb30Bot:
         self.day_wins = 0
         self._lock = asyncio.Lock()
         self._scanned = False
+        self._last_audit_ts = 0.0
 
     def init_live(self) -> None:
         if not LIVE:
@@ -230,7 +235,8 @@ class Orb30Bot:
             f"start | ${NOTIONAL} tp={TP_PCT}% sl={SL_PCT}% "
             f"max_trades/sym={MAX_TRADES_SYM} max_open={MAX_OPEN} "
             f"fresh_breakout={FRESH_BREAKOUT} max_slip={MAX_ENTRY_SLIP_PCT}% "
-            f"exchange_brackets={EXCHANGE_BRACKETS} paper_gate={PAPER_GATE} orb=30m"
+            f"exchange_brackets={EXCHANGE_BRACKETS} paper_gate={PAPER_GATE} "
+            f"order_audit={ORDER_AUDIT_SEC}s orb=30m"
         )
         if LIVE:
             prev_date, prev_syms = self._load_persisted_watch()
@@ -309,6 +315,11 @@ class Orb30Bot:
             return
 
         await self._trade_loop()
+        if LIVE and self._all_orb_locked():
+            now = time.time()
+            if self._last_audit_ts == 0 or now - self._last_audit_ts >= ORDER_AUDIT_SEC:
+                self._last_audit_ts = now
+                await self._audit_paper_and_orders()
 
     async def _load_watchlist(self) -> None:
         loop = asyncio.get_running_loop()
@@ -415,20 +426,26 @@ class Orb30Bot:
                 and st.trades_today < MAX_TRADES_SYM
                 and self._open_count() < MAX_OPEN
             ):
-                await self._catchup_enter_paper_open(st, replay.open_side, replay.open_entry)
+                await self._catchup_enter_paper_open(
+                    st, replay.open_side, replay.open_entry, force_market=True
+                )
         except Exception as e:
             log(f"[CATCHUP_ERR] {st.sym} {e}")
             st.catchup_done = True
 
     async def _catchup_enter_paper_open(
-        self, st: SymState, side: str, orb_entry: float
+        self,
+        st: SymState,
+        side: str,
+        orb_entry: float,
+        *,
+        force_market: bool = False,
     ) -> None:
-        """Enter the side paper is already holding (missed first breakout recovery)."""
+        """Enter the side paper is already holding (missed breakout / restart recovery)."""
         if orb_entry <= 0:
             orb_entry = st.orb_high if side == "long" else st.orb_low
         if orb_entry <= 0:
             return
-        br = bracket_prices(side, orb_entry, TP_PCT, SL_PCT)
         loop = asyncio.get_running_loop()
         try:
             px = await loop.run_in_executor(None, mark_price, st.sym, FAPI)
@@ -439,18 +456,19 @@ class Orb30Bot:
             f"[CATCHUP_SYNC] {st.sym} paper still {side.upper()} @{orb_entry:.8g} "
             f"mark={px:.8g} slip={slip_pct:.2f}% — joining paper path"
         )
-        if not LIVE:
-            st.pos = Position(st.sym, side, orb_entry, br.tp_px, br.sl_px, bucket=st.bucket)
-            log(
-                f"[ENTRY] {st.sym} {side.upper()} @ {orb_entry:.8g} "
-                f"tp={br.tp_px:.8g} sl={br.sl_px:.8g} {st.bucket} CATCHUP "
-                f"trades={st.trades_today + 1}/{MAX_TRADES_SYM}"
-            )
-            return
-        if slip_pct <= MAX_ENTRY_SLIP_PCT:
-            await self._live_enter_market(st, side, orb_entry, br, px)
-        else:
-            await self._live_place_orb_limit(st, side, orb_entry, br, slip_pct, px)
+        bar_touch = force_market
+        if not bar_touch:
+            try:
+                bar = await loop.run_in_executor(None, latest_5m_bar, st.sym, FAPI)
+                if bar:
+                    bar_touch = (side == "long" and bar.h >= st.orb_high) or (
+                        side == "short" and bar.l <= st.orb_low
+                    )
+            except Exception:
+                pass
+        await self._execute_entry(
+            st, side, orb_entry, px, bar_touch or force_market, tag="CATCHUP"
+        )
 
     async def _adopt_exchange_pos(self, st: SymState) -> None:
         """Same-day restart: attach open Binance position to state (don't flatten)."""
@@ -488,6 +506,208 @@ class Orb30Bot:
             if st.pos is not None or st.pending_order_id > 0:
                 n += 1
         return n
+
+    def _detect_signal(
+        self, st: SymState, px: float, bar_h: float, bar_l: float
+    ) -> tuple[str, float, bool]:
+        """Return (side, orb_entry, bar_wick_touched). LONG-first like paper."""
+        allow = (not FRESH_BREAKOUT) or st.prev_inside_orb
+        if not allow:
+            return "", 0.0, False
+        if bar_h >= st.orb_high:
+            return "long", st.orb_high, True
+        if bar_l <= st.orb_low:
+            return "short", st.orb_low, True
+        if px >= st.orb_high:
+            return "long", st.orb_high, False
+        if px <= st.orb_low:
+            return "short", st.orb_low, False
+        return "", 0.0, False
+
+    async def _paper_want_now(
+        self, st: SymState, replay
+    ) -> tuple[str, float]:
+        """Side + ORB price paper wants right now (open pos or fresh bar touch)."""
+        if replay.open_side:
+            entry = replay.open_entry
+            if entry <= 0:
+                entry = st.orb_high if replay.open_side == "long" else st.orb_low
+            return replay.open_side, entry
+        if replay.trades_done >= MAX_TRADES_SYM:
+            return "", 0.0
+        loop = asyncio.get_running_loop()
+        try:
+            bar = await loop.run_in_executor(None, latest_5m_bar, st.sym, FAPI)
+        except Exception:
+            bar = None
+        if not bar:
+            return "", 0.0
+        if bar.h >= st.orb_high:
+            return "long", st.orb_high
+        if bar.l <= st.orb_low:
+            return "short", st.orb_low
+        return "", 0.0
+
+    async def _execute_entry(
+        self,
+        st: SymState,
+        side: str,
+        entry: float,
+        px: float,
+        bar_touch: bool,
+        tag: str = "",
+    ) -> bool:
+        """Place live/dry entry — bar wick touch always markets (paper fill-at-touch)."""
+        if entry <= 0 or not side:
+            return False
+        br = bracket_prices(side, entry, TP_PCT, SL_PCT)
+        slip_pct = abs(px - entry) / entry * 100.0 if entry > 0 else 999.0
+        suffix = f" {tag}" if tag else ""
+
+        if not LIVE:
+            st.pos = Position(st.sym, side, entry, br.tp_px, br.sl_px, bucket=st.bucket)
+            log(
+                f"[ENTRY] {st.sym} {side.upper()} @ {entry:.8g} "
+                f"tp={br.tp_px:.8g} sl={br.sl_px:.8g} {st.bucket}{suffix} "
+                f"trades={st.trades_today + 1}/{MAX_TRADES_SYM}"
+            )
+            return True
+
+        if bar_touch or slip_pct <= MAX_ENTRY_SLIP_PCT:
+            return await self._live_enter_market(
+                st, side, entry, br, px, bar_touch=bar_touch, tag=tag
+            )
+        return await self._live_place_orb_limit(
+            st, side, entry, br, slip_pct, px, tag=tag
+        )
+
+    async def _audit_paper_and_orders(self) -> None:
+        """Every ORDER_AUDIT_SEC: align with paper path; fix stale/wrong limits."""
+        if not LIVE or self.client is None:
+            return
+        log("[AUDIT] paper sync + open-order check")
+        loop = asyncio.get_running_loop()
+        for st in self.watch.values():
+            if not st.orb_locked or not st.catchup_done:
+                continue
+            try:
+                replay = await self._paper_replay_now(st)
+            except Exception as e:
+                log(f"[AUDIT_ERR] {st.sym} replay {e}")
+                continue
+            st.trades_today = replay.trades_done
+            want_side, want_entry = await self._paper_want_now(st, replay)
+
+            # Orphan / wrong resting limits on exchange
+            try:
+                open_orders = await loop.run_in_executor(
+                    None,
+                    lambda s=st.sym: self.client._signed_get(  # type: ignore[union-attr]
+                        "/fapi/v1/openOrders", {"symbol": s}
+                    ),
+                )
+            except Exception:
+                open_orders = []
+            for od in open_orders or []:
+                if str(od.get("type") or "").upper() != "LIMIT":
+                    continue
+                if str(od.get("reduceOnly", "")).lower() == "true":
+                    continue
+                oid = int(od.get("orderId") or 0)
+                oside = "long" if od.get("side") == "BUY" else "short"
+                oprice = float(od.get("price") or 0)
+                bad = False
+                reason = ""
+                if not want_side:
+                    bad, reason = True, "paper_flat_done"
+                elif oside != want_side:
+                    bad, reason = True, f"wrong_side want={want_side}"
+                elif want_entry > 0 and oprice > 0:
+                    if abs(oprice - want_entry) / want_entry > 0.002:
+                        bad, reason = True, "wrong_orb_price"
+                if bad and oid > 0:
+                    if oid == st.pending_order_id:
+                        await self._cancel_pending(st, f"audit_{reason}")
+                    else:
+                        try:
+                            await loop.run_in_executor(
+                                None, self.client.cancel_order, st.sym, oid
+                            )
+                            log(f"[AUDIT_CANCEL] {st.sym} oid={oid} {reason}")
+                        except Exception as e:
+                            log(f"[AUDIT_CANCEL_ERR] {st.sym} oid={oid} {e}")
+
+            # Paper wants position we don't have
+            has_live = False
+            try:
+                qty = await loop.run_in_executor(
+                    None, self.client.position_qty, st.sym
+                )
+                has_live = qty > 0
+            except Exception:
+                pass
+            if has_live and st.pos is None:
+                await self._adopt_exchange_pos(st)
+
+            if st.pos is None and st.pending_order_id <= 0 and want_side:
+                if replay.open_side:
+                    await self._catchup_enter_paper_open(
+                        st, want_side, want_entry, force_market=True
+                    )
+                elif replay.trades_done < MAX_TRADES_SYM:
+                    try:
+                        px = await loop.run_in_executor(
+                            None, mark_price, st.sym, FAPI
+                        )
+                        bar = await loop.run_in_executor(
+                            None, latest_5m_bar, st.sym, FAPI
+                        )
+                    except Exception:
+                        continue
+                    bar_h = bar.h if bar else px
+                    bar_l = bar.l if bar else px
+                    side, entry, bar_touch = self._detect_signal(st, px, bar_h, bar_l)
+                    if side and side == want_side:
+                        if bar and bar.ts == st.last_entry_bar_ts:
+                            continue
+                        if await self._paper_allows_side(st, side):
+                            await self._execute_entry(
+                                st, side, entry, px, bar_touch, tag="AUDIT_REENTRY"
+                            )
+
+            # Stale limit: paper still wants same side but bar already touched → market
+            if (
+                st.pending_order_id > 0
+                and want_side
+                and st.pending_side == want_side
+            ):
+                try:
+                    bar = await loop.run_in_executor(
+                        None, latest_5m_bar, st.sym, FAPI
+                    )
+                except Exception:
+                    bar = None
+                if bar:
+                    touched = (
+                        want_side == "long" and bar.h >= st.orb_high
+                    ) or (want_side == "short" and bar.l <= st.orb_low)
+                    if touched:
+                        await self._cancel_pending(st, "audit_bar_touch_market")
+                        try:
+                            px = await loop.run_in_executor(
+                                None, mark_price, st.sym, FAPI
+                            )
+                        except Exception:
+                            px = want_entry
+                        if await self._paper_allows_side(st, want_side):
+                            await self._execute_entry(
+                                st,
+                                want_side,
+                                want_entry,
+                                px,
+                                bar_touch=True,
+                                tag="AUDIT_TOUCH",
+                            )
 
     async def _trade_loop(self) -> None:
         for st in self.watch.values():
@@ -568,7 +788,7 @@ class Orb30Bot:
             px = await loop.run_in_executor(None, mark_price, st.sym, FAPI)
         except Exception:
             return
-        # Paper uses 5m bar H/L touch, not only last mark (BANK wick miss fix).
+        bar = None
         bar_h = bar_l = px
         try:
             bar = await loop.run_in_executor(None, latest_5m_bar, st.sym, FAPI)
@@ -577,40 +797,15 @@ class Orb30Bot:
         except Exception:
             pass
         inside = inside_orb(px, st.orb_high, st.orb_low)
-        side = ""
-        entry = 0.0
-        # Paper parity (FRESH_BREAKOUT=false): enter on ORB touch (mark or bar wick).
-        # Fresh mode: only enter if previous poll was inside ORB.
-        # LONG-first matches sim_orb (hi before lo on same bar).
-        allow = (not FRESH_BREAKOUT) or st.prev_inside_orb
-        if allow:
-            if px >= st.orb_high or bar_h >= st.orb_high:
-                side, entry = "long", st.orb_high
-            elif px <= st.orb_low or bar_l <= st.orb_low:
-                side, entry = "short", st.orb_low
+        side, entry, bar_touch = self._detect_signal(st, px, bar_h, bar_l)
         st.prev_inside_orb = inside
         if not side:
             return
-
+        if bar and bar.ts == st.last_entry_bar_ts:
+            return
         if not await self._paper_allows_side(st, side):
             return
-
-        br = bracket_prices(side, entry, TP_PCT, SL_PCT)
-        if LIVE:
-            slip_pct = abs(px - entry) / entry * 100.0 if entry > 0 else 999.0
-            if slip_pct <= MAX_ENTRY_SLIP_PCT:
-                await self._live_enter_market(st, side, entry, br, px)
-            else:
-                # Wick touched ORB but mark already away → limit at ORB (paper fill level).
-                await self._live_place_orb_limit(st, side, entry, br, slip_pct, px)
-            return
-
-        st.pos = Position(st.sym, side, entry, br.tp_px, br.sl_px, bucket=st.bucket)
-        log(
-            f"[ENTRY] {st.sym} {side.upper()} @ {entry:.8g} "
-            f"tp={br.tp_px:.8g} sl={br.sl_px:.8g} {st.bucket} "
-            f"trades={st.trades_today + 1}/{MAX_TRADES_SYM}"
-        )
+        await self._execute_entry(st, side, entry, px, bar_touch)
 
     async def _live_enter_market(
         self,
@@ -619,6 +814,9 @@ class Orb30Bot:
         orb_entry: float,
         br: Bracket,
         mark: float,
+        *,
+        bar_touch: bool = False,
+        tag: str = "",
     ) -> bool:
         assert self.client is not None
         async with self._lock:
@@ -654,9 +852,9 @@ class Orb30Bot:
                         fill_px = pe
                 if fill_px <= 0 or qty <= 0:
                     return False
-                # Reject bad chase fills even after slip gate (gap / lag).
                 fill_slip = abs(fill_px - orb_entry) / orb_entry * 100.0
-                if fill_slip > MAX_ENTRY_SLIP_PCT * 2:
+                # Bar wick touch = paper fill-at-ORB; allow wider slip (not chase).
+                if not bar_touch and fill_slip > MAX_ENTRY_SLIP_PCT * 2:
                     log(
                         f"[CHASE_ABORT] {sym} fill={fill_px:.8g} orb={orb_entry:.8g} "
                         f"slip={fill_slip:.2f}% — flattening"
@@ -669,15 +867,24 @@ class Orb30Bot:
                     except Exception as e:
                         log(f"[CHASE_ABORT_ERR] {sym} {e}")
                     return False
-                # Paper brackets from ORB level (not chase mark).
                 st.pos = Position(
                     sym, side, orb_entry, br.tp_px, br.sl_px, qty, st.bucket
                 )
+                try:
+                    bar = await loop.run_in_executor(
+                        None, latest_5m_bar, sym, FAPI
+                    )
+                    if bar:
+                        st.last_entry_bar_ts = bar.ts
+                except Exception:
+                    pass
                 await self._place_exchange_brackets(st)
+                extra = f" {tag}" if tag else ""
+                touch_note = " bar_touch" if bar_touch else ""
                 log(
                     f"[ENTRY] {sym} {side.upper()} @ {orb_entry:.8g} "
-                    f"(fill={fill_px:.8g} mark={mark:.8g}) "
-                    f"tp={br.tp_px:.8g} sl={br.sl_px:.8g} {st.bucket} "
+                    f"(fill={fill_px:.8g} mark={mark:.8g}{touch_note}) "
+                    f"tp={br.tp_px:.8g} sl={br.sl_px:.8g} {st.bucket}{extra} "
                     f"trades={st.trades_today + 1}/{MAX_TRADES_SYM}"
                 )
                 return True
@@ -693,6 +900,8 @@ class Orb30Bot:
         br: Bracket,
         slip_pct: float,
         mark: float,
+        *,
+        tag: str = "",
     ) -> bool:
         """Resting limit at ORB hi/lo — matches paper fill-at-level on retest."""
         assert self.client is not None
@@ -728,10 +937,11 @@ class Orb30Bot:
                 st.pending_side = side
                 st.pending_order_id = oid
                 st.pending_orb_entry = orb_entry
+                extra = f" {tag}" if tag else ""
                 log(
                     f"[LIMIT] {sym} {side.upper()} @ {orb_entry:.8g} "
                     f"oid={oid} mark={mark:.8g} slip={slip_pct:.2f}% "
-                    f"(waiting retest — paper parity) "
+                    f"(waiting retest — paper parity){extra} "
                     f"tp={br.tp_px:.8g} sl={br.sl_px:.8g}"
                 )
                 return True
@@ -790,6 +1000,12 @@ class Orb30Bot:
                 return
             br = bracket_prices(side, orb_entry, TP_PCT, SL_PCT)
             st.pos = Position(sym, side, orb_entry, br.tp_px, br.sl_px, qty, st.bucket)
+            try:
+                bar = await loop.run_in_executor(None, latest_5m_bar, sym, FAPI)
+                if bar:
+                    st.last_entry_bar_ts = bar.ts
+            except Exception:
+                pass
             await self._place_exchange_brackets(st)
             log(
                 f"[ENTRY] {sym} {side.upper()} @ {orb_entry:.8g} "
@@ -988,6 +1204,9 @@ class Orb30Bot:
             f"[EXIT] {pos.sym} {reason} @ {exit_px:.8g} "
             f"pnl=${pnl:.4f} session=${self.session_pnl:.4f}"
         )
+        # Paper re-enters on next ORB touch in same bar or following bars.
+        if st.trades_today < MAX_TRADES_SYM:
+            await self._try_entry(st)
 
     async def _force_close_symbol(self, sym: str, reason: str) -> None:
         if not LIVE or self.client is None:
