@@ -39,6 +39,7 @@ from orb30_engine import (
     bracket_prices,
     day_start_ms_now,
     inside_orb,
+    latest_5m_bar,
     mark_price,
     orb_from_5m,
     pnl_pct,
@@ -99,6 +100,8 @@ MAX_ENTRY_SLIP_PCT = _env_float("ORB30_MAX_ENTRY_SLIP_PCT", 0.35)
 # Place exchange STOP/TP algos after fill (bot poll is backup).
 EXCHANGE_BRACKETS = _env_bool("ORB30_EXCHANGE_BRACKETS", True)
 WORKING_TYPE = _env("ORB30_WORKING_TYPE", "MARK_PRICE")
+# Live only enters a side if today's 5m paper replay agrees (blocks BANK-style opposite).
+PAPER_GATE = _env_bool("ORB30_PAPER_GATE", True)
 LOOKBACK = _env_int("ORB30_LOOKBACK_DAYS", 7)
 POLL_SEC = _env_float("ORB30_POLL_SEC", 3.0)
 SCAN_DELAY_SEC = _env_float("ORB30_SCAN_DELAY_SEC", 120.0)
@@ -227,7 +230,7 @@ class Orb30Bot:
             f"start | ${NOTIONAL} tp={TP_PCT}% sl={SL_PCT}% "
             f"max_trades/sym={MAX_TRADES_SYM} max_open={MAX_OPEN} "
             f"fresh_breakout={FRESH_BREAKOUT} max_slip={MAX_ENTRY_SLIP_PCT}% "
-            f"exchange_brackets={EXCHANGE_BRACKETS} orb=30m"
+            f"exchange_brackets={EXCHANGE_BRACKETS} paper_gate={PAPER_GATE} orb=30m"
         )
         if LIVE:
             prev_date, prev_syms = self._load_persisted_watch()
@@ -370,7 +373,12 @@ class Orb30Bot:
                 log(f"[ORB_ERR] {st.sym} {e}")
 
     async def _catchup_symbol(self, st: SymState) -> None:
-        """Sync trades_today from today's 5m replay — skip stale breakouts on late start."""
+        """Sync to paper path: closed trade count + open side (avoid BANK-style miss).
+
+        If 5m replay says paper still holds LONG/SHORT at ORB and we are flat,
+        enter that side immediately (market near ORB / else limit) so we never
+        take the opposite breakout after missing the first one.
+        """
         if st.catchup_done:
             return
         loop = asyncio.get_running_loop()
@@ -379,7 +387,12 @@ class Orb30Bot:
                 None, bars_5m_day, st.sym, self.trade_date, FAPI
             )
             replay = replay_orb_state(
-                bars, ORB_5M_BARS, TP_PCT, SL_PCT, MAX_TRADES_SYM
+                bars,
+                ORB_5M_BARS,
+                TP_PCT,
+                SL_PCT,
+                MAX_TRADES_SYM,
+                close_open_at_end=False,
             )
             st.trades_today = replay.trades_done
             try:
@@ -390,12 +403,54 @@ class Orb30Bot:
             st.catchup_done = True
             log(
                 f"[CATCHUP] {st.sym} replay trades={st.trades_today}/{MAX_TRADES_SYM} "
+                f"open={replay.open_side or 'flat'}@{replay.open_entry or 0:.8g} "
                 f"px={px:.8g} inside_orb={st.prev_inside_orb}"
             )
             await self._adopt_exchange_pos(st)
+            # Paper still in a trade we missed → join that side, don't wait for opposite.
+            if (
+                st.pos is None
+                and st.pending_order_id <= 0
+                and replay.open_side
+                and st.trades_today < MAX_TRADES_SYM
+                and self._open_count() < MAX_OPEN
+            ):
+                await self._catchup_enter_paper_open(st, replay.open_side, replay.open_entry)
         except Exception as e:
             log(f"[CATCHUP_ERR] {st.sym} {e}")
             st.catchup_done = True
+
+    async def _catchup_enter_paper_open(
+        self, st: SymState, side: str, orb_entry: float
+    ) -> None:
+        """Enter the side paper is already holding (missed first breakout recovery)."""
+        if orb_entry <= 0:
+            orb_entry = st.orb_high if side == "long" else st.orb_low
+        if orb_entry <= 0:
+            return
+        br = bracket_prices(side, orb_entry, TP_PCT, SL_PCT)
+        loop = asyncio.get_running_loop()
+        try:
+            px = await loop.run_in_executor(None, mark_price, st.sym, FAPI)
+        except Exception:
+            px = orb_entry
+        slip_pct = abs(px - orb_entry) / orb_entry * 100.0 if orb_entry > 0 else 999.0
+        log(
+            f"[CATCHUP_SYNC] {st.sym} paper still {side.upper()} @{orb_entry:.8g} "
+            f"mark={px:.8g} slip={slip_pct:.2f}% — joining paper path"
+        )
+        if not LIVE:
+            st.pos = Position(st.sym, side, orb_entry, br.tp_px, br.sl_px, bucket=st.bucket)
+            log(
+                f"[ENTRY] {st.sym} {side.upper()} @ {orb_entry:.8g} "
+                f"tp={br.tp_px:.8g} sl={br.sl_px:.8g} {st.bucket} CATCHUP "
+                f"trades={st.trades_today + 1}/{MAX_TRADES_SYM}"
+            )
+            return
+        if slip_pct <= MAX_ENTRY_SLIP_PCT:
+            await self._live_enter_market(st, side, orb_entry, br, px)
+        else:
+            await self._live_place_orb_limit(st, side, orb_entry, br, slip_pct, px)
 
     async def _adopt_exchange_pos(self, st: SymState) -> None:
         """Same-day restart: attach open Binance position to state (don't flatten)."""
@@ -443,6 +498,68 @@ class Orb30Bot:
             elif st.trades_today < MAX_TRADES_SYM and self._open_count() < MAX_OPEN:
                 await self._try_entry(st)
 
+    async def _paper_replay_now(self, st: SymState):
+        """Today's 5m paper path so far (open position left open)."""
+        loop = asyncio.get_running_loop()
+        bars = await loop.run_in_executor(
+            None, bars_5m_day, st.sym, self.trade_date, FAPI
+        )
+        return replay_orb_state(
+            bars,
+            ORB_5M_BARS,
+            TP_PCT,
+            SL_PCT,
+            MAX_TRADES_SYM,
+            close_open_at_end=False,
+        )
+
+    async def _paper_allows_side(self, st: SymState, side: str) -> bool:
+        """Safe gate: live may enter only if paper is on (or would open) that side."""
+        if not PAPER_GATE or not LIVE:
+            return True
+        try:
+            replay = await self._paper_replay_now(st)
+        except Exception as e:
+            log(f"[PAPER_GATE_ERR] {st.sym} {e} — blocking entry")
+            return False
+        st.trades_today = max(st.trades_today, replay.trades_done)
+        if replay.trades_done >= MAX_TRADES_SYM and not replay.open_side:
+            log(f"[PAPER_GATE] {st.sym} paper done {replay.trades_done}/{MAX_TRADES_SYM}")
+            return False
+        if replay.open_side:
+            ok = replay.open_side == side
+            if not ok:
+                log(
+                    f"[PAPER_GATE] {st.sym} block {side.upper()} — "
+                    f"paper still {replay.open_side.upper()} @{replay.open_entry:.8g}"
+                )
+            return ok
+        # Paper flat: only allow the side paper would take next (LONG-first on last bar).
+        # open_side empty + our side matches a fresh breakout the replay would open
+        # if we only got here because bar/mark touched — require replay would open same.
+        # Re-check last bar against ORB with long-first:
+        loop = asyncio.get_running_loop()
+        try:
+            bar = await loop.run_in_executor(None, latest_5m_bar, st.sym, FAPI)
+        except Exception:
+            bar = None
+        want = ""
+        if bar:
+            if bar.h >= st.orb_high:
+                want = "long"
+            elif bar.l <= st.orb_low:
+                want = "short"
+        if not want:
+            # mark-only path already set side; paper flat with no bar touch → deny
+            log(f"[PAPER_GATE] {st.sym} block {side.upper()} — paper flat, no bar touch")
+            return False
+        if want != side:
+            log(
+                f"[PAPER_GATE] {st.sym} block {side.upper()} — paper next would be {want.upper()}"
+            )
+            return False
+        return True
+
     async def _try_entry(self, st: SymState) -> None:
         if not st.catchup_done:
             return
@@ -451,20 +568,31 @@ class Orb30Bot:
             px = await loop.run_in_executor(None, mark_price, st.sym, FAPI)
         except Exception:
             return
+        # Paper uses 5m bar H/L touch, not only last mark (BANK wick miss fix).
+        bar_h = bar_l = px
+        try:
+            bar = await loop.run_in_executor(None, latest_5m_bar, st.sym, FAPI)
+            if bar:
+                bar_h, bar_l = bar.h, bar.l
+        except Exception:
+            pass
         inside = inside_orb(px, st.orb_high, st.orb_low)
         side = ""
         entry = 0.0
-        # Paper parity (FRESH_BREAKOUT=false): enter whenever mark is beyond ORB.
-        # Fresh mode: only enter if previous poll was inside ORB (anti mid-day spam).
+        # Paper parity (FRESH_BREAKOUT=false): enter on ORB touch (mark or bar wick).
+        # Fresh mode: only enter if previous poll was inside ORB.
         # LONG-first matches sim_orb (hi before lo on same bar).
         allow = (not FRESH_BREAKOUT) or st.prev_inside_orb
         if allow:
-            if px >= st.orb_high:
+            if px >= st.orb_high or bar_h >= st.orb_high:
                 side, entry = "long", st.orb_high
-            elif px <= st.orb_low:
+            elif px <= st.orb_low or bar_l <= st.orb_low:
                 side, entry = "short", st.orb_low
         st.prev_inside_orb = inside
         if not side:
+            return
+
+        if not await self._paper_allows_side(st, side):
             return
 
         br = bracket_prices(side, entry, TP_PCT, SL_PCT)
@@ -473,6 +601,7 @@ class Orb30Bot:
             if slip_pct <= MAX_ENTRY_SLIP_PCT:
                 await self._live_enter_market(st, side, entry, br, px)
             else:
+                # Wick touched ORB but mark already away → limit at ORB (paper fill level).
                 await self._live_place_orb_limit(st, side, entry, br, slip_pct, px)
             return
 
@@ -623,7 +752,12 @@ class Orb30Bot:
             return
         status = str(od.get("status") or "").upper()
         if status in ("NEW", "PARTIALLY_FILLED"):
-            # Cancel if signal flipped or back inside and fresh mode.
+            # Cancel if paper no longer wants this side (BANK-safe).
+            if PAPER_GATE and st.pending_side:
+                if not await self._paper_allows_side(st, st.pending_side):
+                    await self._cancel_pending(st, "paper_gate")
+                    return
+            # Cancel if signal flipped.
             try:
                 px = await loop.run_in_executor(None, mark_price, sym, FAPI)
             except Exception:

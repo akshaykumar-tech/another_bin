@@ -293,14 +293,30 @@ def bars_5m_day(sym: str, trade_date: str, fapi: str = FAPI_DEFAULT) -> list[Bar
     ]
 
 
+def latest_5m_bar(sym: str, fapi: str = FAPI_DEFAULT) -> Bar5 | None:
+    """Current (forming) 5m candle — used so live catches wick touches like paper."""
+    url = f"{fapi}/fapi/v1/klines?symbol={sym}&interval=5m&limit=1"
+    rows = req_json(url)
+    if not rows:
+        return None
+    k = rows[-1]
+    return Bar5(int(k[0]), float(k[1]), float(k[2]), float(k[3]), float(k[4]))
+
+
 def replay_orb_state(
     bars: list[Bar5],
     orb_bars: int,
     tp_pct: float,
     sl_pct: float,
     max_trades: int,
+    *,
+    close_open_at_end: bool = True,
 ) -> OrbReplayState:
-    """Replay ORB breakout logic on 5m bars — same rules as backtest sim_orb."""
+    """Replay ORB breakout logic on 5m bars — same rules as backtest sim_orb.
+
+    close_open_at_end=True: flatten any open pos at last close (trade counting).
+    close_open_at_end=False: leave open_side/entry/tp/sl set for live catchup sync.
+    """
     if len(bars) < orb_bars + 1:
         return OrbReplayState(0)
     hi = max(b.h for b in bars[:orb_bars])
@@ -344,10 +360,17 @@ def replay_orb_state(
             tp_px = entry * (1 - tp_pct / 100)
             sl_px = entry * (1 + sl_pct / 100)
 
-    if pos:
+    if pos and close_open_at_end:
         flat(rest[-1].c)
+        pos = None
 
-    return OrbReplayState(trades_done)
+    return OrbReplayState(
+        trades_done,
+        open_side=pos,
+        open_entry=entry if pos else 0.0,
+        open_tp=tp_px if pos else 0.0,
+        open_sl=sl_px if pos else 0.0,
+    )
 
 
 def inside_orb(px: float, hi: float, lo: float) -> bool:
