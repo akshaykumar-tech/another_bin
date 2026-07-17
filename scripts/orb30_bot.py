@@ -7,7 +7,8 @@ Day (05:30 IST = 00:00 UTC):
   3. Breakout long/short, TP 10% / SL 10%, max 3 trades/symbol/day
 
 LOCKED live rule (paper mirror — do not dilute):
-  - Paper decides side from 5m H/L touch; fill PRICE is always ORB hi/lo.
+  - Paper/live fill only when 5m bar trades THROUGH ORB (l <= ORB <= h).
+  - Fill PRICE is always ORB hi/lo (LIMIT@ORB). No ghost fills above/below.
   - Live ENTRY / RE-ENTRY = GTC LIMIT @ ORB only (never market chase).
   - Live EXIT = TP/SL from ORB entry (exchange algos + poll backup).
   - Paper open + live flat → place/keep LIMIT @ ORB.
@@ -511,24 +512,23 @@ class Orb30Bot:
     def _detect_signal(
         self, st: SymState, px: float, bar_h: float, bar_l: float
     ) -> tuple[str, float, bool]:
-        """Return (side, orb_entry, bar_wick_touched). LONG-first like paper."""
+        """Return (side, orb_entry, bar_traded_through_orb). LONG-first like paper.
+
+        Fill-capable signal = bar traded through ORB (l<=ORB<=h), matching LIMIT@ORB.
+        """
         allow = (not FRESH_BREAKOUT) or st.prev_inside_orb
         if not allow:
             return "", 0.0, False
-        if bar_h >= st.orb_high:
+        if bar_l <= st.orb_high <= bar_h:
             return "long", st.orb_high, True
-        if bar_l <= st.orb_low:
+        if bar_l <= st.orb_low <= bar_h:
             return "short", st.orb_low, True
-        if px >= st.orb_high:
-            return "long", st.orb_high, False
-        if px <= st.orb_low:
-            return "short", st.orb_low, False
         return "", 0.0, False
 
     async def _paper_want_now(
         self, st: SymState, replay
     ) -> tuple[str, float]:
-        """Side + ORB price paper wants right now (open pos or fresh bar touch)."""
+        """Side + ORB price paper wants right now (open pos or fillable bar touch)."""
         if replay.open_side:
             entry = replay.open_entry
             if entry <= 0:
@@ -543,9 +543,9 @@ class Orb30Bot:
             bar = None
         if not bar:
             return "", 0.0
-        if bar.h >= st.orb_high:
+        if bar.l <= st.orb_high <= bar.h:
             return "long", st.orb_high
-        if bar.l <= st.orb_low:
+        if bar.l <= st.orb_low <= bar.h:
             return "short", st.orb_low
         return "", 0.0
 
@@ -701,13 +701,15 @@ class Orb30Bot:
             bar = None
         want = ""
         if bar:
-            if bar.h >= st.orb_high:
+            if bar.l <= st.orb_high <= bar.h:
                 want = "long"
-            elif bar.l <= st.orb_low:
+            elif bar.l <= st.orb_low <= bar.h:
                 want = "short"
         if not want:
-            # mark-only path already set side; paper flat with no bar touch → deny
-            log(f"[PAPER_GATE] {st.sym} block {side.upper()} — paper flat, no bar touch")
+            log(
+                f"[PAPER_GATE] {st.sym} block {side.upper()} — "
+                f"paper flat, no ORB trade-through on bar"
+            )
             return False
         if want != side:
             log(

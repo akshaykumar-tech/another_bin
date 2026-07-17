@@ -351,14 +351,24 @@ def replay_orb_state(
             continue
         if trades_done >= max_trades:
             continue
-        if b.h >= hi:
+        # LIMIT@ORB fill: bar must actually trade through the ORB level
+        # (not just print a high while low is already above ORB — that is unrealisable).
+        if b.l <= hi <= b.h:
             pos, entry = "long", hi
             tp_px = entry * (1 + tp_pct / 100)
             sl_px = entry * (1 - sl_pct / 100)
-        elif b.l <= lo:
+            if b.l <= sl_px:
+                flat(sl_px)
+            elif b.h >= tp_px:
+                flat(tp_px)
+        elif b.l <= lo <= b.h:
             pos, entry = "short", lo
             tp_px = entry * (1 - tp_pct / 100)
             sl_px = entry * (1 + sl_pct / 100)
+            if b.h >= sl_px:
+                flat(sl_px)
+            elif b.l <= tp_px:
+                flat(tp_px)
 
     if pos and close_open_at_end:
         flat(rest[-1].c)
