@@ -8,8 +8,9 @@ Day (05:30 IST = 00:00 UTC):
 
 Live paper-parity:
   - Paper DECIDES on 5m bar H/L touch (not candle close). Entry PRICE is always ORB hi/lo.
-  - Bar wick touched ORB → market fill (same as paper). Mark-only beyond ORB → limit @ ORB.
-  - Re-entries after TP/SL when next bar touches ORB again (like paper stacks).
+  - Market only when mark is near ORB; otherwise GTC limit @ ORB (no TP-zone chase).
+  - Skip market if mark already at/past paper TP (prevents exit→instant re-entry chop).
+  - Re-entries after TP/SL via limit/near-ORB only; no re-entry on DAY_ROLLOVER.
   - Periodic paper sync + open-order audit every 10m (cancel/replace wrong limits).
   - TP/SL brackets from ORB entry; exchange algos placed after fill.
 """
@@ -427,7 +428,7 @@ class Orb30Bot:
                 and self._open_count() < MAX_OPEN
             ):
                 await self._catchup_enter_paper_open(
-                    st, replay.open_side, replay.open_entry, force_market=True
+                    st, replay.open_side, replay.open_entry, force_market=False
                 )
         except Exception as e:
             log(f"[CATCHUP_ERR] {st.sym} {e}")
@@ -456,8 +457,9 @@ class Orb30Bot:
             f"[CATCHUP_SYNC] {st.sym} paper still {side.upper()} @{orb_entry:.8g} "
             f"mark={px:.8g} slip={slip_pct:.2f}% — joining paper path"
         )
-        bar_touch = force_market
-        if not bar_touch:
+        # Never force market far from ORB (causes instant TP chop).
+        bar_touch = False
+        if not force_market:
             try:
                 bar = await loop.run_in_executor(None, latest_5m_bar, st.sym, FAPI)
                 if bar:
@@ -466,9 +468,7 @@ class Orb30Bot:
                     )
             except Exception:
                 pass
-        await self._execute_entry(
-            st, side, orb_entry, px, bar_touch or force_market, tag="CATCHUP"
-        )
+        await self._execute_entry(st, side, orb_entry, px, bar_touch, tag="CATCHUP")
 
     async def _adopt_exchange_pos(self, st: SymState) -> None:
         """Same-day restart: attach open Binance position to state (don't flatten)."""
@@ -557,7 +557,11 @@ class Orb30Bot:
         bar_touch: bool,
         tag: str = "",
     ) -> bool:
-        """Place live/dry entry — bar wick touch always markets (paper fill-at-touch)."""
+        """Place live/dry entry at ORB. Market only if mark near ORB; else limit.
+
+        Paper fills at ORB hi/lo. Live must NOT market-chase when price is already
+        near/past TP (BANK/BLUAI chop: exit → instant re-entry → instant TP).
+        """
         if entry <= 0 or not side:
             return False
         br = bracket_prices(side, entry, TP_PCT, SL_PCT)
@@ -573,9 +577,23 @@ class Orb30Bot:
             )
             return True
 
-        if bar_touch or slip_pct <= MAX_ENTRY_SLIP_PCT:
+        # Already past paper TP → market would instant-exit; wait for ORB retest.
+        past_tp = (side == "long" and px >= br.tp_px * 0.998) or (
+            side == "short" and px <= br.tp_px * 1.002
+        )
+        if past_tp:
+            log(
+                f"[SKIP_CHASE] {st.sym} {side.upper()} mark={px:.8g} already at/past "
+                f"TP={br.tp_px:.8g} — limit @ ORB {entry:.8g} only"
+            )
+            return await self._live_place_orb_limit(
+                st, side, entry, br, slip_pct, px, tag=tag or "PAST_TP"
+            )
+
+        # Market ONLY when mark is near ORB (paper fill level). Bar touch alone ≠ market.
+        if slip_pct <= MAX_ENTRY_SLIP_PCT:
             return await self._live_enter_market(
-                st, side, entry, br, px, bar_touch=bar_touch, tag=tag
+                st, side, entry, br, px, bar_touch=False, tag=tag
             )
         return await self._live_place_orb_limit(
             st, side, entry, br, slip_pct, px, tag=tag
@@ -674,7 +692,7 @@ class Orb30Bot:
             if st.pos is None and st.pending_order_id <= 0 and want_side:
                 if replay.open_side:
                     await self._catchup_enter_paper_open(
-                        st, want_side, want_entry, force_market=True
+                        st, want_side, want_entry, force_market=False
                     )
                 elif replay.trades_done < MAX_TRADES_SYM:
                     try:
@@ -697,39 +715,28 @@ class Orb30Bot:
                                 st, side, entry, px, bar_touch, tag="AUDIT_REENTRY"
                             )
 
-            # Stale limit: paper still wants same side but bar already touched → market
+            # Stale limit while bar touched: only market if mark near ORB; else keep limit.
             if (
                 st.pending_order_id > 0
                 and want_side
                 and st.pending_side == want_side
             ):
                 try:
-                    bar = await loop.run_in_executor(
-                        None, latest_5m_bar, st.sym, FAPI
-                    )
+                    px = await loop.run_in_executor(None, mark_price, st.sym, FAPI)
                 except Exception:
-                    bar = None
-                if bar:
-                    touched = (
-                        want_side == "long" and bar.h >= st.orb_high
-                    ) or (want_side == "short" and bar.l <= st.orb_low)
-                    if touched:
-                        await self._cancel_pending(st, "audit_bar_touch_market")
-                        try:
-                            px = await loop.run_in_executor(
-                                None, mark_price, st.sym, FAPI
-                            )
-                        except Exception:
-                            px = want_entry
-                        if await self._paper_allows_side(st, want_side):
-                            await self._execute_entry(
-                                st,
-                                want_side,
-                                want_entry,
-                                px,
-                                bar_touch=True,
-                                tag="AUDIT_TOUCH",
-                            )
+                    continue
+                slip = abs(px - want_entry) / want_entry * 100.0 if want_entry else 999.0
+                if slip <= MAX_ENTRY_SLIP_PCT:
+                    await self._cancel_pending(st, "audit_near_orb_market")
+                    if await self._paper_allows_side(st, want_side):
+                        await self._execute_entry(
+                            st,
+                            want_side,
+                            want_entry,
+                            px,
+                            bar_touch=False,
+                            tag="AUDIT_NEAR",
+                        )
 
     async def _trade_loop(self) -> None:
         for st in self.watch.values():
@@ -1226,7 +1233,10 @@ class Orb30Bot:
             f"[EXIT] {pos.sym} {reason} @ {exit_px:.8g} "
             f"pnl=${pnl:.4f} session=${self.session_pnl:.4f}"
         )
-        # Paper re-enters on next ORB touch in same bar or following bars.
+        # Do NOT re-enter immediately after exit (DAY_ROLLOVER / TP-zone chase chop).
+        # Next poll / audit will enter only when mark is near ORB (or place limit).
+        if reason in ("DAY_ROLLOVER", "DAY_ROLLOVER_RESIDUAL", "STARTUP_STALE_DAY"):
+            return
         if st.trades_today < MAX_TRADES_SYM:
             await self._try_entry(st)
 
