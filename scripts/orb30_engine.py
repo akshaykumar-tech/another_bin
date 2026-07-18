@@ -1,4 +1,8 @@
-"""ORB 30m breakout on top-mover next-day symbols — shared engine."""
+"""ORB 30m strategies on top-mover next-day symbols — shared engine.
+
+Canonical live strategy: breakMid — ORB mid as LOC, directional mid-cross
+entries (LIMIT @ mid), TP/SL + optional TIME stop. Trade-through fills only.
+"""
 from __future__ import annotations
 
 import json
@@ -13,6 +17,7 @@ FAPI_DEFAULT = "https://fapi.binance.com"
 DAY_MS = 86_400_000
 ORB_MS = 30 * 60 * 1000
 ORB_5M_BARS = 6
+BAR_MS = 5 * 60 * 1000
 
 
 @dataclass
@@ -31,6 +36,10 @@ class OrbReplayState:
     open_entry: float = 0.0
     open_tp: float = 0.0
     open_sl: float = 0.0
+    orb_mid: float = 0.0
+    side_state: str = ""  # "above" | "below" mid
+    open_entry_bar_ts: int = 0
+    open_bars_held: int = 0
 
 
 @dataclass
@@ -303,6 +312,11 @@ def latest_5m_bar(sym: str, fapi: str = FAPI_DEFAULT) -> Bar5 | None:
     return Bar5(int(k[0]), float(k[1]), float(k[2]), float(k[3]), float(k[4]))
 
 
+def through(b: Bar5, px: float) -> bool:
+    """LIMIT fill: bar must trade through the level (not just print beyond it)."""
+    return b.l <= px <= b.h
+
+
 def replay_orb_state(
     bars: list[Bar5],
     orb_bars: int,
@@ -312,15 +326,12 @@ def replay_orb_state(
     *,
     close_open_at_end: bool = True,
 ) -> OrbReplayState:
-    """Replay ORB breakout logic on 5m bars — same rules as backtest sim_orb.
-
-    close_open_at_end=True: flatten any open pos at last close (trade counting).
-    close_open_at_end=False: leave open_side/entry/tp/sl set for live catchup sync.
-    """
+    """Legacy ORB hi/lo breakout replay (kept for reference / old backtests)."""
     if len(bars) < orb_bars + 1:
         return OrbReplayState(0)
     hi = max(b.h for b in bars[:orb_bars])
     lo = min(b.l for b in bars[:orb_bars])
+    mid = (hi + lo) / 2.0 if hi > lo > 0 else 0.0
     rest = bars[orb_bars:]
     trades_done = 0
     pos, entry = None, 0.0
@@ -352,7 +363,6 @@ def replay_orb_state(
         if trades_done >= max_trades:
             continue
         # LIMIT@ORB fill: bar must actually trade through the ORB level
-        # (not just print a high while low is already above ORB — that is unrealisable).
         if b.l <= hi <= b.h:
             pos, entry = "long", hi
             tp_px = entry * (1 + tp_pct / 100)
@@ -380,7 +390,138 @@ def replay_orb_state(
         open_entry=entry if pos else 0.0,
         open_tp=tp_px if pos else 0.0,
         open_sl=sl_px if pos else 0.0,
+        orb_mid=mid,
     )
+
+
+def replay_break_mid_state(
+    bars: list[Bar5],
+    orb_bars: int,
+    tp_pct: float,
+    sl_pct: float,
+    max_trades: int,
+    hold_bars: int = 0,
+    *,
+    close_open_at_end: bool = True,
+) -> OrbReplayState:
+    """Replay breakMid: ORB mid = LOC, directional mid-cross entries.
+
+    Rules (match sweep_loc_bothsides.sim_loc_mid mode=break_mid):
+      - Entry LONG @ mid when prior state below + bar trades through mid + close > mid
+      - Entry SHORT @ mid when prior state above + bar trades through mid + close < mid
+      - No TP/SL on the entry bar (next bar onward)
+      - Same-bar TP+SL → SL first (pessimistic)
+      - TIME exit when bars held >= hold_bars (exit at bar close)
+    """
+    if len(bars) < orb_bars + 1:
+        return OrbReplayState(0)
+    orb = bars[:orb_bars]
+    hi = max(b.h for b in orb)
+    lo = min(b.l for b in orb)
+    if hi <= lo or lo <= 0:
+        return OrbReplayState(0)
+    mid = (hi + lo) / 2.0
+    rest = bars[orb_bars:]
+    side_state = "above" if orb[-1].c >= mid else "below"
+    trades_done = 0
+    pos: str | None = None
+    entry = tp_px = sl_px = 0.0
+    entry_i = 0
+    entry_bar_ts = 0
+
+    def flat() -> None:
+        nonlocal pos, entry, tp_px, sl_px, trades_done, entry_i, entry_bar_ts
+        if not pos:
+            return
+        trades_done += 1
+        pos = None
+        entry = tp_px = sl_px = 0.0
+        entry_i = 0
+        entry_bar_ts = 0
+
+    def manage(b: Bar5, bars_held: int) -> bool:
+        """Return True if position was closed."""
+        nonlocal pos, entry, tp_px, sl_px
+        assert pos is not None
+        hit_sl = through(b, sl_px)
+        hit_tp = through(b, tp_px)
+        if hit_sl and hit_tp:
+            flat()
+            return True
+        if hit_sl:
+            flat()
+            return True
+        if hit_tp:
+            flat()
+            return True
+        if hold_bars > 0 and bars_held >= hold_bars:
+            flat()
+            return True
+        return False
+
+    for i, b in enumerate(rest):
+        if trades_done >= max_trades and not pos:
+            break
+        if pos:
+            manage(b, i - entry_i)
+            continue
+        if trades_done >= max_trades:
+            continue
+        if through(b, mid):
+            if side_state == "below" and b.c > mid:
+                pos, entry = "long", mid
+                br = bracket_prices("long", entry, tp_pct, sl_pct)
+                tp_px, sl_px = br.tp_px, br.sl_px
+                entry_i = i
+                entry_bar_ts = b.ts
+                side_state = "above"
+            elif side_state == "above" and b.c < mid:
+                pos, entry = "short", mid
+                br = bracket_prices("short", entry, tp_pct, sl_pct)
+                tp_px, sl_px = br.tp_px, br.sl_px
+                entry_i = i
+                entry_bar_ts = b.ts
+                side_state = "below"
+            else:
+                side_state = "above" if b.c >= mid else "below"
+        else:
+            side_state = "above" if b.c >= mid else "below"
+
+    open_bars_held = 0
+    if pos and rest:
+        open_bars_held = (len(rest) - 1) - entry_i
+        if close_open_at_end:
+            flat()
+            pos = None
+
+    return OrbReplayState(
+        trades_done,
+        open_side=pos,
+        open_entry=entry if pos else 0.0,
+        open_tp=tp_px if pos else 0.0,
+        open_sl=sl_px if pos else 0.0,
+        orb_mid=mid,
+        side_state=side_state,
+        open_entry_bar_ts=entry_bar_ts if pos else 0,
+        open_bars_held=open_bars_held if pos else 0,
+    )
+
+
+def break_mid_signal(
+    bar: Bar5,
+    mid: float,
+    side_state: str,
+) -> tuple[str, float, str]:
+    """One-bar breakMid signal. Returns (side, entry, new_side_state)."""
+    if mid <= 0:
+        return "", 0.0, side_state
+    if through(bar, mid):
+        if side_state == "below" and bar.c > mid:
+            return "long", mid, "above"
+        if side_state == "above" and bar.c < mid:
+            return "short", mid, "below"
+        return "", 0.0, ("above" if bar.c >= mid else "below")
+    return "", 0.0, ("above" if bar.c >= mid else "below")
 
 
 def inside_orb(px: float, hi: float, lo: float) -> bool:
