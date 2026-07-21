@@ -1,4 +1,4 @@
-"""Global live-trading env — one set of LIVE_* keys for SNR / ACCEL5X live bots."""
+"""Global live-trading env — one set of LIVE_* keys for live bots."""
 
 from __future__ import annotations
 
