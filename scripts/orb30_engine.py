@@ -1,7 +1,6 @@
-"""ORB 30m strategies on top-mover next-day symbols — shared engine.
+"""Shared Binance USDT-M market helpers (daily/5m, movers, PnL).
 
-Canonical live strategy: breakMid — ORB mid as LOC, directional mid-cross
-entries (LIMIT @ mid), TP/SL + optional TIME stop. Trade-through fills only.
+Used by pb9/c60/triple bots and research backtests. ORB30 bot removed.
 """
 from __future__ import annotations
 
@@ -15,8 +14,6 @@ from datetime import datetime, timedelta, timezone
 
 FAPI_DEFAULT = "https://fapi.binance.com"
 DAY_MS = 86_400_000
-ORB_MS = 30 * 60 * 1000
-ORB_5M_BARS = 6
 BAR_MS = 5 * 60 * 1000
 
 
@@ -27,19 +24,6 @@ class Bar5:
     h: float
     l: float
     c: float
-
-
-@dataclass
-class OrbReplayState:
-    trades_done: int
-    open_side: str | None = None
-    open_entry: float = 0.0
-    open_tp: float = 0.0
-    open_sl: float = 0.0
-    orb_mid: float = 0.0
-    side_state: str = ""  # "above" | "below" mid
-    open_entry_bar_ts: int = 0
-    open_bars_held: int = 0
 
 
 @dataclass
@@ -60,14 +44,8 @@ class MoverSignal:
     signal_pct: float
 
 
-@dataclass
-class Bracket:
-    tp_px: float
-    sl_px: float
-
-
 def req_json(url: str):
-    req = urllib.request.Request(url, headers={"User-Agent": "orb30"})
+    req = urllib.request.Request(url, headers={"User-Agent": "futures-helpers"})
     for attempt in range(8):
         try:
             with urllib.request.urlopen(req, timeout=60) as r:
@@ -254,12 +232,6 @@ def scan_yesterday_signals(
     return scan_signals_for_day(yday, today, lookback=lookback, fapi=fapi, workers=workers)
 
 
-def bracket_prices(side: str, entry: float, tp_pct: float, sl_pct: float) -> Bracket:
-    if side == "long":
-        return Bracket(entry * (1 + tp_pct / 100), entry * (1 - sl_pct / 100))
-    return Bracket(entry * (1 - tp_pct / 100), entry * (1 + sl_pct / 100))
-
-
 def pnl_pct(side: str, entry: float, exit_px: float) -> float:
     if side == "long":
         return (exit_px - entry) / entry * 100.0
@@ -269,24 +241,6 @@ def pnl_pct(side: str, entry: float, exit_px: float) -> float:
 def pnl_usd(side: str, entry: float, exit_px: float, notional: float, fee_rt: float) -> float:
     g = pnl_pct(side, entry, exit_px)
     return notional * g / 100.0 - notional * fee_rt
-
-
-def orb_from_5m(sym: str, trade_date: str, fapi: str = FAPI_DEFAULT) -> tuple[float, float, float] | None:
-    """Return (day_open, orb_high, orb_low) from first 6×5m candles."""
-    start = day_ms(trade_date)
-    end = start + ORB_MS - 1
-    url = (
-        f"{fapi}/fapi/v1/klines?symbol={sym}&interval=5m"
-        f"&startTime={start}&endTime={end}&limit=10"
-    )
-    rows = req_json(url)
-    if len(rows) < ORB_5M_BARS:
-        return None
-    orb = rows[:ORB_5M_BARS]
-    day_open = float(orb[0][1])
-    hi = max(float(k[2]) for k in orb)
-    lo = min(float(k[3]) for k in orb)
-    return day_open, hi, lo
 
 
 def bars_5m_day(sym: str, trade_date: str, fapi: str = FAPI_DEFAULT) -> list[Bar5]:
@@ -315,218 +269,6 @@ def latest_5m_bar(sym: str, fapi: str = FAPI_DEFAULT) -> Bar5 | None:
 def through(b: Bar5, px: float) -> bool:
     """LIMIT fill: bar must trade through the level (not just print beyond it)."""
     return b.l <= px <= b.h
-
-
-def replay_orb_state(
-    bars: list[Bar5],
-    orb_bars: int,
-    tp_pct: float,
-    sl_pct: float,
-    max_trades: int,
-    *,
-    close_open_at_end: bool = True,
-) -> OrbReplayState:
-    """Legacy ORB hi/lo breakout replay (kept for reference / old backtests)."""
-    if len(bars) < orb_bars + 1:
-        return OrbReplayState(0)
-    hi = max(b.h for b in bars[:orb_bars])
-    lo = min(b.l for b in bars[:orb_bars])
-    mid = (hi + lo) / 2.0 if hi > lo > 0 else 0.0
-    rest = bars[orb_bars:]
-    trades_done = 0
-    pos, entry = None, 0.0
-    tp_px = sl_px = 0.0
-
-    def flat(px: float) -> None:
-        nonlocal pos, entry, tp_px, sl_px, trades_done
-        if not pos:
-            return
-        trades_done += 1
-        pos = None
-        entry = tp_px = sl_px = 0.0
-
-    for b in rest:
-        if trades_done >= max_trades and not pos:
-            break
-        if pos:
-            if pos == "long":
-                if b.l <= sl_px:
-                    flat(sl_px)
-                elif b.h >= tp_px:
-                    flat(tp_px)
-            else:
-                if b.h >= sl_px:
-                    flat(sl_px)
-                elif b.l <= tp_px:
-                    flat(tp_px)
-            continue
-        if trades_done >= max_trades:
-            continue
-        # LIMIT@ORB fill: bar must actually trade through the ORB level
-        if b.l <= hi <= b.h:
-            pos, entry = "long", hi
-            tp_px = entry * (1 + tp_pct / 100)
-            sl_px = entry * (1 - sl_pct / 100)
-            if b.l <= sl_px:
-                flat(sl_px)
-            elif b.h >= tp_px:
-                flat(tp_px)
-        elif b.l <= lo <= b.h:
-            pos, entry = "short", lo
-            tp_px = entry * (1 - tp_pct / 100)
-            sl_px = entry * (1 + sl_pct / 100)
-            if b.h >= sl_px:
-                flat(sl_px)
-            elif b.l <= tp_px:
-                flat(tp_px)
-
-    if pos and close_open_at_end:
-        flat(rest[-1].c)
-        pos = None
-
-    return OrbReplayState(
-        trades_done,
-        open_side=pos,
-        open_entry=entry if pos else 0.0,
-        open_tp=tp_px if pos else 0.0,
-        open_sl=sl_px if pos else 0.0,
-        orb_mid=mid,
-    )
-
-
-def replay_break_mid_state(
-    bars: list[Bar5],
-    orb_bars: int,
-    tp_pct: float,
-    sl_pct: float,
-    max_trades: int,
-    hold_bars: int = 0,
-    *,
-    close_open_at_end: bool = True,
-) -> OrbReplayState:
-    """Replay breakMid: ORB mid = LOC, directional mid-cross entries.
-
-    Rules (match sweep_loc_bothsides.sim_loc_mid mode=break_mid):
-      - Entry LONG @ mid when prior state below + bar trades through mid + close > mid
-      - Entry SHORT @ mid when prior state above + bar trades through mid + close < mid
-      - No TP/SL on the entry bar (next bar onward)
-      - Same-bar TP+SL → SL first (pessimistic)
-      - TIME exit when bars held >= hold_bars (exit at bar close)
-    """
-    if len(bars) < orb_bars + 1:
-        return OrbReplayState(0)
-    orb = bars[:orb_bars]
-    hi = max(b.h for b in orb)
-    lo = min(b.l for b in orb)
-    if hi <= lo or lo <= 0:
-        return OrbReplayState(0)
-    mid = (hi + lo) / 2.0
-    rest = bars[orb_bars:]
-    side_state = "above" if orb[-1].c >= mid else "below"
-    trades_done = 0
-    pos: str | None = None
-    entry = tp_px = sl_px = 0.0
-    entry_i = 0
-    entry_bar_ts = 0
-
-    def flat() -> None:
-        nonlocal pos, entry, tp_px, sl_px, trades_done, entry_i, entry_bar_ts
-        if not pos:
-            return
-        trades_done += 1
-        pos = None
-        entry = tp_px = sl_px = 0.0
-        entry_i = 0
-        entry_bar_ts = 0
-
-    def manage(b: Bar5, bars_held: int) -> bool:
-        """Return True if position was closed."""
-        nonlocal pos, entry, tp_px, sl_px
-        assert pos is not None
-        hit_sl = through(b, sl_px)
-        hit_tp = through(b, tp_px)
-        if hit_sl and hit_tp:
-            flat()
-            return True
-        if hit_sl:
-            flat()
-            return True
-        if hit_tp:
-            flat()
-            return True
-        if hold_bars > 0 and bars_held >= hold_bars:
-            flat()
-            return True
-        return False
-
-    for i, b in enumerate(rest):
-        if trades_done >= max_trades and not pos:
-            break
-        if pos:
-            manage(b, i - entry_i)
-            continue
-        if trades_done >= max_trades:
-            continue
-        if through(b, mid):
-            if side_state == "below" and b.c > mid:
-                pos, entry = "long", mid
-                br = bracket_prices("long", entry, tp_pct, sl_pct)
-                tp_px, sl_px = br.tp_px, br.sl_px
-                entry_i = i
-                entry_bar_ts = b.ts
-                side_state = "above"
-            elif side_state == "above" and b.c < mid:
-                pos, entry = "short", mid
-                br = bracket_prices("short", entry, tp_pct, sl_pct)
-                tp_px, sl_px = br.tp_px, br.sl_px
-                entry_i = i
-                entry_bar_ts = b.ts
-                side_state = "below"
-            else:
-                side_state = "above" if b.c >= mid else "below"
-        else:
-            side_state = "above" if b.c >= mid else "below"
-
-    open_bars_held = 0
-    if pos and rest:
-        open_bars_held = (len(rest) - 1) - entry_i
-        if close_open_at_end:
-            flat()
-            pos = None
-
-    return OrbReplayState(
-        trades_done,
-        open_side=pos,
-        open_entry=entry if pos else 0.0,
-        open_tp=tp_px if pos else 0.0,
-        open_sl=sl_px if pos else 0.0,
-        orb_mid=mid,
-        side_state=side_state,
-        open_entry_bar_ts=entry_bar_ts if pos else 0,
-        open_bars_held=open_bars_held if pos else 0,
-    )
-
-
-def break_mid_signal(
-    bar: Bar5,
-    mid: float,
-    side_state: str,
-) -> tuple[str, float, str]:
-    """One-bar breakMid signal. Returns (side, entry, new_side_state)."""
-    if mid <= 0:
-        return "", 0.0, side_state
-    if through(bar, mid):
-        if side_state == "below" and bar.c > mid:
-            return "long", mid, "above"
-        if side_state == "above" and bar.c < mid:
-            return "short", mid, "below"
-        return "", 0.0, ("above" if bar.c >= mid else "below")
-    return "", 0.0, ("above" if bar.c >= mid else "below")
-
-
-def inside_orb(px: float, hi: float, lo: float) -> bool:
-    return lo < px < hi
-
 
 def mark_price(sym: str, fapi: str = FAPI_DEFAULT) -> float:
     j = req_json(f"{fapi}/fapi/v1/premiumIndex?symbol={sym}")
