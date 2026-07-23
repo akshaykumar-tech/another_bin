@@ -4,8 +4,8 @@
 Strategy (EARLY combine, 1 entry / symbol / UTC day):
   CUM60:  prior 2d |move| > 60% → CONT @ open ±9% pullback (full day)
   L40:    prior 1d |c2c| > 40% → CONT @ open ±9% pullback (full day)
-  DOWN15: prior 1d c2c < −15% → SHORT @ open
-  Same (sym,day): earliest fill wins (open beats pullback).
+  DOWN15: prior 1d c2c < −15% and |m| < 40% → SHORT @ open+15m (3×5m)
+  Same (sym,day): earliest fill wins (open-leg still beats pullback for selection).
 
 Dry:  C60_LIVE_ENABLED=false
 Live: C60_LIVE_ENABLED=true + BINANCE_API_KEY/SECRET
@@ -32,18 +32,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from binance_futures import BinanceFuturesClient
 from c60_triple_engine import (
     DEFAULT_CUM_THR,
+    DEFAULT_DOWN_DELAY_BARS,
+    DEFAULT_DOWN_SKIP_ABS,
     DEFAULT_DOWN_THR,
     DEFAULT_L40_THR,
     DEFAULT_PB,
     WatchItem,
-    attach_open_levels,
     backtest_range,
     build_setups_for_trade_day,
+    delayed_entry_px,
     prefer_live_watch,
     try_fill_on_bar,
 )
 from live_config_lib import binance_api_key, binance_api_secret
 from orb30_engine import (
+    BAR_MS,
     bars_5m_day,
     day_ms,
     fetch_daily_range,
@@ -98,6 +101,8 @@ NOTIONAL = _env_float("C60_NOTIONAL_USDT", 6.0)
 CUM_THR = _env_float("C60_CUM_THR", DEFAULT_CUM_THR)
 L40_THR = _env_float("C60_L40_THR", DEFAULT_L40_THR)
 DOWN_THR = _env_float("C60_DOWN_THR", DEFAULT_DOWN_THR)
+DOWN_SKIP_ABS = _env_float("C60_DOWN_SKIP_ABS", DEFAULT_DOWN_SKIP_ABS)
+DOWN_DELAY_BARS = _env_int("C60_DOWN_DELAY_BARS", DEFAULT_DOWN_DELAY_BARS)
 PB_PCT = _env_float("C60_PB_PCT", DEFAULT_PB)
 MAX_OPEN = _env_int("C60_MAX_OPEN_POSITIONS", 25)
 POLL_SEC = _env_float("C60_POLL_SEC", 15.0)
@@ -160,6 +165,14 @@ def _day_start_epoch(d: str) -> float:
     return day_ms(d) / 1000.0
 
 
+def _delay_ready(w: WatchItem, trade_date: str) -> bool:
+    """True once UTC open + entry_delay_bars×5m has elapsed."""
+    delay = max(0, int(w.entry_delay_bars))
+    if delay <= 0:
+        return True
+    return time.time() >= _day_start_epoch(trade_date) + delay * (BAR_MS / 1000.0)
+
+
 class C60TripleBot:
     def __init__(self) -> None:
         self.client: BinanceFuturesClient | None = None
@@ -168,6 +181,7 @@ class C60TripleBot:
         self.setups: dict = {}
         self.positions: dict[str, Position] = {}
         self.filled_today: set[str] = set()
+        self._mkt_sent: set[str] = set()
         self.session_pnl = 0.0
         self.day_pnl = 0.0
         self.day_trades = 0
@@ -187,10 +201,11 @@ class C60TripleBot:
 
     async def run(self) -> None:
         self.init_live()
+        delay_m = DOWN_DELAY_BARS * 5
         log(
             f"start | ${NOTIONAL}/trade | cum>{CUM_THR}% pb{PB_PCT} + "
-            f"1d>{L40_THR}% pb{PB_PCT} + down>{DOWN_THR}%@open | "
-            f"EARLY | max_open={MAX_OPEN} | EOD"
+            f"1d>{L40_THR}% pb{PB_PCT} + down>{DOWN_THR}% skip|m|>={DOWN_SKIP_ABS}% "
+            f"delay{delay_m}m | EARLY | max_open={MAX_OPEN} | EOD"
         )
         while True:
             if self.session_pnl <= -MAX_DAILY_LOSS:
@@ -213,6 +228,7 @@ class C60TripleBot:
         self.watch = {}
         self.setups = {}
         self.filled_today = set()
+        self._mkt_sent = set()
         self._scanned = False
         self._daily_cache = {}
         self.session_pnl = 0.0
@@ -232,6 +248,8 @@ class C60TripleBot:
         day_end = day_ms(self.trade_date) + 86_400_000 - 60_000
         if now_ms >= day_end and self.positions:
             await self._exit_all("EOD_GUARD")
+        if LIVE:
+            await self._place_delayed_markets()
         await self._scan_fills()
 
     async def _load_daily_cache(self) -> None:
@@ -265,6 +283,8 @@ class C60TripleBot:
                 cum_thr=CUM_THR,
                 l40_thr=L40_THR,
                 down_thr=DOWN_THR,
+                down_skip_abs=DOWN_SKIP_ABS,
+                down_delay_bars=DOWN_DELAY_BARS,
                 pb_pct=PB_PCT,
             )
         except Exception as e:
@@ -300,11 +320,13 @@ class C60TripleBot:
                     "open": w2.open_px,
                     "level": w2.level,
                     "open_entry": w2.open_entry,
+                    "entry_delay_bars": w2.entry_delay_bars,
                     "n_cands": len(setup.candidates),
                 },
                 [
                     "ts", "trade_date", "sym", "leg", "direction", "side",
-                    "move_pct", "open", "level", "open_entry", "n_cands",
+                    "move_pct", "open", "level", "open_entry", "entry_delay_bars",
+                    "n_cands",
                 ],
             )
 
@@ -313,13 +335,14 @@ class C60TripleBot:
         n_l = sum(1 for w in ready.values() if w.leg == "L40_PB9")
         n_d = sum(1 for w in ready.values() if w.leg == "DOWN15_OPEN")
         log(
-            f"[WATCH] {len(ready)} syms (cum60={n_c} l40={n_l} down15={n_d}) "
-            f"day={self.trade_date}"
+            f"[WATCH] {len(ready)} syms (cum60={n_c} l40={n_l} down15={n_d} "
+            f"skip|m|>={DOWN_SKIP_ABS} delay={DOWN_DELAY_BARS*5}m) day={self.trade_date}"
         )
         for w in list(ready.values())[:12]:
             log(
                 f"  {w.leg} {w.sym} {w.side.upper()} move={w.move_pct:+.1f}% "
-                f"lvl={w.level:.8g} open_entry={w.open_entry}"
+                f"lvl={w.level:.8g} open_entry={w.open_entry} "
+                f"delay_bars={w.entry_delay_bars}"
             )
 
         if LIVE:
@@ -341,7 +364,6 @@ class C60TripleBot:
                 continue
             if not bars:
                 continue
-            # EARLY: re-pick among all candidates if setup known
             setup = self.setups.get(sym)
             if setup:
                 from c60_triple_engine import pick_early
@@ -351,16 +373,38 @@ class C60TripleBot:
                     w2, _ei, _entry = picked
                     self.watch[sym] = w2
                     w = w2
+            if w.open_entry and not _delay_ready(w, self.trade_date):
+                continue
             for b in bars:
                 if try_fill_on_bar(w, b, self.trade_date):
-                    await self._enter(w)
+                    px = delayed_entry_px(w, bars)
+                    if px:
+                        w = WatchItem(
+                            sym=w.sym,
+                            trade_date=w.trade_date,
+                            signal_date=w.signal_date,
+                            leg=w.leg,
+                            direction=w.direction,
+                            side=w.side,
+                            move_pct=w.move_pct,
+                            open_px=w.open_px,
+                            level=px,
+                            pb_pct=w.pb_pct,
+                            open_entry=w.open_entry,
+                            entry_delay_bars=w.entry_delay_bars,
+                        )
+                        self.watch[sym] = w
+                    await self._enter(w, bars=bars)
                     break
 
     async def _place_entries(self) -> None:
+        """Place GTC limits for CONT; DOWN delayed markets wait for delay clock."""
         assert self.client is not None
         loop = asyncio.get_running_loop()
         for w in self.watch.values():
             if w.sym in self.positions or w.sym in self.filled_today:
+                continue
+            if w.open_entry:
                 continue
             try:
                 if not self.client.symbol_tradable(w.sym):
@@ -369,28 +413,84 @@ class C60TripleBot:
                     None, self.client.set_max_leverage, w.sym, LEVERAGE_CAP
                 )
                 side = entry_order_side(w.side)
-                if w.open_entry:
-                    # Near open: market for live open-entry leg
-                    await loop.run_in_executor(
-                        None,
-                        self.client.market_order_notional,
-                        w.sym,
-                        side,
-                        NOTIONAL,
-                    )
-                    log(f"[MKT] {w.sym} {w.side} @ open-leg ({w.leg})")
-                else:
-                    await loop.run_in_executor(
-                        None,
-                        self.client.limit_order_notional,
-                        w.sym,
-                        side,
-                        NOTIONAL,
-                        w.level,
-                    )
-                    log(f"[LIMIT] {w.sym} {w.side} @ {w.level:.8g} ({w.leg})")
+                await loop.run_in_executor(
+                    None,
+                    self.client.limit_order_notional,
+                    w.sym,
+                    side,
+                    NOTIONAL,
+                    w.level,
+                )
+                log(f"[LIMIT] {w.sym} {w.side} @ {w.level:.8g} ({w.leg})")
             except Exception as e:
                 log(f"[ENTRY_PLACE_ERR] {w.sym}: {e}")
+
+    async def _place_delayed_markets(self) -> None:
+        """Live: fire DOWN market once open+delay has elapsed."""
+        if not LIVE or not self.client:
+            return
+        loop = asyncio.get_running_loop()
+        for w in list(self.watch.values()):
+            if not w.open_entry:
+                continue
+            if w.sym in self.positions or w.sym in self.filled_today:
+                continue
+            if w.sym in self._mkt_sent:
+                # Order already sent — only try to book fill
+                try:
+                    bars = await loop.run_in_executor(
+                        None, lambda s=w.sym: bars_5m_day(s, self.trade_date, FAPI)
+                    )
+                except Exception:
+                    bars = None
+                await self._enter(w, bars=bars)
+                continue
+            if len(self.positions) >= MAX_OPEN:
+                break
+            if not _delay_ready(w, self.trade_date):
+                continue
+            try:
+                if not self.client.symbol_tradable(w.sym):
+                    continue
+                bars = await loop.run_in_executor(
+                    None, lambda s=w.sym: bars_5m_day(s, self.trade_date, FAPI)
+                )
+                px = delayed_entry_px(w, bars or [])
+                if px:
+                    w = WatchItem(
+                        sym=w.sym,
+                        trade_date=w.trade_date,
+                        signal_date=w.signal_date,
+                        leg=w.leg,
+                        direction=w.direction,
+                        side=w.side,
+                        move_pct=w.move_pct,
+                        open_px=w.open_px,
+                        level=px,
+                        pb_pct=w.pb_pct,
+                        open_entry=w.open_entry,
+                        entry_delay_bars=w.entry_delay_bars,
+                    )
+                    self.watch[w.sym] = w
+                await loop.run_in_executor(
+                    None, self.client.set_max_leverage, w.sym, LEVERAGE_CAP
+                )
+                self._mkt_sent.add(w.sym)
+                await loop.run_in_executor(
+                    None,
+                    self.client.market_order_notional,
+                    w.sym,
+                    entry_order_side(w.side),
+                    NOTIONAL,
+                )
+                log(
+                    f"[MKT] {w.sym} {w.side} @ delay{w.entry_delay_bars*5}m "
+                    f"({w.leg} lvl={w.level:.8g})"
+                )
+                await self._enter(w, bars=bars)
+            except Exception as e:
+                self._mkt_sent.discard(w.sym)
+                log(f"[DELAY_MKT_ERR] {w.sym}: {e}")
 
     async def _scan_fills(self) -> None:
         if not self.watch:
@@ -401,15 +501,42 @@ class C60TripleBot:
                 continue
             if len(self.positions) >= MAX_OPEN:
                 break
+            if w.open_entry and not _delay_ready(w, self.trade_date):
+                continue
             try:
                 bar = await loop.run_in_executor(None, latest_5m_bar, sym, FAPI)
             except Exception:
                 continue
             if not bar or not try_fill_on_bar(w, bar, self.trade_date):
                 continue
-            await self._enter(w)
+            bars = None
+            if w.open_entry:
+                try:
+                    bars = await loop.run_in_executor(
+                        None, lambda s=sym: bars_5m_day(s, self.trade_date, FAPI)
+                    )
+                    px = delayed_entry_px(w, bars or [])
+                    if px:
+                        w = WatchItem(
+                            sym=w.sym,
+                            trade_date=w.trade_date,
+                            signal_date=w.signal_date,
+                            leg=w.leg,
+                            direction=w.direction,
+                            side=w.side,
+                            move_pct=w.move_pct,
+                            open_px=w.open_px,
+                            level=px,
+                            pb_pct=w.pb_pct,
+                            open_entry=w.open_entry,
+                            entry_delay_bars=w.entry_delay_bars,
+                        )
+                        self.watch[sym] = w
+                except Exception:
+                    pass
+            await self._enter(w, bars=bars)
 
-    async def _enter(self, w: WatchItem) -> bool:
+    async def _enter(self, w: WatchItem, bars: list | None = None) -> bool:
         loop = asyncio.get_running_loop()
         async with self._lock:
             if w.sym in self.positions or w.sym in self.filled_today:
@@ -418,6 +545,10 @@ class C60TripleBot:
                 return False
 
             entry = w.level
+            if bars and w.open_entry:
+                px = delayed_entry_px(w, bars)
+                if px:
+                    entry = px
             qty = 0.0
             if LIVE:
                 assert self.client is not None
@@ -430,7 +561,6 @@ class C60TripleBot:
                     )
                     if qty <= 0:
                         if w.open_entry:
-                            # market may still be in flight
                             log(f"[WAIT_MKT] {w.sym} flat after open-leg")
                         else:
                             log(f"[WAIT_LIMIT] {w.sym} through but flat — keep GTC")
@@ -448,17 +578,15 @@ class C60TripleBot:
                 side=w.side,
                 leg=w.leg,
                 entry_date=self.trade_date,
-                entry=entry if LIVE else w.level,
+                entry=entry,
                 level=w.level,
                 qty=qty,
             )
             self.filled_today.add(w.sym)
-            # Cancel sibling limits if any
-            if LIVE and self.client and not w.open_entry:
-                pass  # already only one active watch per sym
             log(
                 f"[FILL] {w.leg} {w.sym} {w.side.upper()} @ {entry:.8g} "
-                f"(lvl={w.level:.8g} move={w.move_pct:+.1f}%)"
+                f"(lvl={w.level:.8g} move={w.move_pct:+.1f}% "
+                f"delay_bars={w.entry_delay_bars})"
             )
             return True
 
@@ -563,7 +691,8 @@ class C60TripleBot:
 def run_backtest(start: str, end: str) -> None:
     print(
         f"C60 triple backtest {start}→{end} | ${NOTIONAL}/trade | "
-        f"cum>{CUM_THR} pb{PB_PCT} + 1d>{L40_THR} pb{PB_PCT} + down>{DOWN_THR}@open"
+        f"cum>{CUM_THR} pb{PB_PCT} + 1d>{L40_THR} pb{PB_PCT} + "
+        f"down>{DOWN_THR} skip|m|>={DOWN_SKIP_ABS} delay{DOWN_DELAY_BARS*5}m"
     )
     trades = backtest_range(
         start,
@@ -571,6 +700,8 @@ def run_backtest(start: str, end: str) -> None:
         cum_thr=CUM_THR,
         l40_thr=L40_THR,
         down_thr=DOWN_THR,
+        down_skip_abs=DOWN_SKIP_ABS,
+        down_delay_bars=DOWN_DELAY_BARS,
         pb_pct=PB_PCT,
         notional=NOTIONAL,
         fee_rt=FEE_RT,
@@ -582,12 +713,16 @@ def run_backtest(start: str, end: str) -> None:
         return
     tot = sum(t.pnl for t in trades)
     wr = 100 * sum(1 for t in trades if t.pnl > 0) / n
-    from collections import Counter
+    from collections import Counter, defaultdict
 
     legs = Counter(t.leg for t in trades)
+    by = defaultdict(float)
+    for t in trades:
+        by[t.trade_date] += t.pnl
+    g = sum(1 for v in by.values() if v > 0)
     print(
         f"N={n} legs={dict(legs)} total=${tot:+.2f} WR={wr:.1f}% "
-        f"$/100=${tot/n*100:+.2f}"
+        f"Green={g}/{len(by)} $/100=${tot/n*100:+.2f}"
     )
     for pref, label in [
         ("2026-05", "May"),
