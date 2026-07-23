@@ -101,14 +101,16 @@ def apply_bar(
     tp_l = entry * (1.0 + pos.tp_pct / 100.0)
     tp_s = entry * (1.0 - pos.tp_pct / 100.0)
 
-    # BE stops only after arm bar
+    # BE only after arm bar. Direction depends which side won TP:
+    # short TP'd first → long underwater → BE when price rises back (high >= entry)
+    # long TP'd first → short underwater → BE when price falls back (low <= entry)
     if pos.long_open and pos.long_sl is not None and bar_i > pos.long_arm_bar:
-        if low <= pos.long_sl:
+        if high >= pos.long_sl:
             pos.long_exit = pos.long_sl
             pos.long_reason = "BE"
             pos.long_open = False
     if pos.short_open and pos.short_sl is not None and bar_i > pos.short_arm_bar:
-        if high >= pos.short_sl:
+        if low <= pos.short_sl:
             pos.short_exit = pos.short_sl
             pos.short_reason = "BE"
             pos.short_open = False

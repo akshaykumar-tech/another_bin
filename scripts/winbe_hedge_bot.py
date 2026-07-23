@@ -100,6 +100,9 @@ SCAN_DELAY_SEC = _env_float("WINBE_SCAN_DELAY_SEC", 90.0)
 EXIT_BEFORE_MIDNIGHT_SEC = _env_float("WINBE_EXIT_BEFORE_MIDNIGHT_SEC", 120.0)
 DAILY_LOOKBACK = _env_int("WINBE_DAILY_LOOKBACK_DAYS", 10)
 UNIVERSE_LIMIT = _env_int("WINBE_UNIVERSE_LIMIT", 0)
+# false = mid-day start pe day-open + purani 5m bars replay mat karo;
+# entry = live mark, manage sirf aage ke bars.
+REPLAY_TODAY = _env_bool("WINBE_REPLAY_TODAY", False)
 
 _tps_raw = _env("WINBE_TPS", "3,5,8")
 TPS: tuple[float, ...] = tuple(
@@ -208,7 +211,8 @@ class WinBEDryBot:
         log(
             f"start DRY | thr≥{THR}% | TPs={list(TPS)} | ${NOTIONAL}/leg "
             f"(${NOTIONAL*2}/hedge/variant) | max_open/var={MAX_OPEN} | "
-            f"poll={POLL_SEC}s scan_delay={SCAN_DELAY_SEC}s"
+            f"poll={POLL_SEC}s scan_delay={SCAN_DELAY_SEC}s | "
+            f"replay_today={REPLAY_TODAY}"
         )
         while True:
             await self._tick_day()
@@ -319,21 +323,28 @@ class WinBEDryBot:
     async def _enter_all_variants(self, s: Signal) -> None:
         loop = asyncio.get_running_loop()
         async with self._lock:
-            # Shared dry entry: day open from 5m[0], fallback mark
             try:
                 bars = await loop.run_in_executor(
                     None, lambda: bars_5m_day(s.sym, self.trade_date, FAPI)
                 )
             except Exception:
                 bars = []
+
+            # Near UTC open + REPLAY: use day open (backtest-like).
+            # Mid-day / default: live mark, no history catch-up.
+            day_elapsed = time.time() - _day_start_epoch(self.trade_date)
+            use_day_open = REPLAY_TODAY and day_elapsed <= max(SCAN_DELAY_SEC + 300.0, 600.0)
             entry = 0.0
-            if bars and bars[0].o > 0:
+            entry_mode = "mark"
+            if use_day_open and bars and bars[0].o > 0:
                 entry = bars[0].o
+                entry_mode = "day_open"
             else:
                 try:
                     entry = await loop.run_in_executor(
                         None, lambda: mark_price(s.sym, FAPI)
                     )
+                    entry_mode = "mark"
                 except Exception as e:
                     log(f"[ENTRY_SKIP] {s.sym} no price: {e}")
                     return
@@ -356,11 +367,19 @@ class WinBEDryBot:
                 opened += 1
                 log(
                     f"[OPEN] {pos.variant} {s.sym} L+S @ {entry:.8g} "
-                    f"move={s.move_pct:+.1f}% (sig={s.signal_date})"
+                    f"mode={entry_mode} move={s.move_pct:+.1f}% (sig={s.signal_date})"
                 )
-            if opened and s.sym not in self._bar_cursor:
-                # Process from bar 0 so open bar can hit TP
-                self._bar_cursor[s.sym] = 0
+            if opened:
+                # Replay off: skip already-finished bars (sirf aage ka live).
+                # Replay on + day open: start from 0 to match backtest.
+                if use_day_open:
+                    self._bar_cursor[s.sym] = 0
+                else:
+                    self._bar_cursor[s.sym] = len(bars) if bars else 0
+                    log(
+                        f"[NO_REPLAY] {s.sym} skip {self._bar_cursor[s.sym]} past bars; "
+                        f"manage from next 5m only"
+                    )
 
     async def _manage_open(self) -> None:
         if not self.positions:
