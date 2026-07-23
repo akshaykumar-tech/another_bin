@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """hold10_n246_p126 bot — dry paper + optional live.
 
-Strategy (research: c20_s2_top_uw | ND | hold10 ≈ n246 / +$126):
-  Peak day D: ≥2 up days, cum≥20%, close_loc≥0.75, upper wick≥2%
-  Entry: SHORT @ next-day open (market)
+Strategy (research: c22_s2_top_uw | delay30m | hold10 ≈ n229 / +$135):
+  Peak day D: ≥2 up days, cum≥22%, close_loc≥0.75, upper wick≥2%
+  Entry: SHORT @ D+1 open+30m (6×5m bar open)
   Exit:  hold 10 daily bars (close of entry+9)
 
 Dry:  H10_LIVE_ENABLED=false
@@ -34,6 +34,7 @@ from binance_futures import BinanceFuturesClient
 from hold10_n246_p126_engine import (
     DEFAULT_CLOSE_LOC_MIN,
     DEFAULT_CUM_PCT,
+    DEFAULT_ENTRY_DELAY_BARS,
     DEFAULT_FEE_RT,
     DEFAULT_HOLD_DAYS,
     DEFAULT_NOTIONAL,
@@ -45,6 +46,7 @@ from hold10_n246_p126_engine import (
 )
 from live_config_lib import binance_api_key, binance_api_secret
 from orb30_engine import (
+    BAR_MS,
     DayBar,
     bars_5m_day,
     day_ms,
@@ -101,9 +103,12 @@ STREAK_MIN = _env_int("H10_STREAK_MIN", DEFAULT_STREAK_MIN)
 CLOSE_LOC_MIN = _env_float("H10_CLOSE_LOC_MIN", DEFAULT_CLOSE_LOC_MIN)
 UW_PCT = _env_float("H10_UW_PCT", DEFAULT_UW_PCT)
 HOLD_DAYS = _env_int("H10_HOLD_DAYS", DEFAULT_HOLD_DAYS)
+ENTRY_DELAY_BARS = _env_int("H10_ENTRY_DELAY_BARS", DEFAULT_ENTRY_DELAY_BARS)
+ENTRY_DELAY_SEC = ENTRY_DELAY_BARS * (BAR_MS / 1000.0)
 MAX_OPEN = _env_int("H10_MAX_OPEN_POSITIONS", 40)
 POLL_SEC = _env_float("H10_POLL_SEC", 30.0)
-SCAN_DELAY_SEC = _env_float("H10_SCAN_DELAY_SEC", 90.0)
+# Enter no earlier than entry-delay (default 30m); SCAN_DELAY can only push later.
+SCAN_DELAY_SEC = max(_env_float("H10_SCAN_DELAY_SEC", 90.0), ENTRY_DELAY_SEC)
 EXIT_BEFORE_MIDNIGHT_SEC = _env_float("H10_EXIT_BEFORE_MIDNIGHT_SEC", 120.0)
 FEE_RT = _env_float("H10_FEE_RT", DEFAULT_FEE_RT)
 LEVERAGE_CAP = _env_int("H10_LEVERAGE_CAP", 20)
@@ -240,7 +245,7 @@ class Hold10Bot:
         log(
             f"start | ${NOTIONAL}/trade | SHORT cum≥{CUM_PCT}% s≥{STREAK_MIN} "
             f"top≥{CLOSE_LOC_MIN} uw≥{UW_PCT}% | hold={HOLD_DAYS}d | "
-            f"max_open={MAX_OPEN}"
+            f"delay={ENTRY_DELAY_BARS*5}m | max_open={MAX_OPEN}"
         )
         while True:
             await self._tick_day()
@@ -402,12 +407,15 @@ class Hold10Bot:
                     log(f"[ENTER_ERR] {s.sym}: {e}")
                     return False
             else:
-                # Dry: use day's open from 5m if available, else signal ref / mark
+                # Dry: fill at delayed 5m open (bar[ENTRY_DELAY_BARS])
                 try:
                     bars = await loop.run_in_executor(
                         None, lambda: bars_5m_day(s.sym, self.trade_date, FAPI)
                     )
-                    if bars:
+                    delay = max(0, int(ENTRY_DELAY_BARS))
+                    if bars and delay < len(bars) and bars[delay].o > 0:
+                        entry = bars[delay].o
+                    elif bars:
                         entry = bars[0].o
                     else:
                         entry = mark_price(s.sym, FAPI) or s.entry
@@ -446,7 +454,7 @@ class Hold10Bot:
             log(
                 f"[FILL] {s.sym} SHORT @ {entry:.8g} sig={s.signal_date} "
                 f"cum={s.cum_pct:.1f}% s={s.streak} cl={s.close_loc:.2f} "
-                f"uw={s.uw_pct:.1f}% exit={exit_date}"
+                f"uw={s.uw_pct:.1f}% delay={ENTRY_DELAY_BARS*5}m exit={exit_date}"
             )
             return True
 
@@ -591,7 +599,8 @@ def _best_daily(sym: str, start: str) -> list[DayBar] | None:
 def run_backtest(start: str, end: str) -> None:
     print(
         f"hold10_n246_p126 backtest {start}→{end} | ${NOTIONAL}/trade | "
-        f"cum≥{CUM_PCT}% s≥{STREAK_MIN} cl≥{CLOSE_LOC_MIN} uw≥{UW_PCT}% hold{HOLD_DAYS}"
+        f"cum≥{CUM_PCT}% s≥{STREAK_MIN} cl≥{CLOSE_LOC_MIN} uw≥{UW_PCT}% "
+        f"hold{HOLD_DAYS} delay{ENTRY_DELAY_BARS*5}m"
     )
     daily: dict[str, list[DayBar]] = {}
     for sym in sorted({f.name.split("_")[0] for f in CACHE_DAILY.glob("*.pkl")}):
@@ -611,6 +620,7 @@ def run_backtest(start: str, end: str) -> None:
         close_loc_min=CLOSE_LOC_MIN,
         uw_pct=UW_PCT,
         hold_days=HOLD_DAYS,
+        entry_delay_bars=ENTRY_DELAY_BARS,
         notional=NOTIONAL,
         fee_rt=FEE_RT,
     )

@@ -1,32 +1,35 @@
 #!/usr/bin/env python3
-"""Pump-fade engine: c20_s2 + top_uw → SHORT next open → hold 10d.
+"""Pump-fade engine: c22_s2 + top_uw → SHORT D+1 @ open+30m → hold 10d.
 
-Research label: c20_s2_top_uw | ND | hold10
-  (~n246 / +$126 May–Jul18 2026 @ $6, fee 0.08% RT)
+Research label: c22_s2_top_uw | delay30m | hold10
+  (~n229 / +$135 May–Jul18 2026 @ $6, fee 0.08% RT)
 
 Signal (peak day D, daily bars):
   - ≥2 consecutive up closes ending on D
-  - cum return from close-before-streak to D close ≥ CUM_PCT (20)
+  - cum return from close-before-streak to D close ≥ CUM_PCT (22)
   - close in top of range: close_loc ≥ CLOSE_LOC_MIN (0.75)
   - upper wick ≥ UW_PCT (2% of open)
 
-Entry: SHORT @ D+1 open
+Entry: SHORT @ D+1, 30m after UTC open (6×5m bar open)
 Exit:  close of entry day + (HOLD_DAYS-1)  → 10 trading days total
 Overlap: one open trade per symbol (skip new signals until exit date).
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Iterable
 
+from backtest_big_mover_days import fetch_5m
 from orb30_engine import DayBar, pnl_usd
 
-DEFAULT_CUM_PCT = 20.0
+DEFAULT_CUM_PCT = 22.0
 DEFAULT_STREAK_MIN = 2
 DEFAULT_CLOSE_LOC_MIN = 0.75
 DEFAULT_UW_PCT = 2.0
 DEFAULT_HOLD_DAYS = 10
+DEFAULT_ENTRY_DELAY_BARS = 6  # 6 × 5m = 30m after UTC open
 DEFAULT_NOTIONAL = 6.0
 DEFAULT_FEE_RT = 0.0008
 
@@ -214,6 +217,53 @@ def signal_to_trade(
     )
 
 
+def apply_entry_delay(
+    signals: list[Signal],
+    *,
+    delay_bars: int = DEFAULT_ENTRY_DELAY_BARS,
+) -> list[Signal]:
+    """Rewrite entry px to D+1 5m bar[delay_bars].o (skip if bars missing)."""
+    delay = max(0, int(delay_bars))
+    if delay <= 0 or not signals:
+        return signals
+    need = {(s.sym, s.entry_date) for s in signals}
+    bars5: dict[tuple[str, str], list] = {}
+
+    def one(k: tuple[str, str]):
+        try:
+            return k, fetch_5m(*k)
+        except Exception:
+            return k, []
+
+    with ThreadPoolExecutor(max_workers=16) as ex:
+        for fut in as_completed([ex.submit(one, k) for k in need]):
+            k, b = fut.result()
+            bars5[k] = b
+
+    out: list[Signal] = []
+    for s in signals:
+        b5 = bars5.get((s.sym, s.entry_date)) or []
+        if delay >= len(b5) or b5[delay].o <= 0:
+            continue
+        out.append(
+            Signal(
+                sym=s.sym,
+                signal_date=s.signal_date,
+                entry_date=s.entry_date,
+                exit_date=s.exit_date,
+                streak=s.streak,
+                cum_pct=s.cum_pct,
+                close_loc=s.close_loc,
+                uw_pct=s.uw_pct,
+                start_px=s.start_px,
+                peak_px=s.peak_px,
+                entry=b5[delay].o,
+                exit_px=s.exit_px,
+            )
+        )
+    return out
+
+
 def backtest_range(
     daily: dict[str, list[DayBar]],
     start: str,
@@ -224,6 +274,7 @@ def backtest_range(
     close_loc_min: float = DEFAULT_CLOSE_LOC_MIN,
     uw_pct: float = DEFAULT_UW_PCT,
     hold_days: int = DEFAULT_HOLD_DAYS,
+    entry_delay_bars: int = DEFAULT_ENTRY_DELAY_BARS,
     notional: float = DEFAULT_NOTIONAL,
     fee_rt: float = DEFAULT_FEE_RT,
 ) -> list[Trade]:
@@ -243,6 +294,7 @@ def backtest_range(
             )
         )
     kept = apply_overlap(raw)
+    kept = apply_entry_delay(kept, delay_bars=entry_delay_bars)
     return [signal_to_trade(s, notional=notional, fee_rt=fee_rt) for s in kept]
 
 
